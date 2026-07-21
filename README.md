@@ -1,24 +1,91 @@
-# SmartModeler GIS — Next-Generation QGIS Graphical Modeler
+# SmartModeler GIS — Next-Generation QGIS 4 Model Designer
 
-> **SmartModeler GIS** is a modern, intuitive, visual node-graph modeler designed to replace and elevate the native QGIS Graphical Modeler experience in **QGIS 4.0+**.
+[![QGIS Version](https://img.shields.io/badge/QGIS-4.0%2B-brightgreen.svg)](https://qgis.org)
+[![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-v0.1.0-orange.svg)](https://github.com/YusufEminoglu/planx-smartmodeler/releases)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-yellow.svg)](https://python.org)
 
----
-
-## 🌟 Key Features
-
-- **Modern Node-Graph Editor:** Hardware-accelerated Qt6 `QGraphicsView` canvas with dark/light themes, smooth Bezier connections, and zoom/pan.
-- **Smart Next-Step Proposals:** Context-aware tip bar recommending the most relevant next processing algorithms as you connect nodes or select sockets.
-- **Interactive Inline Widgets:** Sliders, dropdowns, toggles, and color pickers embedded directly inside node cards for instant tweaking.
-- **Micro-Package Presets:** One-click workflow templates (Isochrone Analysis, 3D Building Extrusion, Land Suitability, Parcel Buffer & Clip).
-- **Live Data Wire Inspection:** Hover or click any cable to view live feature counts, sample attributes, and intermediate geometry bounding boxes.
-- **Native QGIS 4 .model3 Invariant:** 100% bidirectional import/export with QGIS native `QgsProcessingModelAlgorithm` model files.
+> **SmartModeler GIS** is an intuitive, modern visual node-graph studio designed to replace and elevate the native QGIS Graphical Modeler experience in **QGIS 4.0+**. Featuring interactive node widgets, context-aware smart proposals, micro-package presets, and 100% bidirectional `.model3` compatibility.
 
 ---
 
-## 🚀 Installation & Requirements
+## 🌟 Why SmartModeler GIS?
 
-- **QGIS Minimum Version:** `4.0` (Requires PyQt6 / Qt6, Python 3.12+)
-- **Dependencies:** Standard QGIS 4 Python environment (`qgis.core`, `qgis.gui`, `qgis.PyQt`).
+Native QGIS Graphical Modeler is a powerful batch DAG tool, but its user interface has remained static for years. **SmartModeler GIS** redesigns the entire visual workflow experience from the ground up for QGIS 4:
+
+| Feature | Native QGIS Modeler | SmartModeler GIS |
+| :--- | :--- | :--- |
+| **Canvas UI & Performance** | Legacy QGraphicsView layout | **Hardware-Accelerated Qt6 Canvas** with smooth Bezier cables & dark theme |
+| **Smart Recommendations** | Manual search in processing tree | **Smart Proposal Bar** offering instant contextual algorithm suggestions |
+| **Interactive Controls** | Static parameter dialogs | **Embedded Inline Widgets** (Sliders, Toggles, Color Pickers) |
+| **Workflow Starter Templates** | Empty canvas start | **Micro-Package Presets** (Isochrones, 3D Massing, MCDA Suitability) |
+| **Live Wire Inspection** | Must run whole model to see output | **Live Wire Data Inspector** showing intermediate feature counts & fields |
+| **QGIS Compatibility** | Standard `.model3` | **100% Bidirectional Export & Import** with standard QGIS `.model3` |
+
+---
+
+## 🚀 Key Highlights
+
+1. **Smart Next-Step Proposals:**
+   - As you connect node ports or select sockets, the top tip bar dynamically offers recommended next steps (e.g. connecting a Vector output suggests *Buffer*, *Clip*, *Extract by Attribute*, or *Centroids*).
+
+2. **Micro-Package Presets:**
+   - Double-click starter templates in the sidebar palette to instantly instantiate complete multi-node workflows (e.g., *15-Minute Urban Isochrone Grid*, *3D Massing Extrusion & Roof*, *MCDA Land Suitability Overlay*).
+
+3. **Color-Coded Typed Sockets:**
+   - Clear visual differentiation between socket data types:
+     - 🟢 **Vector Layer**
+     - 🔵 **Raster Surface**
+     - 🟠 **Numeric Parameter**
+     - 🟣 **String / Expression**
+     - ⚪ **Field Column**
+
+4. **Directed Acyclic Graph (DAG) Engine:**
+   - Real-time cycle detection preventing infinite loops.
+   - Topological sorting engine for sequential or multi-threaded background evaluation via `QgsTask`.
+
+---
+
+## 🏗 System Architecture
+
+```text
++-----------------------------------------------------------------------+
+|                    SmartModeler Window (Qt6 UI)                       |
+|                                                                       |
+|  +-----------------------------------------------------------------+  |
+|  |                 Smart Proposal Bar (Auto-Tips)                  |  |
+|  +-----------------------------------------------------------------+  |
+|                                                                       |
+|  +---------------+  +---------------------------+  +---------------+  |
+|  | Node Palette  |  |   Qt6 Canvas View         |  | Live Wire     |  |
+|  |  & Presets    |  |  (QGraphicsScene / View)  |  | Inspector     |  |
+|  |               |  |                           |  |               |  |
+|  | [Buffer]      |  |   [Input] -> [Buffer]     |  | Node ID: #102 |  |
+|  | [Clip]        |  |                 |         |  | Features: 540 |  |
+|  | [3D Extrude]  |  |                 v         |  | Params: d=800 |  |
+|  | [Presets]     |  |              [Output]     |  |               |  |
+|  +---------------+  +---------------------------+  +---------------+  |
++-----------------------------------+-----------------------------------+
+                                    |
+                    +---------------+---------------+
+                    |  DAG Graph & Model3 Engine    |
+                    |  (Topological Sort / Export)  |
+                    +-------------------------------+
+```
+
+---
+
+## 💻 Installation & Requirements
+
+### System Requirements
+- **QGIS Minimum Version:** `4.0` (PyQt6 / Qt6, Python 3.12+)
+- **OS Support:** Windows, macOS, Linux
+
+### Quick Installation
+1. Download `planx_smartmodeler.zip` from the latest [GitHub Release](https://github.com/YusufEminoglu/planx-smartmodeler/releases).
+2. Open QGIS 4 $\rightarrow$ Menu `Plugins` $\rightarrow$ `Manage and Install Plugins...` $\rightarrow$ `Install from ZIP`.
+3. Select `planx_smartmodeler.zip` and click **Install Plugin**.
+4. Access **SmartModeler GIS** from the `Vector` menu or toolbar icon.
 
 ---
 
@@ -32,14 +99,25 @@ planx_smartmodeler/
 ├── README.md                 # Technical documentation
 ├── CHANGELOG.md              # Sürüm geçmişi
 ├── LICENSE                   # GPL-3
-├── icons/                    # Action and node icons
-├── gui/                      # Qt6 / PyQt6 Canvas & UI components
-└── core/                     # DAG Engine, .model3 bridge & Smart Proposal engine
+├── icons/                    # High-res action and node icons
+├── core/                     # Graph Engine, .model3 bridge & Smart Proposals
+│   ├── graph_model.py        # DAG model, topological sorting & cycle check
+│   ├── proposal_engine.py    # Context-aware auto-suggestion tip engine
+│   └── model3_serializer.py # Bidirectional .model3 XML / JSON serializer
+└── gui/                      # Qt6 Hardware-Accelerated Viewport & Widgets
+    ├── canvas_view.py        # QGraphicsView viewport with zoom/pan
+    ├── canvas_scene.py       # QGraphicsScene node graph manager
+    ├── node_graphics_item.py # Sleek node card item rendering
+    ├── port_graphics_item.py # Socket pins with hover feedback
+    ├── connection_graphics_item.py # Bezier curve connection cables
+    ├── smart_proposal_bar.py # Top proposal recommendation bar
+    ├── node_palette_widget.py# Sidebar algorithm & preset browser
+    └── wire_inspector_widget.py # Intermediate data inspection panel
 ```
 
 ---
 
-## 📄 License
+## 📄 License & Attribution
 
-Distributed under the GNU General Public License v3.0 (`GPL-3`).
-Copyright (c) 2026 Yusuf Eminoğlu.
+Distributed under the **GNU General Public License v3.0** (`GPL-3`).  
+Developed by **Yusuf Eminoğlu** as part of the **PlanX QGIS Plugin Ecosystem**. Feedback and contributions from educational workflows at Dokuz Eylul University, Department of City and Regional Planning.
