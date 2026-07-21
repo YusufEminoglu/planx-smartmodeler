@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.0] - 2026-07-22
+
+- Add AI/MCP Prompt Engine, Auto-Layout, and Prompt Bar
+
 ## [0.1.0] - 2026-07-22
 
 - Initial release of SmartModeler GIS v0.1.0

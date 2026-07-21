@@ -7,9 +7,11 @@ from qgis.PyQt.QtWidgets import (
 )
 from ..core.graph_model import GraphModel, NodeDefinition, SocketType
 from ..core.model3_serializer import Model3Serializer
+from ..core.ai_mcp_bridge import AiMcpBridge
 from .canvas_scene import CanvasScene
 from .canvas_view import CanvasView
 from .smart_proposal_bar import SmartProposalBar
+from .ai_prompt_widget import AiPromptWidget
 from .node_palette_widget import NodePaletteWidget
 from .wire_inspector_widget import WireInspectorWidget
 
@@ -37,6 +39,10 @@ class SmartModelerWindow(QMainWindow):
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
+
+        # AI Prompt Bar
+        self.ai_prompt_bar = AiPromptWidget(self)
+        main_layout.addWidget(self.ai_prompt_bar)
 
         # Smart Proposal Tip Bar
         self.proposal_bar = SmartProposalBar(self)
@@ -87,10 +93,30 @@ class SmartModelerWindow(QMainWindow):
         toolbar.addAction(act_clear)
 
     def connect_signals(self):
+        self.ai_prompt_bar.prompt_submitted.connect(self.generate_ai_graph)
         self.palette_widget.node_requested.connect(self.add_node_by_alg)
         self.palette_widget.package_requested.connect(self.load_preset_package)
         self.proposal_bar.proposal_selected.connect(self.add_node_by_alg)
         self.scene.node_selected.connect(self.on_node_selected)
+
+    def generate_ai_graph(self, prompt_text: str):
+        """Auto-generates a graph using the AI / MCP bridge engine and renders it on canvas."""
+        ai_graph = AiMcpBridge.generate_graph_from_prompt(prompt_text)
+        self.graph = ai_graph
+        self.scene = CanvasScene(self.graph)
+        self.view.setScene(self.scene)
+
+        # Re-populate graphic items into scene
+        for node in self.graph.nodes.values():
+            self.scene.add_node_to_scene(node)
+        for edge in self.graph.edges.values():
+            self.scene.connect_ports(edge.start_node_id, edge.start_port_id, edge.end_node_id, edge.end_port_id)
+
+        self.connect_signals()
+        QMessageBox.information(
+            self, "✨ AI Graph Generated",
+            f"AI Pipeline constructed graph with {len(ai_graph.nodes)} nodes for prompt:\n'{prompt_text}'"
+        )
 
     def add_node_by_alg(self, alg_id: str, title: str = None, category: str = "General"):
         title = title or alg_id.split(":")[-1].replace("_", " ").title()
@@ -113,43 +139,11 @@ class SmartModelerWindow(QMainWindow):
     def load_preset_package(self, tpl_id: str):
         self.clear_canvas()
         if tpl_id == "tpl_isochrone":
-            n1 = NodeDefinition(title="Vector Layer Input", category="Parameters")
-            n1.add_output("out", "Vector", SocketType.VECTOR)
-            n1.x, n1.y = -300, 0
-            self.scene.add_node_to_scene(n1)
-
-            n2 = NodeDefinition(title="Buffer (800m)", category="Vector Geometry")
-            n2.add_input("in", "Input", SocketType.VECTOR)
-            n2.add_output("out", "Buffered", SocketType.VECTOR)
-            n2.parameters["distance"] = 800.0
-            n2.x, n2.y = -50, 0
-            self.scene.add_node_to_scene(n2)
-
-            n3 = NodeDefinition(title="Zonal Statistics", category="Raster Analysis")
-            n3.add_input("in_vec", "Zones", SocketType.VECTOR)
-            n3.add_output("out_stat", "Output", SocketType.VECTOR)
-            n3.x, n3.y = 200, 0
-            self.scene.add_node_to_scene(n3)
-
-            self.scene.connect_ports(n1.node_id, "out", n2.node_id, "in")
-            self.scene.connect_ports(n2.node_id, "out", n3.node_id, "in_vec")
-
+            self.generate_ai_graph("Create 15-minute urban isochrone walkability model with population stats")
         elif tpl_id == "tpl_extrusion_3d":
-            n1 = NodeDefinition(title="Building Footprints", category="Parameters")
-            n1.add_output("out", "Footprints", SocketType.VECTOR)
-            n1.x, n1.y = -250, 0
-            self.scene.add_node_to_scene(n1)
-
-            n2 = NodeDefinition(title="Extrude 3D Massing", category="Vector Geometry")
-            n2.add_input("in", "Input", SocketType.VECTOR)
-            n2.add_output("out_3d", "3D Mesh", SocketType.VECTOR)
-            n2.parameters["height"] = 15.0
-            n2.x, n2.y = 0, 0
-            self.scene.add_node_to_scene(n2)
-
-            self.scene.connect_ports(n1.node_id, "out", n2.node_id, "in")
-
-        QMessageBox.information(self, "Preset Loaded", f"Loaded preset micro-package template: {tpl_id}")
+            self.generate_ai_graph("Generate 3D building massing extrusion from footprint height field")
+        elif tpl_id == "tpl_suitability":
+            self.generate_ai_graph("Build MCDA land suitability overlay model using DEM slope")
 
     def on_node_selected(self, node: NodeDefinition):
         self.proposal_bar.update_for_node(node)
