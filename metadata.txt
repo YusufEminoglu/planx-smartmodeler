@@ -2,7 +2,7 @@
 name=SmartModeler GIS
 qgisMinimumVersion=4.0
 description=Next-generation QGIS Graphical Modeler with smart proposals, interactive node UI, and preset packages.
-version=0.2.0
+version=0.2.1
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 

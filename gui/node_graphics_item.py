@@ -84,7 +84,7 @@ class NodeGraphicsItem(QGraphicsItem):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(hdr_rect, 8.0, 8.0)
         # Cover bottom corners of header
-        painter.drawRect(0, self.HEADER_HEIGHT - 6, self.WIDTH, 6)
+        painter.drawRect(QRectF(0.0, self.HEADER_HEIGHT - 6.0, self.WIDTH, 6.0))
 
         # Title Text
         painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
