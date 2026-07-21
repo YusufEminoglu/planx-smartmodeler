@@ -1,5 +1,5 @@
 """PyQt6 QGraphicsItem node card rendering for SmartModeler GIS."""
-from qgis.PyQt.QtCore import QRectF, QPointF, Qt
+from qgis.PyQt.QtCore import QRect, QRectF, QPointF, Qt
 from qgis.PyQt.QtGui import QBrush, QColor, QPen, QFont, QLinearGradient
 from qgis.PyQt.QtWidgets import QGraphicsItem, QGraphicsTextItem
 from ..core.graph_model import NodeDefinition
@@ -84,7 +84,7 @@ class NodeGraphicsItem(QGraphicsItem):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(hdr_rect, 8.0, 8.0)
         # Cover bottom corners of header
-        painter.drawRect(QRectF(0.0, self.HEADER_HEIGHT - 6.0, self.WIDTH, 6.0))
+        painter.drawRect(QRect(0, int(self.HEADER_HEIGHT - 6), int(self.WIDTH), 6))
 
         # Title Text
         painter.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
