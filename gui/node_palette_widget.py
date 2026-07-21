@@ -16,7 +16,6 @@ class NodePaletteWidget(QWidget):
     CATEGORIZED_NODES = {
         "Vector Geometry": [
             ("native:buffer", "Buffer"),
-            ("smart:roof_generator", "Parametric Roof Generator (Gable/Hip/Pyramid)"),
             ("native:centroids", "Centroids"),
             ("native:convexpolygon", "Convex Hull"),
             ("native:voronoipolygons", "Voronoi Polygons"),

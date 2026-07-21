@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.1] - 2026-07-22
+
+- Clean node palette and focus strictly on GIS graphical modeler and high-divergence heatmaps
+
 ## [0.3.0] - 2026-07-22
 
 - Add Parametric Roof Generator, High-Divergence Spectral Heatmaps, and AI Settings Dialog

@@ -1,7 +1,5 @@
 """AI / Model Context Protocol (MCP) Bridge Engine for SmartModeler GIS (QGIS 4)."""
 import json
-import urllib.request
-import urllib.error
 from typing import Dict, List, Any, Optional
 from qgis.core import QgsSettings
 from .graph_model import GraphModel, NodeDefinition, SocketType
@@ -31,18 +29,18 @@ class AiMcpBridge:
             ]
         },
         {
-            "keywords": ["3d", "extrusion", "height", "massing", "building", "roof"],
-            "title": "3D Massing & Roof Style Generator",
+            "keywords": ["vector", "buffer", "clip", "extract", "attribute"],
+            "title": "Vector Spatial Filter & Overlay",
             "nodes": [
-                {"id": "footprints", "title": "Building Footprints Input", "alg": "smart:input_layer", "cat": "Parameters", "out_type": SocketType.VECTOR},
-                {"id": "filter", "title": "Filter Height > 10m", "alg": "native:extractbyattribute", "cat": "Vector Selection", "params": {"FIELD": "height", "OPERATOR": 2, "VALUE": "10"}},
-                {"id": "extrude", "title": "3D Polygon Extrude", "alg": "native:extrude", "cat": "Vector Geometry", "params": {"DISTANCE": 15.0}},
-                {"id": "roof", "title": "Parametric Roof Generator", "alg": "smart:roof_generator", "cat": "Vector Geometry", "params": {"ROOF_STYLE": "Gable", "ROOF_PITCH": 35.0, "OVERHANG": 0.5}}
+                {"id": "input", "title": "Vector Layer Input", "alg": "smart:input_layer", "cat": "Parameters", "out_type": SocketType.VECTOR},
+                {"id": "filter", "title": "Extract by Attribute", "alg": "native:extractbyattribute", "cat": "Vector Selection", "params": {"FIELD": "type", "OPERATOR": 0, "VALUE": "residential"}},
+                {"id": "buffer", "title": "50m Buffer", "alg": "native:buffer", "cat": "Vector Geometry", "params": {"DISTANCE": 50.0}},
+                {"id": "clip", "title": "Clip Boundary", "alg": "native:clip", "cat": "Vector Overlay"}
             ],
             "edges": [
-                ("footprints", "out_layer", "filter", "in_layer"),
-                ("filter", "out_layer", "extrude", "in_layer"),
-                ("extrude", "out_layer", "roof", "in_layer")
+                ("input", "out_layer", "filter", "in_layer"),
+                ("filter", "out_layer", "buffer", "in_layer"),
+                ("buffer", "out_layer", "clip", "in_layer")
             ]
         },
         {
@@ -110,14 +108,14 @@ class AiMcpBridge:
 
         else:
             # General fallback template based on prompt keywords
-            n1 = NodeDefinition(title="Vector Footprints Input", category="Parameters")
+            n1 = NodeDefinition(title="Vector Layer Input", category="Parameters")
             n1.parameters["alg_id"] = "smart:input_layer"
             n1.add_output("out_layer", "Output", SocketType.VECTOR)
             graph.add_node(n1)
 
-            n2 = NodeDefinition(title="Parametric 3D Extrude & Roof", category="Vector Geometry")
-            n2.parameters["alg_id"] = "smart:roof_generator"
-            n2.parameters["ROOF_STYLE"] = "Pyramid"
+            n2 = NodeDefinition(title="50m Buffer", category="Vector Geometry")
+            n2.parameters["alg_id"] = "native:buffer"
+            n2.parameters["DISTANCE"] = 50.0
             n2.add_input("in_layer", "Input", SocketType.VECTOR)
             n2.add_output("out_layer", "Output", SocketType.VECTOR)
             graph.add_node(n2)
@@ -138,5 +136,4 @@ class AiMcpBridge:
     @classmethod
     def _query_online_llm(cls, prov_idx: int, api_key: str, prompt_text: str) -> Optional[GraphModel]:
         """Queries OpenAI / Gemini / Ollama for custom DAG JSON generation."""
-        # Clean fallback if network or endpoint fails
         return None
