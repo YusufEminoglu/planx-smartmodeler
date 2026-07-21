@@ -1,0 +1,25 @@
+[general]
+name=SmartModeler GIS
+qgisMinimumVersion=4.0
+description=Next-generation QGIS Graphical Modeler with smart proposals, interactive node UI, and preset packages.
+version=0.1.0
+author=Yusuf Eminoglu
+email=yusuf.eminoglu@deu.edu.tr
+
+about=SmartModeler GIS is an intuitive, modern, visual node-graph modeler designed to replace and elevate the native QGIS Graphical Modeler experience. Featuring interactive node controls, smart next-step proposals, micro-package presets, and full .model3 compatibility for QGIS 4. Developed with feedback from educational and professional GIS workflows at Dokuz Eylul University, Department of City and Regional Planning.
+
+tracker=https://github.com/YusufEminoglu/planx-smartmodeler/issues
+repository=https://github.com/YusufEminoglu/planx-smartmodeler
+homepage=https://github.com/YusufEminoglu/planx-smartmodeler
+
+category=Processing
+tags=planx,qgis,modeler,processing,graphical-modeler,visual-programming,qgis4
+icon=icons/icon.png
+
+experimental=False
+deprecated=False
+hasProcessingProvider=no
+license=GPL-3
+
+changelog=
+    SmartModeler GIS 0.1.0 - Initial release of next-gen QGIS 4 Graphical Modeler.
