@@ -16,6 +16,7 @@ class NodePaletteWidget(QWidget):
     CATEGORIZED_NODES = {
         "Vector Geometry": [
             ("native:buffer", "Buffer"),
+            ("smart:roof_generator", "Parametric Roof Generator (Gable/Hip/Pyramid)"),
             ("native:centroids", "Centroids"),
             ("native:convexpolygon", "Convex Hull"),
             ("native:voronoipolygons", "Voronoi Polygons"),
@@ -32,7 +33,8 @@ class NodePaletteWidget(QWidget):
             ("native:fieldcalculator", "Field Calculator"),
             ("native:joinattributestable", "Join Attributes by Field"),
         ],
-        "Raster Analysis": [
+        "Raster & Visualization": [
+            ("smart:heatmap_renderer", "High-Divergence Spectral Heatmap"),
             ("gdal:contour", "Contour Lines"),
             ("native:slope", "Slope Calculation"),
             ("native:rastercalculator", "Raster Calculator"),

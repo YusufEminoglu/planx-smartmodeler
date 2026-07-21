@@ -88,9 +88,21 @@ class SmartModelerWindow(QMainWindow):
 
         toolbar.addSeparator()
 
+        act_ai_settings = QAction("⚙️ AI Settings", self)
+        act_ai_settings.setStatusTip("Configure AI LLM Provider & API Keys")
+        act_ai_settings.triggered.connect(self.open_ai_settings)
+        toolbar.addAction(act_ai_settings)
+
+        toolbar.addSeparator()
+
         act_clear = QAction("🗑 Clear Canvas", self)
         act_clear.triggered.connect(self.clear_canvas)
         toolbar.addAction(act_clear)
+
+    def open_ai_settings(self):
+        from .ai_settings_dialog import AiSettingsDialog
+        dlg = AiSettingsDialog(self)
+        dlg.exec()
 
     def connect_signals(self):
         self.ai_prompt_bar.prompt_submitted.connect(self.generate_ai_graph)

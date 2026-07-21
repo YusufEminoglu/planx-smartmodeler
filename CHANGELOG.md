@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.3.0] - 2026-07-22
+
+- Add Parametric Roof Generator, High-Divergence Spectral Heatmaps, and AI Settings Dialog
+
 ## [0.2.1] - 2026-07-22
 
 - Fix PyQt6 QPainter drawRect argument type overload mismatch
