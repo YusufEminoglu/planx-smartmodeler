@@ -1,19 +1,19 @@
 [general]
 name=SmartModeler GIS
 qgisMinimumVersion=4.0
-description=Next-generation QGIS Graphical Modeler with smart proposals, interactive node UI, and preset packages.
-version=0.3.1
+description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
+version=0.4.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
-about=SmartModeler GIS is an intuitive, modern, visual node-graph modeler designed to replace and elevate the native QGIS Graphical Modeler experience. Featuring interactive node controls, smart next-step proposals, micro-package presets, and full .model3 compatibility for QGIS 4. Developed with feedback from educational and professional GIS workflows at Dokuz Eylul University, Department of City and Regional Planning.
+about=SmartModeler GIS is a QGIS 4-only visual Processing studio. It discovers installed algorithms, builds and runs typed acyclic workflows, imports and exports native .model3 models, and offers schema-validated iterative AI planning through local or remote providers. API keys use password-free session memory or the optional encrypted QGIS vault. No pip dependencies are required.
 
 tracker=https://github.com/YusufEminoglu/planx-smartmodeler/issues
 repository=https://github.com/YusufEminoglu/planx-smartmodeler
 homepage=https://github.com/YusufEminoglu/planx-smartmodeler
 
 category=Processing
-tags=planx,qgis,modeler,processing,graphical-modeler,visual-programming,qgis4
+tags=planx,qgis,modeler,processing,graphical-modeler,visual-programming,qgis4,ai
 icon=icons/icon.png
 
 experimental=False
@@ -22,4 +22,4 @@ hasProcessingProvider=no
 license=GPL-3
 
 changelog=
-    SmartModeler GIS 0.1.0 - Initial release of next-gen QGIS 4 Graphical Modeler.
+    Unreleased - Real Processing execution, native model interchange, multi-provider AI profiles, encrypted credentials, strict AI graph validation, and a redesigned Qt 6 interface.

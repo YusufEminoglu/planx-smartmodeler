@@ -1,6 +1,6 @@
 """PyQt6 smooth Bezier cable connection item for SmartModeler GIS."""
 from qgis.PyQt.QtCore import QPointF, Qt
-from qgis.PyQt.QtGui import QPainterPath, QPen, QColor, QBrush
+from qgis.PyQt.QtGui import QPainterPath, QPen, QColor
 from qgis.PyQt.QtWidgets import QGraphicsPathItem
 from ..core.graph_model import GraphEdge
 
@@ -15,6 +15,7 @@ class ConnectionGraphicsItem(QGraphicsPathItem):
         self.end_port_item = end_port_item
         self.setZValue(-1.0)  # Render cables under nodes
         self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsPathItem.GraphicsItemFlag.ItemIsSelectable, edge is not None)
         self.is_hovered = False
         self.update_path()
 
@@ -23,7 +24,8 @@ class ConnectionGraphicsItem(QGraphicsPathItem):
             return
 
         p1 = self.start_port_item.get_center_scene_pos()
-        p2 = override_end_pos if override_end_pos else (self.end_port_item.get_center_scene_pos() if self.end_port_item else p1)
+        p2 = override_end_pos if override_end_pos else (
+            self.end_port_item.get_center_scene_pos() if self.end_port_item else p1)
 
         path = QPainterPath(p1)
         dx = abs(p2.x() - p1.x()) * 0.5
@@ -37,8 +39,9 @@ class ConnectionGraphicsItem(QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         painter.setRenderHint(painter.RenderHint.Antialiasing)
-        pen_color = QColor("#00E5FF") if self.is_hovered else QColor("#78909C")
-        pen_width = 3.0 if self.is_hovered else 2.0
+        highlighted = self.is_hovered or self.isSelected()
+        pen_color = QColor("#57D3A0") if highlighted else QColor("#637083")
+        pen_width = 3.0 if highlighted else 2.0
 
         painter.setPen(QPen(pen_color, pen_width, Qt.PenStyle.SolidLine))
         painter.setBrush(Qt.BrushStyle.NoBrush)

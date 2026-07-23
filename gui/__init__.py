@@ -1,0 +1,1 @@
+"""SmartModeler Qt user interface."""

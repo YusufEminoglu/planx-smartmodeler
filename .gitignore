@@ -6,3 +6,4 @@ __pycache__/
 *.swp
 Thumbs.db
 .DS_Store
+tests/_smoke.model3

@@ -6,11 +6,11 @@ from .graph_model import GraphModel, NodeDefinition
 class AutoLayoutEngine:
     """Calculates clean grid coordinates for DAG nodes without overlapping cards or tangled wires."""
 
-    COLUMN_SPACING = 240.0
-    ROW_SPACING = 100.0
+    COLUMN_SPACING = 330.0
+    ROW_SPACING = 180.0
 
     @classmethod
-    def apply_layout(cls, graph: GraphModel, start_x: float = 0.0, start_y: float = 0.0):
+    def apply_layout(cls, graph: GraphModel, start_x: float = 0.0, start_y: float = 0.0) -> None:
         """Assigns (x, y) coordinates to all nodes in the graph based on topological ranks."""
         if not graph.nodes:
             return

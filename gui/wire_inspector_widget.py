@@ -1,50 +1,91 @@
-"""Live Wire Inspector & Data Probe widget for SmartModeler GIS."""
-from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtWidgets import QWidget, QVBoxLayout, QLabel, QTableWidget, QTableWidgetItem, QGroupBox, QHeaderView
+"""Selected node inspector and execution result summary."""
+from __future__ import annotations
+
+from qgis.PyQt.QtCore import pyqtSignal
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QGroupBox,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 from ..core.graph_model import NodeDefinition
 
 
 class WireInspectorWidget(QWidget):
-    """Inspects intermediate feature data, parameters, and outputs of selected nodes."""
+    configure_requested = pyqtSignal(object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(6, 6, 6, 6)
+        self.node: NodeDefinition | None = None
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
-        self.lbl_title = QLabel("🔍 Live Wire & Node Inspector")
-        self.lbl_title.setStyleSheet("font-weight: bold; color: #00E5FF; font-size: 12px;")
-        self.layout.addWidget(self.lbl_title)
+        eyebrow = QLabel("NODE INSPECTOR")
+        eyebrow.setObjectName("panelEyebrow")
+        layout.addWidget(eyebrow)
+        self.title = QLabel("Nothing selected")
+        self.title.setObjectName("inspectorTitle")
+        self.title.setWordWrap(True)
+        layout.addWidget(self.title)
+        self.status = QLabel("Select a node to inspect its configuration and outputs.")
+        self.status.setObjectName("mutedLabel")
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
 
-        self.lbl_status = QLabel("Select a node or wire to inspect live parameters and feature outputs.")
-        self.lbl_status.setWordWrap(True)
-        self.lbl_status.setStyleSheet("color: #B0BEC5; font-size: 11px;")
-        self.layout.addWidget(self.lbl_status)
+        self.configure_button = QPushButton("Configure parameters")
+        self.configure_button.setEnabled(False)
+        self.configure_button.clicked.connect(self._configure)
+        layout.addWidget(self.configure_button)
 
-        # Attribute Table Preview
-        self.grp_table = QGroupBox("📊 Sample Attributes")
-        self.table_layout = QVBoxLayout(self.grp_table)
+        group = QGroupBox("Parameters and results")
+        group_layout = QVBoxLayout(group)
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["ID", "Name", "Value"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table_layout.addWidget(self.table)
-        self.layout.addWidget(self.grp_table)
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Name", "Value"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        group_layout.addWidget(self.table)
+        layout.addWidget(group, 1)
 
-    def inspect_node(self, node: NodeDefinition):
-        if not node:
-            self.lbl_title.setText("🔍 Live Wire Inspector")
-            self.lbl_status.setText("Select a node or wire to inspect live parameters and feature outputs.")
+    def inspect_node(self, node: NodeDefinition | None) -> None:
+        self.node = node
+        self.configure_button.setEnabled(node is not None)
+        if node is None:
+            self.title.setText("Nothing selected")
+            self.status.setText("Select a node to inspect its configuration and outputs.")
             self.table.setRowCount(0)
             return
+        self.title.setText(node.title)
+        self.status.setText(
+            f"{node.algorithm_id}\nState: {node.execution_state}"
+            + (f" - {node.execution_message}" if node.execution_message else "")
+        )
+        rows = [(key, value) for key, value in node.parameters.items()]
+        rows.extend(
+            (f"result:{key}", self._result_summary(value))
+            for key, value in node.cached_results.items()
+        )
+        self.table.setRowCount(len(rows))
+        for index, (key, value) in enumerate(rows):
+            self.table.setItem(index, 0, QTableWidgetItem(str(key)))
+            self.table.setItem(index, 1, QTableWidgetItem(str(value)))
 
-        self.lbl_title.setText(f"🔍 Inspecting Node: {node.title}")
-        status_text = f"Category: {node.category}\nID: {node.node_id}\nInputs: {len(node.inputs)} | Outputs: {len(node.outputs)}"
-        self.lbl_status.setText(status_text)
+    @staticmethod
+    def _result_summary(value) -> str:
+        if hasattr(value, "name") and callable(value.name):
+            return f"Layer: {value.name()}"
+        text = str(value)
+        return text if len(text) <= 300 else text[:297] + "..."
 
-        # Populate sample parameters into table
-        self.table.setRowCount(len(node.parameters))
-        for idx, (key, val) in enumerate(node.parameters.items()):
-            self.table.setItem(idx, 0, QTableWidgetItem(str(idx + 1)))
-            self.table.setItem(idx, 1, QTableWidgetItem(str(key)))
-            self.table.setItem(idx, 2, QTableWidgetItem(str(val)))
+    def _configure(self) -> None:
+        if self.node is not None:
+            self.configure_requested.emit(self.node)

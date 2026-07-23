@@ -1,94 +1,125 @@
-"""PyQt6 AI Prompt Bar widget for SmartModeler GIS (QGIS 4)."""
-from qgis.PyQt.QtCore import pyqtSignal, Qt
+"""Natural-language workflow prompt bar."""
+from __future__ import annotations
+
+from qgis.PyQt.QtCore import QEvent, Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QFrame, QHBoxLayout, QLineEdit, QPushButton, QLabel, QComboBox
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
 )
 
 
 class AiPromptWidget(QFrame):
-    """Natural language AI prompt input bar for auto-generating visual graphs."""
-
-    prompt_submitted = pyqtSignal(str)
+    prompt_submitted = pyqtSignal(str, str)
 
     PRESET_PROMPTS = [
-        "Select a sample prompt...",
-        "Create 15-minute urban isochrone walkability model with population stats",
-        "Generate 3D building massing extrusion from footprint height field",
-        "Build MCDA land suitability overlay model using DEM slope",
-        "Buffer roads by 50m and intersect with protected forest polygons"
+        "Example prompts...",
+        "Buffer the active roads layer by 50 metres and dissolve overlaps",
+        "Extract residential parcels, calculate area, then keep parcels over 1000 square metres",
+        "Calculate slope from the DEM and classify it into planning suitability bands",
+        "Clip all project vector layers to the study boundary",
     ]
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #1A1D24;
-                border-bottom: 1px solid #00E5FF;
-                padding: 6px;
-            }
-            QLabel {
-                color: #00E5FF;
-                font-weight: bold;
-                font-size: 11px;
-            }
-            QLineEdit {
-                background-color: #232731;
-                color: #FFFFFF;
-                border: 1px solid #37474F;
-                border-radius: 4px;
-                padding: 5px 8px;
-                font-size: 11px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #00E5FF;
-            }
-            QComboBox {
-                background-color: #232731;
-                color: #B0BEC5;
-                border: 1px solid #37474F;
-                border-radius: 4px;
-                padding: 4px 6px;
-                font-size: 11px;
-            }
-            QPushButton {
-                background-color: #00E5FF;
-                color: #12141C;
-                font-weight: bold;
-                border-radius: 4px;
-                padding: 5px 12px;
-                font-size: 11px;
-            }
-            QPushButton:hover {
-                background-color: #18FFFF;
-            }
-        """)
+        self.setObjectName("aiPromptPanel")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(14, 10, 14, 10)
+        outer.setSpacing(7)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 4, 10, 4)
-        layout.setSpacing(10)
+        top = QHBoxLayout()
+        label = QLabel("AI WORKFLOW COPILOT")
+        label.setObjectName("panelEyebrow")
+        self.provider_label = QLabel("Offline")
+        self.provider_label.setObjectName("providerPill")
+        top.addWidget(label)
+        top.addStretch()
+        top.addWidget(self.provider_label)
+        outer.addLayout(top)
 
-        lbl_icon = QLabel("🤖 AI Model Assistant:")
-        layout.addWidget(lbl_icon)
+        row = QHBoxLayout()
+        self.prompt_edit = QPlainTextEdit()
+        self.prompt_edit.setPlaceholderText(
+            "Describe the GIS result you need. Include layers, fields, distances and outputs when known..."
+        )
+        self.prompt_edit.setFixedHeight(62)
+        self.prompt_edit.installEventFilter(self)
+        row.addWidget(self.prompt_edit, 1)
 
-        self.txt_prompt = QLineEdit()
-        self.txt_prompt.setPlaceholderText("Describe your GIS workflow prompt (e.g., 'Buffer buildings by 20m and clip with boundary')...")
-        self.txt_prompt.returnPressed.connect(self.submit_prompt)
-        layout.addWidget(self.txt_prompt, 2)
+        right = QVBoxLayout()
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("Improve current", "improve")
+        self.mode_combo.addItem("Build new", "new")
+        self.mode_combo.currentIndexChanged.connect(self._update_mode_ui)
+        right.addWidget(self.mode_combo)
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(self.PRESET_PROMPTS)
+        self.preset_combo.currentIndexChanged.connect(self._preset_selected)
+        right.addWidget(self.preset_combo)
+        self.generate_button = QPushButton()
+        self.generate_button.setObjectName("primaryButton")
+        self.generate_button.clicked.connect(self.submit_prompt)
+        right.addWidget(self.generate_button)
+        row.addLayout(right)
+        outer.addLayout(row)
 
-        self.cmb_presets = QComboBox()
-        self.cmb_presets.addItems(self.PRESET_PROMPTS)
-        self.cmb_presets.currentIndexChanged.connect(self.on_preset_selected)
-        layout.addWidget(self.cmb_presets, 1)
+        self.hint = QLabel(
+            "Ctrl+Enter to build. AI output is validated against installed QGIS "
+            "algorithms before it reaches the canvas."
+        )
+        self.hint.setObjectName("mutedLabel")
+        outer.addWidget(self.hint)
+        self.set_workflow_available(False)
 
-        self.btn_generate = QPushButton("✨ Generate Graph")
-        self.btn_generate.clicked.connect(self.submit_prompt)
-        layout.addWidget(self.btn_generate)
+    def eventFilter(self, watched, event):
+        if watched is self.prompt_edit and event.type() == QEvent.Type.KeyPress:
+            enter_pressed = event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            if enter_pressed and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self.submit_prompt()
+                return True
+        return super().eventFilter(watched, event)
 
-    def on_preset_selected(self, index: int):
+    def _preset_selected(self, index: int) -> None:
         if index > 0:
-            self.txt_prompt.setText(self.cmb_presets.currentText())
+            self.prompt_edit.setPlainText(self.preset_combo.currentText())
 
-    def submit_prompt(self):
-        text = self.txt_prompt.text().strip()
-        if text:
-            self.prompt_submitted.emit(text)
+    def submit_prompt(self) -> None:
+        prompt = self.prompt_edit.toPlainText().strip()
+        if prompt:
+            self.prompt_submitted.emit(prompt, str(self.mode_combo.currentData()))
+
+    def set_provider_name(self, name: str) -> None:
+        self.provider_label.setText(name)
+
+    def set_busy(self, busy: bool) -> None:
+        self.generate_button.setEnabled(not busy)
+        self.prompt_edit.setEnabled(not busy)
+        self.mode_combo.setEnabled(not busy)
+        self.preset_combo.setEnabled(not busy)
+        if busy:
+            self.generate_button.setText("Thinking...")
+        else:
+            self._update_mode_ui()
+
+    def set_workflow_available(self, available: bool) -> None:
+        mode = "improve" if available else "new"
+        self.mode_combo.setCurrentIndex(self.mode_combo.findData(mode))
+        self._update_mode_ui()
+
+    def _update_mode_ui(self, _index: int = -1) -> None:
+        improve = self.mode_combo.currentData() == "improve"
+        self.generate_button.setText(
+            "Improve workflow" if improve else "Build workflow"
+        )
+        self.hint.setText(
+            "Ctrl+Enter to improve the current canvas. Existing nodes, parameters "
+            "and connections are sent as the editable baseline."
+            if improve
+            else
+            "Ctrl+Enter to build a new workflow. AI output is validated against "
+            "installed QGIS algorithms before it reaches the canvas."
+        )

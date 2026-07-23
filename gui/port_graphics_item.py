@@ -1,5 +1,5 @@
 """PyQt6 QGraphicsItem socket port representation for SmartModeler GIS."""
-from qgis.PyQt.QtCore import QRectF, QPointF, Qt
+from qgis.PyQt.QtCore import QRectF, QPointF
 from qgis.PyQt.QtGui import QBrush, QColor, QPen
 from qgis.PyQt.QtWidgets import QGraphicsItem
 from ..core.graph_model import NodePort, SocketType
@@ -17,6 +17,8 @@ class PortGraphicsItem(QGraphicsItem):
         SocketType.STRING: QColor("#E91E63"),      # Pink
         SocketType.BOOLEAN: QColor("#9C27B0"),     # Purple
         SocketType.FIELD: QColor("#00BCD4"),       # Cyan
+        SocketType.TABLE: QColor("#26A69A"),
+        SocketType.FILE: QColor("#8D6E63"),
         SocketType.ANY: QColor("#B0BEC5")          # Gray
     }
 
@@ -27,6 +29,8 @@ class PortGraphicsItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges, True)
         self.setAcceptHoverEvents(True)
         self.is_hovered = False
+        direction = "Output" if port.is_output else "Input"
+        self.setToolTip(f"{direction}: {port.name} [{port.socket_type}]")
 
     def boundingRect(self) -> QRectF:
         r = self.RADIUS + 4.0
