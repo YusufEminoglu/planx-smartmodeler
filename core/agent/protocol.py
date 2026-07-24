@@ -240,18 +240,25 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
     if not isinstance(data, dict):
         raise ProtocolError("Provider response must be a single JSON object.")
 
-    actual_keys = frozenset(data.keys())
-    if actual_keys != _TURN_TOP_LEVEL_KEYS:
-        raise ProtocolError(
-            "Provider response has unexpected or missing fields: "
-            f"{sorted(actual_keys ^ _TURN_TOP_LEVEL_KEYS)}."
-        )
-
+    # `action` is the one field with no safe default -- it decides everything.
+    # The other four are filled from their most restrictive value when a
+    # provider omits them, because real providers routinely drop keys that do
+    # not apply to the turn they are producing (a `final` answer with no
+    # `tool_calls` key, a `proposal` with no `tool_calls`/`proposal`-less turn
+    # with no `proposal_json`). Defaulting a *missing* key to its safe value
+    # never widens authority: `tool_calls` defaults to none, `proposal_kind` to
+    # "none", `proposal_json` to "". Unknown extra keys are ignored rather than
+    # rejected -- only the five known keys are ever read -- so a stray
+    # `reasoning`/`thoughts` field a provider adds cannot fail an otherwise
+    # valid turn. The inner tool-argument and proposal validators stay strict;
+    # that is where authority actually lives.
+    if "action" not in data:
+        raise ProtocolError("Provider response is missing the required 'action' field.")
     action = data["action"]
     if action not in _ACTIONS:
         raise ProtocolError(f"Unknown agent_turn action: {action!r}.")
 
-    assistant_text = data["assistant_text"]
+    assistant_text = data.get("assistant_text", "")
     if not isinstance(assistant_text, str):
         raise ProtocolError("assistant_text must be a string.")
     if len(assistant_text) > MAX_ASSISTANT_TEXT_CHARS:
@@ -259,7 +266,9 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
             f"assistant_text exceeds the {MAX_ASSISTANT_TEXT_CHARS}-character safety limit."
         )
 
-    tool_calls_data = data["tool_calls"]
+    tool_calls_data = data.get("tool_calls", [])
+    if tool_calls_data is None:
+        tool_calls_data = []
     if not isinstance(tool_calls_data, list):
         raise ProtocolError("tool_calls must be an array.")
     if len(tool_calls_data) > max_tool_calls_per_turn:
@@ -267,10 +276,14 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
             f"tool_calls exceeds the configured {max_tool_calls_per_turn}-call turn limit."
         )
 
-    proposal_kind = data["proposal_kind"]
+    proposal_kind = data.get("proposal_kind", PROPOSAL_KIND_NONE)
+    if proposal_kind is None or proposal_kind == "":
+        proposal_kind = PROPOSAL_KIND_NONE
     if proposal_kind not in ALL_PROPOSAL_KINDS:
         raise ProtocolError(f"Unknown proposal_kind: {proposal_kind!r}.")
-    proposal_json = data["proposal_json"]
+    proposal_json = data.get("proposal_json", "")
+    if proposal_json is None:
+        proposal_json = ""
     if not isinstance(proposal_json, str):
         raise ProtocolError("proposal_json must be a string.")
     if len(proposal_json) > MAX_PROPOSAL_JSON_CHARS:

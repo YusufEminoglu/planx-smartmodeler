@@ -159,7 +159,10 @@ class MalformedTurnRejectionTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
-    def test_unexpected_top_level_field_is_rejected(self) -> None:
+    def test_an_unknown_top_level_field_is_ignored_not_rejected(self) -> None:
+        # Providers routinely add a stray "reasoning"/"approved" field. Only the
+        # five known keys are ever read, so an extra key cannot widen authority
+        # (`approved` here is never consulted) and must not fail a valid turn.
         raw = json.dumps(
             {
                 "action": ACTION_FINAL,
@@ -168,11 +171,20 @@ class MalformedTurnRejectionTests(unittest.TestCase):
                 "approved": True,
             }
         )
-        with self.assertRaises(ProtocolError):
-            parse_agent_turn(raw, 3)
+        turn = parse_agent_turn(raw, 3)
+        self.assertTrue(turn.is_final)
 
-    def test_missing_top_level_field_is_rejected(self) -> None:
+    def test_a_missing_optional_field_defaults_to_its_safe_value(self) -> None:
+        # A provider that omits an inapplicable key (a final answer with no
+        # tool_calls) must still parse; the missing key takes its most
+        # restrictive default rather than ending the run.
         raw = json.dumps({"action": ACTION_FINAL, "assistant_text": "hi"})
+        turn = parse_agent_turn(raw, 3)
+        self.assertTrue(turn.is_final)
+        self.assertEqual(turn.tool_calls, ())
+
+    def test_a_response_without_an_action_is_rejected(self) -> None:
+        raw = json.dumps({"assistant_text": "hi", "tool_calls": []})
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
@@ -394,10 +406,12 @@ class ProposalProtocolTests(unittest.TestCase):
         self.assertEqual(turn.proposal_kind, "model_patch")
         self.assertIsNotNone(turn.proposal)
 
-    def test_legacy_three_key_shape_is_rejected(self) -> None:
+    def test_a_final_turn_without_proposal_keys_parses(self) -> None:
+        # A final answer that omits proposal_kind/proposal_json is normal; the
+        # defaults ("none"/"") describe exactly a non-proposal turn.
         raw = json.dumps({"action": "final", "assistant_text": "hi", "tool_calls": []})
-        with self.assertRaises(ProtocolError):
-            parse_agent_turn(raw, 3)
+        turn = parse_agent_turn(raw, 3)
+        self.assertTrue(turn.is_final)
 
     def test_tool_call_cannot_smuggle_a_proposal(self) -> None:
         raw = _turn_json(

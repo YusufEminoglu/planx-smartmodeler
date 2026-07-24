@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import unittest
+from pathlib import Path
 
 from planx_smartmodeler.core.agent import context as agent_context
 from planx_smartmodeler.core.agent.proposals import (
@@ -850,6 +852,42 @@ class StrictScalarContractTests(unittest.TestCase):
         self.assertEqual(ctx.exception.reason_code, ProposalReason.LIMIT_EXCEEDED)
         with self.assertRaises(ProposalError):
             parse_proposal("layer_style", self._layer_style(warnings=["x" * 501]))
+
+
+class InstructionSchemaParityTests(unittest.TestCase):
+    """The proposal shapes documented for the model in agent_context must be
+    exactly what the validator accepts. This is the defect the owner hit: the
+    instructions never described `layer_style`, so the provider invented field
+    names (`renderer_type`, `classes`, ...) and every proposal was rejected.
+    Extracting the doc's own JSON examples and parsing them keeps the two from
+    drifting apart again."""
+
+    def _doc_examples(self) -> list:
+        doc = (
+            Path(__file__).resolve().parents[1]
+            / "agent_context"
+            / "10_TOOL_PROTOCOL.md"
+        ).read_text(encoding="utf-8")
+        blocks = re.findall(r"```json\s*(.*?)```", doc, re.DOTALL)
+        self.assertTrue(blocks, "the tool-protocol doc has no ```json examples")
+        return blocks
+
+    def test_documented_layer_style_example_parses(self) -> None:
+        example = next(
+            block for block in self._doc_examples() if '"renderer"' in block
+        )
+        proposal = parse_proposal("layer_style", example)
+        self.assertIsInstance(proposal, LayerStyleProposal)
+        self.assertEqual(proposal.renderer.family, "categorized")
+        self.assertEqual(len(proposal.renderer.palette), proposal.renderer.class_count)
+
+    def test_documented_model_patch_example_parses(self) -> None:
+        example = next(
+            block for block in self._doc_examples() if '"operations"' in block
+        )
+        proposal = parse_proposal("model_patch", example)
+        self.assertIsInstance(proposal, ModelPatchProposal)
+        self.assertTrue(proposal.operations)
 
 
 if __name__ == "__main__":

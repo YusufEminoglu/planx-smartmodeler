@@ -2,6 +2,36 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [Unreleased]
+
+### The agent can now actually complete a proposal
+
+The first end-to-end owner run of v0.5.0 showed the agent inspecting correctly
+but failing every attempt to *do* anything. Two root causes, both fixed:
+
+- **The proposal schema was never given to the model.** The instructions
+  described the response *envelope* but not what goes inside a `layer_style` or
+  `model_patch` payload, so the provider guessed field names (`renderer_type`,
+  `classes`, `field_name`, `categories`, `symbol_type`, ...) and the validator
+  rejected every one with "Invalid layer_style fields: missing ...; unexpected
+  ...". The exact shapes are now documented with concrete examples, including
+  the renderer families, the class-count/palette rules, and the labels block. A
+  new test extracts those very examples from the instructions and parses them,
+  so the documentation and the validator can never drift apart again.
+- **A provider that omitted an inapplicable key was hard-refused.** A `final`
+  or `proposal` response that left out `tool_calls` ended the run with
+  "Provider response has unexpected or missing fields: ['tool_calls']". A
+  missing optional key now takes its safe default (`tool_calls` → none,
+  `proposal_kind` → "none", `proposal_json` → ""), and an unknown extra key a
+  provider adds is ignored rather than fatal. Only `action` is still required,
+  and the inner tool-argument and proposal validators stay strict — that is
+  where authority actually lives.
+
+- When a request is outside every tool (select features, save the nearest N as
+  a layer), the agent now offers the closest thing it can build — a Processing
+  `model_patch` the user runs from the Studio — instead of only stating that it
+  is read-only.
+
 ## [0.5.0] - 2026-07-24
 
 ### Fixes from the first owner run in real QGIS
