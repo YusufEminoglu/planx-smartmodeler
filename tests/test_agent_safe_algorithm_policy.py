@@ -56,16 +56,30 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = default_policy()
 
-    def test_twelve_algorithms_pinned(self) -> None:
+    def test_allowlist_is_pinned(self) -> None:
         # Asserted against the shipped constant itself: the policy deliberately
         # exposes no "list the allowlist" accessor, so membership can only ever
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 12)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 13)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
+        self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))
         self.assertIsNone(self.policy.record_for("native:refactorfields"))
+
+    def test_extract_by_attribute_run_signature(self) -> None:
+        params = (
+            ParamSpec("INPUT", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
+            ParamSpec("FIELD", False, frozenset({"QgsProcessingParameterField"}), False, False),
+            ParamSpec("OPERATOR", False, frozenset({"QgsProcessingParameterEnum"}), False, True),
+            ParamSpec("VALUE", False, frozenset({"QgsProcessingParameterString"}), False, False),
+            ParamSpec("OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), False, False),
+            ParamSpec("FAIL_OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), True, False),
+        )
+        decision = self.policy.is_runnable("native:extractbyattribute", params)
+        self.assertTrue(decision.allowed)
+        self.assertIsNotNone(decision.record)
 
     def test_the_policy_cannot_enumerate_its_allowlist(self) -> None:
         for accessor in ("allowed_ids", "allowlist", "algorithms", "ids"):

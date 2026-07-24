@@ -950,6 +950,45 @@ def run_checks() -> str:
             raise RuntimeError("Undo did not remove exactly the buffer result layer.")
         del buffer_result_id
 
+        # -- Owner-QA follow-up: filter features into a new layer ------------
+        # The owner asked to "keep only the bus_stop points as a new layer".
+        # native:extractbyattribute is now on the reviewed run allowlist; a
+        # processing_run of it must add the matching-features layer (and its
+        # forced FAIL_OUTPUT complement) without ever writing to disk.
+        extract_before = set(project.mapLayers())
+        extract_run = _run_json(
+            _alg_token("native:extractbyattribute"), "native:extractbyattribute",
+            {
+                "INPUT": {"layer": tagged_layer.id()},
+                "FIELD": {"field": "highway", "layer_param": "INPUT"},
+                "OPERATOR": {"enum": 0},
+                "VALUE": {"string": "bus_stop"},
+            },
+            title="Extract bus stops",
+        )
+        _feed_act(run_dock, AgentScope.PROJECT, "processing_run", extract_run)
+        if run_dock._pending_action is None:
+            raise RuntimeError("extractbyattribute produced no pending run action.")
+        run_dock._on_apply_clicked()
+        extract_added = set(project.mapLayers()) - extract_before
+        if not extract_added:
+            raise RuntimeError("The extract-by-attribute run added no layer.")
+        matched = None
+        for layer_id in extract_added:
+            layer = project.mapLayer(layer_id)
+            if isinstance(layer, QgsVectorLayer) and layer.featureCount() == 3:
+                matched = layer
+        if matched is None:
+            counts = sorted(
+                project.mapLayer(lid).featureCount() for lid in extract_added
+            )
+            raise RuntimeError(
+                f"No extracted layer held the 3 bus_stop points; counts were {counts}."
+            )
+        run_dock._on_undo_clicked()
+        if set(project.mapLayers()) != extract_before:
+            raise RuntimeError("Undo did not remove the extract-by-attribute outputs.")
+
         # A second reviewed algorithm runs the same way.
         centroids_run = _run_json(
             _alg_token("native:centroids"), "native:centroids",

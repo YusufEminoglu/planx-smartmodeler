@@ -2,6 +2,33 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [Unreleased]
+
+### The agent can now run a filter and produce a layer
+
+The v0.5.1 owner run showed `layer_style` proposals applying end-to-end, but a
+"filter these features into a new layer" request went nowhere: the agent found
+`native:extractbyattribute`, described it, checked the field values — and then
+had no way to turn that into an action.
+
+- **The instructions never told the model it could propose a run.** `00_ROLE.md`
+  listed only `layer_style` and `model_patch`; `processing_run` and `model_run`
+  existed in the engine but were invisible to the provider, so it never emitted
+  one. All four proposal kinds are now described, and the exact `processing_run`
+  and `model_run` payloads — including every tagged input-binding form — are
+  documented with a worked `extractbyattribute` example. The doc's own examples
+  are extracted and parsed by a test, so they cannot drift from the validator.
+- **`native:extractbyattribute` is now on the reviewed safe-run allowlist**
+  (thirteen algorithms). It reads one vector layer and writes forced temporary
+  outputs — a matching-features layer and its non-matching complement — never a
+  path or a disk file. Signatures verified identical on QGIS 3.44.12 LTR and
+  4.2.0, and the real-QGIS smoke now filters `highway = bus_stop` into a new
+  layer end-to-end and undoes it.
+
+So "keep only the bus stops as a new temporary layer" is now a one-click
+`processing_run` proposal in Act mode. (Selecting features in place, as opposed
+to extracting them to a new layer, is still not something the tools express.)
+
 ## [0.5.1] - 2026-07-24
 
 ### The agent can now actually complete a proposal

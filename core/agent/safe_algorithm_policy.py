@@ -220,6 +220,21 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         {"INPUT": VECTOR_LAYER, "FIELD": FIELD},
         ("INPUT",),
     ),
+    # Extract-by-attribute is the "filter these features into a new layer"
+    # request users actually ask for. It is side-effect-safe like the rest:
+    # it reads one vector layer and writes a forced temporary output, and every
+    # binding is a constrained kind (a field name, an enum index, a plain
+    # comparison value) -- never a path or an expression. Signatures verified
+    # identical on QGIS 3.44.12 LTR and 4.2.0.
+    "native:extractbyattribute": _alg(
+        "native:extractbyattribute",
+        {"INPUT": VECTOR_LAYER, "FIELD": FIELD, "OPERATOR": ENUM, "VALUE": STRING_LABEL},
+        ("INPUT",),
+        # Both sinks are pinned so the live-signature gate accepts the algorithm;
+        # every destination is forced to a temporary output, so the run adds a
+        # matching-features layer and a non-matching (FAIL_OUTPUT) layer.
+        destinations=("OUTPUT", "FAIL_OUTPUT"),
+    ),
     "native:difference": _alg(
         "native:difference",
         {"INPUT": VECTOR_LAYER, "OVERLAY": VECTOR_LAYER},

@@ -889,6 +889,25 @@ class InstructionSchemaParityTests(unittest.TestCase):
         self.assertIsInstance(proposal, ModelPatchProposal)
         self.assertTrue(proposal.operations)
 
+    def test_documented_processing_run_example_parses(self) -> None:
+        example = next(
+            block
+            for block in self._doc_examples()
+            if '"inputs"' in block and '"operations"' not in block
+        )
+        proposal = parse_proposal("processing_run", example)
+        self.assertEqual(proposal.algorithm_id, "native:extractbyattribute")
+        self.assertTrue(proposal.inputs)
+
+    def test_documented_model_run_example_parses(self) -> None:
+        example = next(
+            block
+            for block in self._doc_examples()
+            if '"title": "Run the current model"' in block
+        )
+        proposal = parse_proposal("model_run", example)
+        self.assertEqual(proposal.title, "Run the current model")
+
 
 if __name__ == "__main__":
     unittest.main()
