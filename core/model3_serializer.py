@@ -8,6 +8,8 @@ from typing import Dict, Optional, Tuple
 from qgis.PyQt.QtCore import QPointF
 from qgis.core import (
     Qgis,
+    QgsApplication,
+    QgsProcessing,
     QgsProcessingModelAlgorithm,
     QgsProcessingModelChildAlgorithm,
     QgsProcessingModelChildParameterSource,
@@ -20,6 +22,13 @@ from qgis.core import (
 
 from .algorithm_catalog import AlgorithmCatalog
 from .graph_model import GraphModel, NodeDefinition, SocketType
+
+# Scoped on purpose: QGIS 4/Qt6 requires the scoped form, and the enum lives on
+# QgsProcessing (not Qgis) on both QGIS 3.44 LTR and QGIS 4.2 -- verified on
+# both runtimes rather than assumed.
+_PYTHON_ALGORITHM_SUBCLASS = (
+    QgsProcessing.PythonOutputType.PythonQgsProcessingAlgorithmSubclass
+)
 
 
 class Model3Serializer:
@@ -140,11 +149,27 @@ class Model3Serializer:
             return None
 
     @classmethod
-    def export_to_model3(cls, graph: GraphModel, path: str) -> Tuple[bool, str]:
-        """Export through QgsProcessingModelAlgorithm, never hand-written XML."""
+    def build_native_model(
+        cls, graph: GraphModel, promote_missing_inputs: bool = True
+    ) -> Tuple[Optional[QgsProcessingModelAlgorithm], str, list]:
+        """Build the QGIS-native model for ``graph``.
+
+        Returns ``(model, fatal_error, issues)``. ``fatal_error`` is non-empty
+        only when no model could be built at all (an unavailable algorithm);
+        ``issues`` are QGIS' own validation messages, which are advisory: a
+        model with unconfigured inputs is still perfectly writable, exactly as
+        it is in QGIS' own Model Designer.
+
+        With ``promote_missing_inputs`` a required child parameter that has
+        neither an upstream connection nor a usable literal is turned into a
+        **model input** rather than being left unset. That is what makes an
+        exported half-configured workflow useful: opening it in QGIS asks for
+        the layer instead of refusing to run.
+        """
         model = QgsProcessingModelAlgorithm(graph.name, "SmartModeler GIS", "smartmodeler")
         model.setHelpContent({"ALG_DESC": graph.description})
         child_nodes: Dict[str, QgsProcessingModelChildAlgorithm] = {}
+        taken_names = set()
 
         for node in graph.nodes.values():
             if node.algorithm_id.startswith("smart:"):
@@ -153,18 +178,21 @@ class Model3Serializer:
                 component.setDescription(node.title)
                 component.setPosition(QPointF(node.x, node.y))
                 model.addModelParameter(definition, component)
+                taken_names.add(node.node_id)
                 continue
             if not AlgorithmCatalog.algorithm_exists(node.algorithm_id):
-                return False, f"Algorithm is unavailable: {node.algorithm_id}"
+                return None, f"Algorithm is unavailable: {node.algorithm_id}", []
             child = QgsProcessingModelChildAlgorithm(node.algorithm_id)
             child.setChildId(node.node_id)
             child.setDescription(node.title)
             child.setPosition(QPointF(node.x, node.y))
             child_nodes[node.node_id] = child
 
+        registry = QgsApplication.processingRegistry()
         for node_id, child in child_nodes.items():
             node = graph.nodes[node_id]
-            for input_name in node.inputs:
+            algorithm = registry.algorithmById(node.algorithm_id)
+            for input_name, port in node.inputs.items():
                 incoming = [
                     edge
                     for edge in graph.incoming_edges(node_id)
@@ -185,12 +213,40 @@ class Model3Serializer:
                                 edge.start_node_id, edge.start_port_id
                             )
                         )
+                definition = (
+                    algorithm.parameterDefinition(input_name)
+                    if algorithm is not None
+                    else None
+                )
+                # A literal the algorithm itself rejects is worse than no
+                # literal: it makes the whole exported model invalid and the
+                # message ("Value for X is not acceptable") names the parameter
+                # rather than the value. Drop it and fall through to the
+                # promotion below, which produces a model the user can fill in.
                 if not sources and input_name in node.parameters:
-                    sources = [
-                        QgsProcessingModelChildParameterSource.fromStaticValue(
-                            node.parameters[input_name]
-                        )
-                    ]
+                    value = node.parameters[input_name]
+                    if definition is None or definition.checkValueIsAcceptable(value):
+                        sources = [
+                            QgsProcessingModelChildParameterSource.fromStaticValue(value)
+                        ]
+                if (
+                    not sources
+                    and promote_missing_inputs
+                    and port.required
+                    and definition is not None
+                ):
+                    parameter_name = cls._unique_parameter_name(
+                        f"{node_id}_{input_name}", taken_names
+                    )
+                    if cls._add_promoted_parameter(
+                        model, definition, parameter_name, node, input_name
+                    ):
+                        taken_names.add(parameter_name)
+                        sources = [
+                            QgsProcessingModelChildParameterSource.fromModelParameter(
+                                parameter_name
+                            )
+                        ]
                 if sources:
                     child.addParameterSources(input_name, sources)
 
@@ -204,11 +260,91 @@ class Model3Serializer:
                 child.setModelOutputs(outputs)
             model.addChildAlgorithm(child)
 
-        valid, errors = model.validate()
-        if not valid:
-            return False, "\n".join(str(error) for error in errors)
+        _valid, errors = model.validate()
+        return model, "", [str(error) for error in errors]
+
+    @staticmethod
+    def _unique_parameter_name(candidate: str, taken_names: set) -> str:
+        name = candidate
+        suffix = 2
+        while name in taken_names:
+            name = f"{candidate}_{suffix}"
+            suffix += 1
+        return name
+
+    @staticmethod
+    def _add_promoted_parameter(
+        model: QgsProcessingModelAlgorithm,
+        definition,
+        parameter_name: str,
+        node: NodeDefinition,
+        input_name: str,
+    ) -> bool:
+        """Clone one child parameter definition into a model input.
+
+        Returns whether it was added; a definition that cannot be cloned or
+        re-registered is skipped, leaving the parameter unset rather than
+        aborting the export.
+        """
+        try:
+            promoted = definition.clone()
+            if promoted is None:
+                return False
+            promoted.setName(parameter_name)
+            promoted.setDescription(
+                f"{node.title}: {definition.description() or input_name}"
+            )
+            promoted.setFlags(
+                promoted.flags() & ~Qgis.ProcessingParameterFlag.Hidden
+            )
+            component = QgsProcessingModelParameter(parameter_name)
+            component.setDescription(promoted.description())
+            component.setPosition(QPointF(node.x - 260.0, node.y))
+            model.addModelParameter(promoted, component)
+        except Exception:  # pragma: no cover - defensive around the C++ clone
+            return False
+        return True
+
+    @classmethod
+    def export_to_model3(
+        cls, graph: GraphModel, path: str, allow_invalid: bool = False
+    ) -> Tuple[bool, str]:
+        """Export through QgsProcessingModelAlgorithm, never hand-written XML.
+
+        With ``allow_invalid`` the file is written even when QGIS still reports
+        validation issues, which is what a work-in-progress workflow needs.
+        """
+        model, fatal, issues = cls.build_native_model(graph)
+        if model is None:
+            return False, fatal
+        if issues and not allow_invalid:
+            return False, "\n".join(issues)
         if not model.toFile(path):
             return False, "QGIS could not write the .model3 file."
+        return True, ""
+
+    @classmethod
+    def export_to_python(cls, graph: GraphModel, path: str) -> Tuple[bool, str]:
+        """Write the workflow as a runnable QgsProcessingAlgorithm subclass.
+
+        This is the same code QGIS' Model Designer produces with *Export as
+        Python Algorithm*, so the result can be dropped into the Processing
+        scripts folder or edited by hand. Validation issues never block it: a
+        script of a half-finished workflow is still useful to read.
+        """
+        model, fatal, _issues = cls.build_native_model(graph)
+        if model is None:
+            return False, fatal
+        try:
+            lines = model.asPythonCode(_PYTHON_ALGORITHM_SUBCLASS, 4)
+        except Exception as error:  # pragma: no cover - API/enum drift guard
+            return False, f"QGIS could not generate Python code: {error}"
+        if not lines:
+            return False, "QGIS produced no Python code for this workflow."
+        try:
+            Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError as error:
+            return False, str(error)
         return True, ""
 
     @classmethod

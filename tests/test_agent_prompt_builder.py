@@ -96,6 +96,32 @@ class BudgetTests(unittest.TestCase):
         with self.assertRaises(PromptBuildError):
             build_prompt(**base_call(budget=budget))
 
+    def test_a_long_run_trace_is_trimmed_instead_of_ending_the_run(self) -> None:
+        # The owner-reported failure: after two or three tool calls the run
+        # died with "does not fit within the configured prompt budget" instead
+        # of dropping its oldest tool output.
+        events = [
+            {
+                "kind": "tool_result",
+                "tool_name": "layer.list",
+                "call_id": f"c{index}",
+                "result": {"status": "success", "data": {"blob": "y" * 300}},
+            }
+            for index in range(20)
+        ]
+        budget = PromptBudget(max_prompt_chars=2500)
+        result = build_prompt(**base_call(current_run_events=events, budget=budget))
+        payload = json.loads(result.user_prompt)
+        kept = payload["current_turn_events"]
+        self.assertLess(len(kept), len(events))
+        self.assertEqual(kept[0]["kind"], "events_omitted")
+        self.assertGreater(kept[0]["dropped_events"], 0)
+        # The most recent event always survives; the oldest go first.
+        self.assertEqual(kept[-1]["call_id"], "c19")
+        self.assertLessEqual(
+            len(result.system_prompt) + len(result.user_prompt), budget.max_prompt_chars
+        )
+
     def test_oldest_history_is_dropped_first_with_an_explicit_marker(self) -> None:
         history = tuple(
             SessionExchange(f"question {i}", "y" * 200) for i in range(20)

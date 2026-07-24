@@ -170,6 +170,65 @@ def _omit_if_oversized(event: Dict[str, Any], max_chars: int) -> Dict[str, Any]:
     return omitted
 
 
+def _events_omitted_marker(dropped: int) -> Dict[str, Any]:
+    """A single small, valid event standing in for ``dropped`` older events."""
+    return {
+        "kind": "events_omitted",
+        "dropped_events": dropped,
+        "reason": (
+            "the earliest events of this run were dropped to fit the prompt "
+            "budget; call a tool again if you still need that information"
+        ),
+    }
+
+
+def _fixed_length(
+    static_instructions: str,
+    mode: str,
+    scope: str,
+    tool_descriptions: List[Dict[str, Any]],
+    user_text: str,
+    bounded_events: List[Dict[str, Any]],
+) -> int:
+    """Length of the never-negotiable part of the prompt: no session history."""
+    payload = _payload(
+        mode, scope, tool_descriptions, user_text, bounded_events, (), False
+    )
+    return len(static_instructions) + len(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    )
+
+
+def _drop_oldest_events_to_fit(
+    static_instructions: str,
+    mode: str,
+    scope: str,
+    tool_descriptions: List[Dict[str, Any]],
+    user_text: str,
+    bounded_events: List[Dict[str, Any]],
+    max_prompt_chars: int,
+) -> List[Dict[str, Any]]:
+    """Fold the oldest run events into one marker until the fixed context fits.
+
+    Raises :class:`PromptBuildError` only when even a trace-free prompt is too
+    large -- that is a genuine configuration problem (the instructions or the
+    tool schemas alone exceed the budget), not something dropping history can
+    repair.
+    """
+    for dropped in range(1, len(bounded_events) + 1):
+        candidate = [_events_omitted_marker(dropped)] + bounded_events[dropped:]
+        if _fixed_length(
+            static_instructions, mode, scope, tool_descriptions, user_text, candidate
+        ) <= max_prompt_chars:
+            return candidate
+    raise PromptBuildError(
+        "The required context (instructions, tools, and your current request) "
+        f"does not fit within the {max_prompt_chars}-character prompt budget, "
+        "even with this run's tool trace dropped. Raise the run's "
+        "max_prompt_chars or narrow the scope so fewer tools are advertised."
+    )
+
+
 def _payload(
     mode: str,
     scope: str,
@@ -237,13 +296,24 @@ def build_prompt(
             json.dumps(payload, ensure_ascii=False, sort_keys=True)
         )
 
-    # The fixed context (instructions, tools, current request, this run's own
-    # trace) is never dropped; if it alone cannot fit, fail before any
-    # network request rather than silently degrading it.
-    if combined_length((), history_truncated=False) > budget.max_prompt_chars:
-        raise PromptBuildError(
-            "The required context (instructions, tools, and your current "
-            "request) does not fit within the configured prompt budget."
+    # The instructions, the advertised tools and the current request are never
+    # dropped. This run's own trace is the one part of the "fixed" context that
+    # grows without bound as the run makes more tool calls, so when the fixed
+    # context no longer fits, the *oldest* turn events are folded into a single
+    # small omission marker until it does. A long inspection run must lose its
+    # earliest tool output, not die -- failing the whole run here is what made
+    # a third tool call unusable in practice.
+    if _fixed_length(
+        static_instructions, mode, scope, tool_descriptions, user_text, bounded_events
+    ) > budget.max_prompt_chars:
+        bounded_events = _drop_oldest_events_to_fit(
+            static_instructions,
+            mode,
+            scope,
+            tool_descriptions,
+            user_text,
+            bounded_events,
+            budget.max_prompt_chars,
         )
 
     # Include as much history as fits, dropping the oldest exchange first.

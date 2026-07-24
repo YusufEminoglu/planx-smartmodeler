@@ -116,6 +116,17 @@ class SmartModelerWindow(QMainWindow):
         self.run_action.triggered.connect(self.run_model)
         toolbar.addAction(self.run_action)
 
+        setup_action = QAction(
+            self._theme_icon("/mActionEditTable.svg"), "Run setup", self
+        )
+        setup_action.setToolTip(
+            "Review every step in run order and fill in the missing inputs"
+        )
+        # Explicit lambda: QAction.triggered passes a `checked` bool that would
+        # otherwise land in only_when_incomplete.
+        setup_action.triggered.connect(lambda: self.open_run_setup())
+        toolbar.addAction(setup_action)
+
         validate_action = QAction(self._theme_icon("/mIconSuccess.svg"), "Validate", self)
         validate_action.triggered.connect(self.validate_model)
         toolbar.addAction(validate_action)
@@ -519,46 +530,35 @@ class SmartModelerWindow(QMainWindow):
         self.view.centerOn(item)
         self.inspector_widget.inspect_node(node)
 
-    def _configure_required_inputs(self, issues: list[GraphIssue]) -> bool:
-        missing = [issue for issue in issues if issue.code == "missing_input"]
-        other = [issue for issue in issues if issue.code != "missing_input"]
-        if not missing or other:
-            return False
-        node_ids = list(dict.fromkeys(issue.node_id for issue in missing))
-        names = "\n".join(
-            f"- {self.graph.nodes[node_id].title}"
-            for node_id in node_ids[:10]
-            if node_id in self.graph.nodes
-        )
-        if QMessageBox.question(
-            self,
-            "Finish workflow setup",
-            f"{len(missing)} required input(s) are not configured across "
-            f"{len(node_ids)} node(s). Open each node now?\n\n{names}",
-        ) != QMessageBox.StandardButton.Yes:
-            self.status_label.setText("Workflow needs input configuration")
-            return False
+    def open_run_setup(self, only_when_incomplete: bool = False) -> bool:
+        """Show the whole workflow in run order so every open input can be set.
 
-        for node_id in node_ids:
-            node = self.graph.nodes.get(node_id)
-            if node is None:
-                continue
-            current = [
-                issue
-                for issue in self._workflow_issues()
-                if issue.node_id == node_id and issue.code == "missing_input"
-            ]
-            if not current:
-                continue
-            self._focus_node(node)
-            self.status_label.setText(f"Configure required inputs: {node.title}")
-            if not self.configure_node(node, require_complete=True):
-                self._mark_workflow_issues(self._workflow_issues())
-                self.status_label.setText("Workflow setup canceled")
-                return False
+        This is the guided setup the Run action uses. It replaced a chain of
+        one modal per unconfigured node, which hid the flow and gave no way to
+        go back a step.
+        """
+        from .run_setup_dialog import RunSetupDialog
 
+        if not self.graph.nodes:
+            QMessageBox.warning(self, "Workflow is empty", "Add at least one node first.")
+            return False
+        if only_when_incomplete and not [
+            issue for issue in self._workflow_issues() if issue.code == "missing_input"
+        ]:
+            return True
+        dialog = RunSetupDialog(self.graph, self, iface=self.iface)
+        dialog.setStyleSheet(STUDIO_STYLE)
+        accepted = bool(dialog.exec())
+        for node_id in self.graph.nodes:
+            item = self.scene.node_items.get(node_id)
+            if item is not None:
+                item.refresh()
+        self.inspector_widget.inspect_node(self.inspector_widget.node)
         remaining = self._workflow_issues()
         self._mark_workflow_issues(remaining)
+        if not accepted:
+            self.status_label.setText("Workflow setup canceled")
+            return False
         if remaining:
             QMessageBox.warning(
                 self,
@@ -568,6 +568,13 @@ class SmartModelerWindow(QMainWindow):
             return False
         self.status_label.setText("Workflow inputs configured")
         return True
+
+    def _configure_required_inputs(self, issues: list[GraphIssue]) -> bool:
+        missing = [issue for issue in issues if issue.code == "missing_input"]
+        other = [issue for issue in issues if issue.code != "missing_input"]
+        if not missing or other:
+            return False
+        return self.open_run_setup()
 
     def _ensure_workflow_ready(self) -> bool:
         if not self.graph.nodes:
@@ -656,12 +663,20 @@ class SmartModelerWindow(QMainWindow):
             self,
             "Save workflow",
             self.graph.name.replace(" ", "_") + ".model3",
-            "QGIS Processing model (*.model3);;SmartModeler project (*.smartmodeler.json)",
+            "QGIS Processing model (*.model3)"
+            ";;QGIS Python algorithm (*.py)"
+            ";;SmartModeler project (*.smartmodeler.json)",
         )
         if not path:
             return
-        if "SmartModeler" in selected_filter or path.lower().endswith(".json"):
-            if not path.lower().endswith(".json"):
+        lowered = path.lower()
+        if "Python" in selected_filter or lowered.endswith(".py"):
+            if not lowered.endswith(".py"):
+                path += ".py"
+            if not self._export_python(path):
+                return
+        elif "SmartModeler" in selected_filter or lowered.endswith(".json"):
+            if not lowered.endswith(".json"):
                 path += ".smartmodeler.json"
             try:
                 Path(path).write_text(Model3Serializer.export_to_json(self.graph), encoding="utf-8")
@@ -669,16 +684,57 @@ class SmartModelerWindow(QMainWindow):
                 QMessageBox.critical(self, "Save failed", str(error))
                 return
         else:
-            if not path.lower().endswith(".model3"):
+            if not lowered.endswith(".model3"):
                 path += ".model3"
-            try:
-                ok, error = Model3Serializer.export_to_model3(self.graph, path)
-            except Exception as export_error:
-                ok, error = False, str(export_error)
-            if not ok:
-                QMessageBox.critical(self, "QGIS model export failed", error)
+            if not self._export_model3(path):
                 return
         self.status_label.setText(f"Saved {path}")
+
+    def _export_model3(self, path: str) -> bool:
+        """Save a .model3, treating QGIS' validation issues as advisory.
+
+        An unfinished workflow must still be savable -- QGIS' own Model
+        Designer saves incomplete models without complaint, and refusing to
+        write the file was losing work over inputs the user had deliberately
+        not bound yet.
+        """
+        try:
+            ok, error = Model3Serializer.export_to_model3(self.graph, path)
+        except Exception as export_error:
+            ok, error = False, str(export_error)
+        if ok:
+            return True
+        if QMessageBox.question(
+            self,
+            "Save this workflow anyway?",
+            "QGIS reports that the model is not fully configured yet:\n\n"
+            + error
+            + "\n\nSave it anyway? The file opens in the QGIS Model Designer, "
+            "which will ask for the missing values when you run it.",
+        ) != QMessageBox.StandardButton.Yes:
+            self.status_label.setText("Save canceled")
+            return False
+        try:
+            ok, error = Model3Serializer.export_to_model3(
+                self.graph, path, allow_invalid=True
+            )
+        except Exception as export_error:
+            ok, error = False, str(export_error)
+        if not ok:
+            QMessageBox.critical(self, "QGIS model export failed", error)
+            return False
+        self.status_label.setText(f"Saved {path} (with unconfigured inputs)")
+        return True
+
+    def _export_python(self, path: str) -> bool:
+        try:
+            ok, error = Model3Serializer.export_to_python(self.graph, path)
+        except Exception as export_error:
+            ok, error = False, str(export_error)
+        if not ok:
+            QMessageBox.critical(self, "Python export failed", error)
+            return False
+        return True
 
     def import_model(self) -> None:
         path, _selected_filter = QFileDialog.getOpenFileName(

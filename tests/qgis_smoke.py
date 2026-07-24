@@ -5,11 +5,12 @@ import os
 import sys
 from pathlib import Path
 
-from qgis.PyQt.QtCore import QEvent, Qt
+from qgis.PyQt.QtCore import QEvent, QMetaType, Qt
 from qgis.PyQt.QtGui import QIcon, QKeyEvent
 from qgis.core import (
     QgsApplication,
     QgsFeature,
+    QgsField,
     QgsGeometry,
     QgsPointXY,
     QgsProcessingAlgorithm,
@@ -60,6 +61,7 @@ def run_checks() -> str:
     from planx_smartmodeler.gui.canvas_view import CanvasView
     from planx_smartmodeler.gui.node_parameter_dialog import NodeParameterDialog
     from planx_smartmodeler.gui.node_palette_widget import NodePaletteWidget
+    from planx_smartmodeler.gui.run_setup_dialog import RunSetupDialog
     from planx_smartmodeler.main_plugin import SmartModelerPlugin
 
     with scoped_ai_settings_isolation():
@@ -214,6 +216,7 @@ def run_checks() -> str:
             "project.summary",
             "layer.list",
             "layer.describe",
+            "layer.field_values",
             "processing.search",
             "processing.describe",
             "model.summary",
@@ -228,7 +231,7 @@ def run_checks() -> str:
         registry_tool_names = {spec.name for spec in empty_dock.registry.list_specs()}
         if registry_tool_names != expected_agent_tools:
             raise RuntimeError(
-                "The Agent Workspace registry must contain exactly the twelve V1 tools."
+                "The Agent Workspace registry must contain exactly the V1 tools."
             )
         if empty_dock.scope_combo.count() != 4 or empty_dock.mode_combo.count() != 3:
             raise RuntimeError("Agent Workspace dock did not construct its selectors under Qt 6.")
@@ -324,6 +327,66 @@ def run_checks() -> str:
         describe_text = str(layer_describe_result.data)
         if "memory?" in describe_text or "POINT(" in describe_text.upper():
             raise RuntimeError("layer.describe leaked a source URI or feature value.")
+        if layer_describe_result.data.get("feature_count") != 1:
+            raise RuntimeError("layer.describe did not report the layer's feature count.")
+
+        # -- Owner-QA follow-up: "how many of these are bus stops?" -----------
+        # Without an aggregate over one attribute the agent had to answer that
+        # it could not know, and had to invent the classes of a categorized
+        # style. layer.field_values returns counts only -- never a feature.
+        tagged_layer = QgsVectorLayer("Point?crs=EPSG:3857", "smoke_highways", "memory")
+        tagged_layer.dataProvider().addAttributes(
+            [QgsField("highway", QMetaType.Type.QString)]
+        )
+        tagged_layer.updateFields()
+        tagged_features = []
+        for tag in ("bus_stop", "bus_stop", "bus_stop", "crossing", None):
+            tagged_feature = QgsFeature(tagged_layer.fields())
+            tagged_feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(1, 1)))
+            tagged_feature.setAttribute("highway", tag)
+            tagged_features.append(tagged_feature)
+        tagged_layer.dataProvider().addFeatures(tagged_features)
+        tagged_layer.updateExtents()
+        project.addMapLayer(tagged_layer)
+
+        field_values_result = live_controller.execute(
+            AgentToolCall(
+                call_id="smoke_field_values",
+                tool_name="layer.field_values",
+                arguments={"layer_id": tagged_layer.id(), "field": "highway"},
+            ),
+            AgentMode.ASK,
+            AgentScope.PROJECT,
+        )
+        if field_values_result.status != AgentResultStatus.SUCCESS:
+            raise RuntimeError("layer.field_values failed against the smoke layer.")
+        value_counts = {
+            item["value"]: item["count"] for item in field_values_result.data["values"]
+        }
+        if value_counts.get("bus_stop") != 3 or value_counts.get("crossing") != 1:
+            raise RuntimeError(f"layer.field_values miscounted: {value_counts}")
+        if value_counts.get("") != 1:
+            raise RuntimeError("layer.field_values did not normalize NULL on this runtime.")
+        if field_values_result.data.get("count_is_complete") is not True:
+            raise RuntimeError("A fully scanned layer was reported as incomplete.")
+        field_values_text = str(field_values_result.data)
+        if "memory?" in field_values_text or "POINT(" in field_values_text.upper():
+            raise RuntimeError("layer.field_values leaked a source URI or a geometry.")
+
+        unknown_field_result = live_controller.execute(
+            AgentToolCall(
+                call_id="smoke_field_values_unknown",
+                tool_name="layer.field_values",
+                arguments={"layer_id": tagged_layer.id(), "field": "no_such_field"},
+            ),
+            AgentMode.ASK,
+            AgentScope.PROJECT,
+        )
+        if (
+            unknown_field_result.status != AgentResultStatus.SUCCESS
+            or unknown_field_result.data.get("available") is not False
+        ):
+            raise RuntimeError("layer.field_values invented a result for an unknown field.")
 
         missing_layer_id_result = live_controller.execute(
             AgentToolCall(call_id="smoke_layer_describe_missing", tool_name="layer.describe"),
@@ -1104,10 +1167,10 @@ def run_checks() -> str:
                 raise RuntimeError(f"plugin.capabilities failed for {package_name}.")
             return outcome.data
 
-        # The V1 registry is exactly twelve read-only tools.
+        # The V1 registry is exactly thirteen read-only tools.
         tool_names = {d["name"] for d in caps_dock.registry.public_tool_descriptions()}
-        if len(tool_names) != 12 or "plugin.capabilities" not in tool_names:
-            raise RuntimeError(f"Expected the twelve-tool V1 registry, got {len(tool_names)}.")
+        if len(tool_names) != 13 or "plugin.capabilities" not in tool_names:
+            raise RuntimeError(f"Expected the thirteen-tool V1 registry, got {len(tool_names)}.")
 
         # An unknown package is reported honestly, never invented.
         unknown = _capabilities("definitely_not_a_real_plugin_xyz")
@@ -1525,7 +1588,7 @@ def run_checks() -> str:
                     "The suitability raster collection was not modeled as required."
                 )
             parameter_dialog = NodeParameterDialog(harmonizer)
-            wrapper = parameter_dialog.native_wrappers.get("INPUT_RASTERS")
+            wrapper = parameter_dialog.form.native_wrappers.get("INPUT_RASTERS")
             if wrapper is None or wrapper.wrappedWidget() is None:
                 raise RuntimeError(
                     "The native QGIS multiple-raster parameter widget was not created."
@@ -1549,6 +1612,74 @@ def run_checks() -> str:
             model_path.unlink(missing_ok=True)
             for layer_id in set(project.mapLayers()) - original_layer_ids:
                 project.removeMapLayer(layer_id)
+
+        # -- Owner-QA follow-up: an unfinished workflow must still save -------
+        # The reported failure: a workflow whose inputs were not bound yet
+        # refused to export at all, so the work was unsavable. Unbound required
+        # inputs now become model inputs and a literal the algorithm rejects is
+        # dropped rather than poisoning the whole model.
+        rough = GraphModel("Unfinished workflow")
+        rough_buffer = AlgorithmCatalog.create_node("native:buffer", title="Buffer step")
+        rough_buffer.parameters["END_CAP_STYLE"] = "not-an-enum-index"
+        rough.add_node(rough_buffer)
+        rough_centroids = AlgorithmCatalog.create_node("native:centroids", title="Centres")
+        rough.add_node(rough_centroids)
+        if rough.add_edge(
+            rough_buffer.node_id, "OUTPUT", rough_centroids.node_id, "INPUT"
+        ) is None:
+            raise RuntimeError(rough.last_error)
+
+        native_model, fatal, issues = Model3Serializer.build_native_model(rough)
+        if fatal:
+            raise RuntimeError(fatal)
+        if issues:
+            raise RuntimeError(
+                "An unfinished workflow still reports validation issues: "
+                + "; ".join(issues)
+            )
+        promoted = {
+            definition.name() for definition in native_model.parameterDefinitions()
+        }
+        if not any(name.endswith("_INPUT") for name in promoted):
+            raise RuntimeError("The unbound required INPUT did not become a model input.")
+
+        rough_path = Path(__file__).with_name("_smoke_rough.model3")
+        python_path = Path(__file__).with_name("_smoke_rough.py")
+        try:
+            ok, error = Model3Serializer.export_to_model3(rough, str(rough_path))
+            if not ok:
+                raise RuntimeError(f"An unfinished workflow refused to save: {error}")
+            reopened, error = Model3Serializer.import_from_model3(str(rough_path))
+            if reopened is None:
+                raise RuntimeError(error or "The saved unfinished model did not reopen.")
+            ok, error = Model3Serializer.export_to_python(rough, str(python_path))
+            if not ok:
+                raise RuntimeError(f"Python export failed: {error}")
+            exported_source = python_path.read_text(encoding="utf-8")
+            if "QgsProcessingAlgorithm" not in exported_source:
+                raise RuntimeError("The exported Python is not a Processing algorithm.")
+            compile(exported_source, str(python_path), "exec")
+        finally:
+            rough_path.unlink(missing_ok=True)
+            python_path.unlink(missing_ok=True)
+
+        # -- Owner-QA follow-up: Run shows the whole flow, not one modal/node --
+        original_rough_parameters = dict(rough_buffer.parameters)
+        setup = RunSetupDialog(rough)
+        try:
+            if [node.title for node, _form in setup._forms] != ["Buffer step", "Centres"]:
+                raise RuntimeError("Run setup did not list every step in run order.")
+            if "Buffer step" not in setup._missing_by_node(setup._collect_all()):
+                raise RuntimeError("Run setup did not report the unset required input.")
+            setup.show_all_check.setChecked(True)
+            if len(setup._forms) != 2:
+                raise RuntimeError("Run setup lost a step when showing all parameters.")
+            setup.reject()
+            if rough_buffer.parameters != original_rough_parameters:
+                raise RuntimeError("Cancelling run setup did not restore the parameters.")
+        finally:
+            setup.deleteLater()
+
         return f"QGIS {Qgis.QGIS_VERSION}: {len(records)} algorithms; smoke test passed"
 
 

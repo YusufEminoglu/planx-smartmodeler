@@ -284,16 +284,6 @@ class AgentRunLoop:
                 error.reason_code,
             )
 
-        # Preflight call-id reuse across the whole run before executing any
-        # call in this turn (per-turn uniqueness is already enforced by
-        # parse_agent_turn).
-        for call in turn.tool_calls:
-            if call.call_id in self._seen_call_ids:
-                return self._fail(
-                    f"The AI reused a tool call id from an earlier turn: {call.call_id!r}.",
-                    "duplicate_call_id",
-                )
-
         this_turn_events: List[Dict[str, Any]] = []
         if turn.assistant_text:
             note = {"kind": "assistant_note", "text": turn.assistant_text}
@@ -301,7 +291,7 @@ class AgentRunLoop:
             this_turn_events.append(note)
 
         for call in turn.tool_calls:
-            self._seen_call_ids.add(call.call_id)
+            trace_call_id = self._trace_call_id(call.call_id)
             # approved=False is always supplied by this trusted application
             # code; provider output can never set, infer, or influence it.
             result = self.controller.execute(
@@ -311,7 +301,7 @@ class AgentRunLoop:
             event_dict = {
                 "kind": "tool_result",
                 "tool_name": call.tool_name,
-                "call_id": call.call_id,
+                "call_id": trace_call_id,
                 "result": result_dict,
             }
             self._turn_events.append(event_dict)
@@ -333,6 +323,29 @@ class AgentRunLoop:
         return self._advance_turn(
             assistant_text=turn.assistant_text, tool_events=tuple(this_turn_events)
         )
+
+    def _trace_call_id(self, call_id: str) -> str:
+        """Return a run-unique id for this call's trace event.
+
+        A provider that numbers its calls ``c1``, ``c2`` from scratch on every
+        turn is not misbehaving: a call id only labels results *within* one
+        turn, and per-turn uniqueness is already enforced by
+        :func:`parse_agent_turn`. Treating cross-turn reuse as a fatal
+        protocol error made such providers (DeepSeek among them) unable to
+        complete a second turn at all, so a repeated id is disambiguated for
+        the run's own record instead of ending the run.
+        """
+        if call_id not in self._seen_call_ids:
+            self._seen_call_ids.add(call_id)
+            return call_id
+        turn = self._run_state.turns if self._run_state is not None else 0
+        qualified = f"{call_id}#t{turn}"
+        suffix = 2
+        while qualified in self._seen_call_ids:
+            qualified = f"{call_id}#t{turn}.{suffix}"
+            suffix += 1
+        self._seen_call_ids.add(qualified)
+        return qualified
 
     def _advance_turn(
         self, assistant_text: str = "", tool_events: Tuple[Dict[str, Any], ...] = ()

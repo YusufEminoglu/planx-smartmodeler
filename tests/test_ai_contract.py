@@ -12,6 +12,7 @@ if "qgis.core" not in sys.modules:
     dummy_names = (
         "Qgis",
         "QgsApplication",
+        "QgsFeatureRequest",
         "QgsProcessingParameterBoolean",
         "QgsProcessingParameterDefinition",
         "QgsProcessingParameterFeatureSource",

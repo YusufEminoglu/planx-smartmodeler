@@ -6,11 +6,13 @@ import unittest
 from planx_smartmodeler.core.agent.context import (
     FieldSummary,
     LayerSummary,
+    MAX_FIELD_VALUES,
     MAX_LIST_ITEMS,
     ModelNodeSummary,
     PluginSummary,
     bound_list,
     bound_text,
+    build_field_values,
     build_layer_description,
     build_layer_list,
     build_model_summary,
@@ -194,6 +196,75 @@ class ModelSummaryTests(unittest.TestCase):
         second = build_model_summary(True, "W", nodes, 0, (), limit=3)
         self.assertEqual(first, second)
         self.assertTrue(first["nodes_truncated"])
+
+
+class FieldValuesTests(unittest.TestCase):
+    def test_values_are_ordered_by_count_and_carry_the_totals(self) -> None:
+        result = build_field_values(
+            "layer_1",
+            "highway",
+            [("crossing", 1), ("bus_stop", 3)],
+            feature_count=4,
+            scanned=4,
+            complete=True,
+        )
+        self.assertEqual(
+            result["values"],
+            [{"value": "bus_stop", "count": 3}, {"value": "crossing", "count": 1}],
+        )
+        self.assertEqual(result["feature_count"], 4)
+        self.assertEqual(result["features_scanned"], 4)
+        self.assertTrue(result["count_is_complete"])
+        self.assertFalse(result["values_truncated"])
+
+    def test_a_partial_scan_never_claims_to_be_complete(self) -> None:
+        result = build_field_values(
+            "layer_1", "highway", [("a", 5)], feature_count=900, scanned=100, complete=False
+        )
+        self.assertFalse(result["count_is_complete"])
+        self.assertEqual(result["features_scanned"], 100)
+
+    def test_distinct_values_are_bounded_and_flagged(self) -> None:
+        pairs = [(f"value_{index}", index + 1) for index in range(MAX_FIELD_VALUES + 40)]
+        result = build_field_values(
+            "layer_1", "field", pairs, feature_count=1, scanned=1, complete=True
+        )
+        self.assertEqual(len(result["values"]), MAX_FIELD_VALUES)
+        self.assertTrue(result["values_truncated"])
+
+    def test_a_requested_limit_can_only_narrow_the_bound(self) -> None:
+        pairs = [(f"value_{index}", 1) for index in range(MAX_FIELD_VALUES + 10)]
+        result = build_field_values(
+            "layer_1",
+            "field",
+            pairs,
+            feature_count=1,
+            scanned=1,
+            complete=True,
+            limit=MAX_FIELD_VALUES + 1000,
+        )
+        self.assertEqual(len(result["values"]), MAX_FIELD_VALUES)
+
+    def test_ordering_is_deterministic_for_equal_counts(self) -> None:
+        pairs = [("b", 2), ("a", 2), ("c", 2)]
+        first = build_field_values("l", "f", pairs, 6, 6, True)
+        second = build_field_values("l", "f", list(reversed(pairs)), 6, 6, True)
+        self.assertEqual(first, second)
+        self.assertEqual([item["value"] for item in first["values"]], ["a", "b", "c"])
+
+
+class LayerDescriptionFeatureCountTests(unittest.TestCase):
+    def test_a_feature_count_is_included_when_known(self) -> None:
+        layer = LayerSummary("id", "Roads", "vector", "Line", "EPSG:4326", True, "ogr")
+        result = build_layer_description(layer, (), feature_count=812)
+        self.assertEqual(result["feature_count"], 812)
+
+    def test_an_unknown_or_negative_count_is_omitted_not_guessed(self) -> None:
+        layer = LayerSummary("id", "Roads", "vector", "Line", "EPSG:4326", True, "ogr")
+        self.assertNotIn("feature_count", build_layer_description(layer, ()))
+        self.assertNotIn(
+            "feature_count", build_layer_description(layer, (), feature_count=-1)
+        )
 
 
 if __name__ == "__main__":

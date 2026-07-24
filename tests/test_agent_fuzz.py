@@ -27,7 +27,8 @@ if "qgis.core" not in sys.modules:
     _qgis = types.ModuleType("qgis")
     _core = types.ModuleType("qgis.core")
     for _name in (
-        "Qgis", "QgsApplication", "QgsProcessingParameterBoolean",
+        "Qgis", "QgsApplication", "QgsFeatureRequest",
+        "QgsProcessingParameterBoolean",
         "QgsProcessingParameterDefinition", "QgsProcessingParameterFeatureSource",
         "QgsProcessingParameterField", "QgsProcessingParameterFile",
         "QgsProcessingParameterMapLayer", "QgsProcessingParameterMultipleLayers",

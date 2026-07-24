@@ -34,6 +34,17 @@ MAX_RESULT_TOTAL_CHARS = 200000
 MAX_RESULT_TEXT_LENGTH = 20000
 MAX_PROMPT_TEXT_LENGTH = 12000
 
+# Default budget for the *combined* system + conversation prompt of one agent
+# turn. This is a different quantity from MAX_PROMPT_TEXT_LENGTH, which bounds
+# a single free-text message: a turn's prompt also carries the static agent
+# instructions (~7 200 chars) and every scope-allowed tool's public schema
+# (~3 600 chars in the widest scope), so the fixed context alone is close to
+# 11 000 characters before the user has typed anything or a single tool result
+# has been recorded. Reusing the 12 000-char message bound here left roughly
+# one tool result of headroom and made any real multi-tool run fail with
+# "does not fit within the configured prompt budget" on its third call.
+MAX_AGENT_PROMPT_CHARS = 60000
+
 MAX_JSON_ARRAY_ITEMS = 500
 MAX_JSON_OBJECT_KEYS = 200
 MAX_JSON_NESTING_DEPTH = 20
@@ -249,10 +260,10 @@ class AgentRunLimits:
     large) can never be constructed in the first place.
     """
 
-    max_turns: int = 8
-    max_tool_calls_per_run: int = 12
-    max_tool_calls_per_turn: int = 3
-    max_prompt_chars: int = MAX_PROMPT_TEXT_LENGTH
+    max_turns: int = 12
+    max_tool_calls_per_run: int = 24
+    max_tool_calls_per_turn: int = 4
+    max_prompt_chars: int = MAX_AGENT_PROMPT_CHARS
     max_result_text_chars: int = MAX_RESULT_TEXT_LENGTH
 
     def __post_init__(self) -> None:

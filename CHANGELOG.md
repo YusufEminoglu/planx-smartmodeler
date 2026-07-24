@@ -4,6 +4,55 @@ All notable changes to SmartModeler GIS are documented here. The project follows
 
 ## [Unreleased]
 
+### Fixes from the first owner run in real QGIS
+
+- **Agent Chat no longer dies on its third tool call.** The run budget for a
+  whole turn was the 12 000-character bound meant for a single typed message,
+  while the fixed context — the static instructions plus every advertised
+  tool's schema — is already 10 878 characters in project scope. Two tool
+  results overran it and the run ended with "The required context … does not
+  fit within the configured prompt budget." The agent turn budget is now its
+  own 60 000-character limit, and when a long run does approach it the oldest
+  events of the run's own trace are folded into one marker instead of ending
+  the run. Turn and tool-call allowances were raised to match (12 turns, 24
+  calls per run, 4 per turn).
+- **A provider that renumbers its tool calls each turn is no longer refused.**
+  Reusing the id `c1` on a second turn ended the run with "The AI reused a tool
+  call id from an earlier turn". Call ids only label results within one turn
+  and per-turn uniqueness is still enforced, so a repeated id is now
+  disambiguated in the run's own record instead. DeepSeek could not complete a
+  second turn before this.
+- **The agent can count.** `layer.describe` now reports a layer's feature
+  count, and a new read-only `layer.field_values` tool returns the distinct
+  values of one attribute with how many features carry each. "How many of these
+  are bus stops?" is answerable, and a categorized-style proposal can now match
+  the real data instead of inventing its classes. Counts only — never a
+  feature, an id, or a geometry — bounded to 60 distinct values and a 200 000
+  feature scan, and it says so honestly when a layer was too large to finish.
+- Asked for a change while in Ask mode, the agent now names the mode that can
+  do it and offers to prepare the proposal, instead of only reporting that it
+  is read-only.
+
+### Saving, exporting and running a workflow
+
+- **An unfinished workflow saves.** Saving to `.model3` refused to write the
+  file whenever QGIS reported the model invalid, which an AI-planned workflow
+  with unbound inputs always is — the work was simply unsavable. Now a required
+  child input with no upstream connection and no usable value becomes a **model
+  input**, so the exported model opens in the QGIS Model Designer and asks for
+  the layer; a literal the algorithm itself rejects is dropped rather than
+  invalidating the whole model; and if anything is still open, the save is
+  offered rather than refused.
+- **Export as a QGIS Python algorithm** (`*.py`) alongside `.model3` and the
+  SmartModeler project format — the same code QGIS' own *Export as Python
+  Algorithm* produces.
+- **Run now opens one sheet showing the whole workflow** in run order: each
+  step, where its connected inputs come from, and every open input editable in
+  place with the project's layers offered in a combo. It replaces the chain of
+  one modal dialog per unconfigured node, which hid the flow and gave no way
+  back. A **Run setup** toolbar button opens the same sheet at any time, and
+  Cancel restores every parameter.
+
 ### Hardening, clarity and documentation
 
 - **Fixed a real hole found by the new fuzz suite:** abbreviated IPv4 hosts such

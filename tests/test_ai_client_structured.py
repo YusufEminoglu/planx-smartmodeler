@@ -22,6 +22,7 @@ def _install_qgis_stubs() -> None:
     dummy_core_names = (
         "Qgis",
         "QgsApplication",
+        "QgsFeatureRequest",
         "QgsProcessingParameterBoolean",
         "QgsProcessingParameterDefinition",
         "QgsProcessingParameterFeatureSource",

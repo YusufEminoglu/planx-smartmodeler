@@ -19,6 +19,7 @@ if "qgis.core" not in sys.modules:
     _dummy_names = (
         "Qgis",
         "QgsApplication",
+        "QgsFeatureRequest",
         "QgsProcessingParameterBoolean",
         "QgsProcessingParameterDefinition",
         "QgsProcessingParameterFeatureSource",
@@ -163,15 +164,17 @@ class DefaultRegistryTests(unittest.TestCase):
     schemas after the second-review contract corrections (immutable schemas,
     the stricter shape validator, and serialization-safe results).
 
-    The set grew from eight (Phase 01) to eleven (Phase 03) to the final V1
-    twelve (Phase 06's ``plugin.capabilities``). It is asserted as an exact set,
-    so an accidental thirteenth tool fails here."""
+    The set grew from eight (Phase 01) to eleven (Phase 03) to twelve
+    (Phase 06's ``plugin.capabilities``) to thirteen (``layer.field_values``,
+    added so the agent can count a field's values instead of guessing them).
+    It is asserted as an exact set, so an accidental extra tool fails here."""
 
     EXPECTED_TOOL_NAMES = frozenset(
         {
             "project.summary",
             "layer.list",
             "layer.describe",
+            "layer.field_values",
             "processing.search",
             "processing.describe",
             "model.summary",
@@ -184,7 +187,7 @@ class DefaultRegistryTests(unittest.TestCase):
         }
     )
 
-    def test_the_twelve_v1_tools_register_with_json_serializable_schemas(self) -> None:
+    def test_the_v1_tools_register_with_json_serializable_schemas(self) -> None:
         import json
 
         registry = runtime_tools.build_default_registry(lambda: None)

@@ -11,11 +11,16 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 - Builds typed, acyclic graphs and rejects incompatible or duplicate connections.
 - Configures layers, multi-layer collections, files, extents, CRS values, and
   other parameters with native QGIS Processing controls.
-- Guides Run and Validate through any required inputs that are still missing,
-  while safely auto-binding the sole compatible project layer when unambiguous.
+- Opens **Run setup**: one sheet showing every step in run order, where each
+  step's connected inputs come from, and every open input editable in place with
+  the project's layers offered in a combo -- while safely auto-binding the sole
+  compatible project layer when unambiguous.
 - Executes nodes in topological order through the QGIS Processing framework.
 - Adds terminal vector and raster results to the current project.
-- Imports and exports SmartModeler JSON and native QGIS `.model3` files.
+- Imports and exports SmartModeler JSON and native QGIS `.model3` files, and
+  exports the workflow as a runnable QGIS Python algorithm. A workflow whose
+  inputs are not bound yet still saves: each unbound required input becomes a
+  model input, so the `.model3` opens in the QGIS Model Designer and asks for it.
 - Offers contextual next-step proposals and executable starter workflows.
 - Generates workflows through offline rules or a configured AI provider.
 - Improves the current canvas over repeated AI turns while preserving unrelated
@@ -24,7 +29,7 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 - Offers a separate **Agent Workspace** dock with bounded, read-only project,
   layer, symbology/labeling, Processing, model, and plugin inspections through
   a fail-closed policy engine, plus a bounded, provider-neutral **Agent Chat**
-  conversation over **twelve** read-only tools using any configured non-offline
+  conversation over **thirteen** read-only tools using any configured non-offline
   AI connection (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible,
   Azure OpenAI). Every provider turn is a strict, locally re-validated
   structured envelope; mode, scope, and every tool call's execution stay under
@@ -103,10 +108,12 @@ The auditable instruction set lives in [`ai_context/`](ai_context/):
 
 1. Open **Plugins > SmartModeler GIS**.
 2. Add installed algorithms from the palette or choose a starter workflow.
-3. Connect compatible ports and double-click nodes to configure parameters.
+3. Connect compatible ports, then double-click a node to configure it or open
+   **Run setup** to review and fill in the whole workflow at once.
 4. Use **Validate** and then **Run Model**.
 5. Optionally configure an AI profile and describe the workflow in the prompt bar.
-6. Save a portable SmartModeler JSON file or export a QGIS `.model3` model.
+6. Save a portable SmartModeler JSON file, a QGIS `.model3` model, or a QGIS
+   Python algorithm.
 
 ### Agent Workspace: Ask, Plan, Act
 

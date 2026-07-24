@@ -232,7 +232,10 @@ class LimitTests(unittest.TestCase):
 
 
 class DuplicateCallIdTests(unittest.TestCase):
-    def test_duplicate_call_id_across_turns_is_rejected_before_handler_execution(self) -> None:
+    def test_a_call_id_reused_across_turns_continues_the_run(self) -> None:
+        # Providers that restart their call numbering every turn are common;
+        # a call id labels results within one turn only, so reuse across turns
+        # must not end the run.
         loop, _, echo_handler, _ = build_loop(AgentRunLimits(max_turns=5))
         event = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)
         token = event.request.request_token
@@ -244,10 +247,23 @@ class DuplicateCallIdTests(unittest.TestCase):
         event3 = loop.submit_provider_response(
             token2, tool_calls_turn_json([("c1", "test.echo", "{}")])
         )
-        self.assertEqual(event3.kind, RunEventKind.FAILED)
-        self.assertEqual(event3.reason_code, "duplicate_call_id")
-        # The reused id's handler must never have been invoked a second time.
-        self.assertEqual(len(echo_handler.calls), 1)
+        self.assertNotEqual(event3.kind, RunEventKind.FAILED)
+        self.assertEqual(len(echo_handler.calls), 2)
+
+    def test_a_reused_call_id_is_disambiguated_in_the_run_trace(self) -> None:
+        loop, _, _, _ = build_loop(AgentRunLimits(max_turns=5))
+        event = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)
+        event2 = loop.submit_provider_response(
+            event.request.request_token, tool_calls_turn_json([("c1", "test.echo", "{}")])
+        )
+        event3 = loop.submit_provider_response(
+            event2.request.request_token, tool_calls_turn_json([("c1", "test.echo", "{}")])
+        )
+        first = [item["call_id"] for item in event2.tool_events if item["kind"] == "tool_result"]
+        second = [item["call_id"] for item in event3.tool_events if item["kind"] == "tool_result"]
+        self.assertEqual(first, ["c1"])
+        self.assertEqual(len(second), 1)
+        self.assertNotEqual(second[0], "c1")
 
 
 class UnknownToolTests(unittest.TestCase):

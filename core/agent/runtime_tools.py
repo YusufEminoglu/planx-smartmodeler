@@ -14,7 +14,14 @@ import contextlib
 import re
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from qgis.core import QgsApplication, QgsProject, QgsRasterLayer, QgsVectorLayer
+from qgis.core import (
+    Qgis,
+    QgsApplication,
+    QgsFeatureRequest,
+    QgsProject,
+    QgsRasterLayer,
+    QgsVectorLayer,
+)
 
 from . import context as agent_context
 from .context_tokens import ContextTokenService
@@ -158,12 +165,79 @@ def _tool_layer_describe(call: AgentToolCall) -> Dict[str, Any]:
     if layer is None:
         return {"available": False, "layer_id": agent_context.bound_text(layer_id, 128)}
     fields: Iterator[agent_context.FieldSummary] = iter(())
+    feature_count = None
     if isinstance(layer, QgsVectorLayer):
         fields = (
             agent_context.FieldSummary(field_def.name(), field_def.typeName())
             for field_def in layer.fields()
         )
-    result = agent_context.build_layer_description(_layer_summary(layer), fields, limit)
+        with contextlib.suppress(Exception):
+            feature_count = layer.featureCount()
+    result = agent_context.build_layer_description(
+        _layer_summary(layer), fields, limit, feature_count=feature_count
+    )
+    result["available"] = True
+    return result
+
+
+def _tool_layer_field_values(call: AgentToolCall) -> Dict[str, Any]:
+    """Aggregate one attribute into distinct values and their counts.
+
+    Bounded twice over: at most ``MAX_FIELD_VALUES`` distinct values are ever
+    returned, and the scan stops after ``MAX_SCAN_FEATURES`` records so a
+    multi-million-feature layer cannot freeze the dock. The result says which
+    of those two happened rather than silently presenting a partial tally.
+    """
+    layer_id = call.arguments.get("layer_id")
+    if not isinstance(layer_id, str) or not layer_id.strip():
+        raise ToolExecutionError("layer_id must be a non-empty string.")
+    field_name = call.arguments.get("field")
+    if not isinstance(field_name, str) or not field_name.strip():
+        raise ToolExecutionError("field must be a non-empty string.")
+    project = QgsProject.instance()
+    layer = project.mapLayer(layer_id) if project is not None else None
+    if not isinstance(layer, QgsVectorLayer):
+        return {
+            "available": False,
+            "layer_id": agent_context.bound_text(layer_id, 128),
+            "reason": "no such vector layer in this project",
+        }
+    index = layer.fields().indexOf(field_name)
+    if index < 0:
+        return {
+            "available": False,
+            "layer_id": agent_context.bound_text(layer_id, 128),
+            "field": agent_context.bound_text(field_name, 128),
+            "reason": "the layer has no field with that name",
+        }
+    request = QgsFeatureRequest()
+    request.setFlags(Qgis.FeatureRequestFlag.NoGeometry)
+    request.setSubsetOfAttributes([index])
+    counts: Dict[Any, int] = {}
+    scanned = 0
+    complete = True
+    for feature in layer.getFeatures(request):
+        if scanned >= agent_context.MAX_SCAN_FEATURES:
+            complete = False
+            break
+        # NULL is a QVariant on QGIS 3 and None on QGIS 4; normalize both so a
+        # count of empty values reads the same on either runtime.
+        value = feature.attribute(index)
+        key = "" if value is None or str(value) == "NULL" else value
+        counts[key] = counts.get(key, 0) + 1
+        scanned += 1
+    total = -1
+    with contextlib.suppress(Exception):
+        total = layer.featureCount()
+    result = agent_context.build_field_values(
+        layer_id=layer.id(),
+        field_name=field_name,
+        values=counts.items(),
+        feature_count=total,
+        scanned=scanned,
+        complete=complete,
+        limit=_clamp_limit(call.arguments.get("limit")),
+    )
     result["available"] = True
     return result
 
@@ -1105,7 +1179,7 @@ def build_default_registry(
     model_provider: ModelProvider,
     token_service: Optional[ContextTokenService] = None,
 ) -> AgentToolRegistry:
-    """Build and return the twelve-tool read-only Agent Workspace registry.
+    """Build and return the thirteen-tool read-only Agent Workspace registry.
 
     ``token_service`` issues the opaque freshness tokens for ``model.describe``,
     ``layer.style`` and ``processing.describe``; the dock passes the same
@@ -1148,8 +1222,9 @@ def build_default_registry(
             name="layer.describe",
             title="Describe layer",
             description=(
-                "Describes one layer by id, including field names and broad "
-                "field types. Never returns a source URI or feature values."
+                "Describes one layer by id: field names, broad field types, "
+                "and how many features it holds. Never returns a source URI or "
+                "an individual feature."
             ),
             risk=AgentRisk.READ_ONLY,
             input_schema=_object_schema(
@@ -1166,6 +1241,39 @@ def build_default_registry(
             allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
         ),
         _tool_layer_describe,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="layer.field_values",
+            title="Count a field's values",
+            description=(
+                "Aggregates one attribute of one vector layer into its distinct "
+                "values and how many features carry each. Use it to answer "
+                "'how many are X' and to build a categorized style whose "
+                "classes match the real data. Returns counts only -- never an "
+                "individual feature, id, or geometry -- and reports honestly "
+                "when the layer was too large to count completely."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "layer_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": _ID_MAX_LENGTH,
+                    },
+                    "field": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": _ID_MAX_LENGTH,
+                    },
+                    "limit": _LIMIT_PROPERTY,
+                },
+                required=["layer_id", "field"],
+            ),
+            allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
+        ),
+        _tool_layer_field_values,
     )
     registry.register(
         AgentToolSpec(
