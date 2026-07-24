@@ -2,7 +2,7 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
-## [Unreleased]
+## [0.5.0] - 2026-07-24
 
 ### Fixes from the first owner run in real QGIS
 

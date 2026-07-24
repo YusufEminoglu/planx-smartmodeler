@@ -2,7 +2,7 @@
 name=SmartModeler GIS
 qgisMinimumVersion=4.0
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.4.0
+version=0.5.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
