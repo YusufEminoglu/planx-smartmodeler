@@ -2,7 +2,7 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
-## [Unreleased]
+## [0.5.1] - 2026-07-24
 
 ### The agent can now actually complete a proposal
 
