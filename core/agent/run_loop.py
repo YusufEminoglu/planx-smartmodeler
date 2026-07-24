@@ -474,6 +474,14 @@ class AgentRunLoop:
         text = message if isinstance(message, str) else str(message)
         if len(text) > MAX_FAILURE_TEXT_CHARS:
             text = text[:MAX_FAILURE_TEXT_CHARS]
+        # Record the failed attempt so a follow-up like "why?" has the context.
+        # Without this the next run started fresh and the agent could only say
+        # it did not understand. The user's request is only stored once a real
+        # run is under way (a bad mode/scope fails before _user_text is set).
+        if self._user_text:
+            self.session_memory.append(
+                self._user_text, f"[Attempt did not complete: {text}]"
+            )
         return RunEvent(
             kind=RunEventKind.FAILED, text=text, reason_code=reason_code, tool_events=tool_events
         )

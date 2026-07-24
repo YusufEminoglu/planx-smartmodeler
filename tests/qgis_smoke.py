@@ -904,6 +904,29 @@ def run_checks() -> str:
                 raise RuntimeError("processing.describe issued no run freshness receipt.")
             return token
 
+        # -- Owner-QA follow-up: describe tells the model which params bind ---
+        # The reproject run failed with "This parameter cannot be set by a
+        # proposal" because the provider tried to set an unbindable parameter.
+        # processing.describe now marks each parameter's proposal_binding so the
+        # provider only sets the ones it may.
+        reproject_desc = run_dock.controller.execute(
+            AgentToolCall(call_id="p5_binding", tool_name="processing.describe",
+                          arguments={"algorithm_id": "native:reprojectlayer"}),
+            AgentMode.PLAN, AgentScope.PROJECT,
+        )
+        binding_by_name = {
+            p["name"]: p["proposal_binding"] for p in reproject_desc.data["parameters"]
+        }
+        if binding_by_name.get("INPUT") != "layer" or binding_by_name.get("TARGET_CRS") != "crs":
+            raise RuntimeError("reprojectlayer's bindable parameters were not advertised.")
+        if binding_by_name.get("OUTPUT"):
+            raise RuntimeError("A destination parameter was wrongly marked bindable.")
+        if any(
+            p["proposal_binding"] and p["name"] not in ("INPUT", "TARGET_CRS")
+            for p in reproject_desc.data["parameters"]
+        ):
+            raise RuntimeError("An unbindable reproject parameter was advertised as bindable.")
+
         def _run_json(token, algorithm_id, inputs, title="Agent run"):
             return _json.dumps({
                 "schema_version": 1, "context_token": token, "algorithm_id": algorithm_id,

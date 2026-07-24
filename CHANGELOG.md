@@ -29,6 +29,23 @@ So "keep only the bus stops as a new temporary layer" is now a one-click
 `processing_run` proposal in Act mode. (Selecting features in place, as opposed
 to extracting them to a new layer, is still not something the tools express.)
 
+### A run no longer fails on an unsettable parameter, and failures are remembered
+
+Two more issues from the same session:
+
+- **"This parameter cannot be set by a proposal."** A reproject run failed
+  because the provider tried to bind a parameter the safe policy does not allow
+  (only `INPUT` and `TARGET_CRS` are bindable for `native:reprojectlayer`), and
+  it had no way to know which parameters those were. `processing.describe` now
+  returns a `proposal_binding` for every parameter — the exact tagged form to
+  use, or empty when a run may not set it at all — and the instructions tell the
+  model to set only those. A parameter it omits keeps the algorithm's default.
+- **The agent lost the thread after an error.** A failed run recorded nothing,
+  so a follow-up like "why?" started fresh and the agent could only say it did
+  not understand. A failed attempt is now kept in the bounded session memory as
+  a short note (never the raw proposal or provider text), so the next message
+  can refer back to what just happened.
+
 ## [0.5.1] - 2026-07-24
 
 ### The agent can now actually complete a proposal

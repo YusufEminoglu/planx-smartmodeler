@@ -51,7 +51,36 @@ from .identifiers import (  # noqa: E402 - grouped with the other module constan
     STYLE_PROPOSAL_KIND,
     STYLE_STATE_LIMIT,
 )
-from .safe_algorithm_policy import ParamSpec, default_policy  # noqa: E402 - same grouping
+from .safe_algorithm_policy import (  # noqa: E402 - same grouping
+    BOOL,
+    CRS,
+    DISTANCE,
+    ENUM,
+    FIELD,
+    MULTI_RASTER,
+    NUMBER,
+    ParamSpec,
+    RASTER_LAYER,
+    STRING_LABEL,
+    VECTOR_LAYER,
+    default_policy,
+)
+
+# Maps a policy binding-kind to the tagged binding form a processing_run
+# proposal must use for that parameter, so processing.describe can tell the
+# provider exactly how to set each bindable parameter (see 10_TOOL_PROTOCOL.md).
+_KIND_BINDING_FORM: Dict[str, str] = {
+    VECTOR_LAYER: "layer",
+    RASTER_LAYER: "layer",
+    MULTI_RASTER: "layers",
+    FIELD: "field",
+    NUMBER: "number",
+    DISTANCE: "distance",
+    BOOL: "bool",
+    ENUM: "enum",
+    CRS: "crs",
+    STRING_LABEL: "string",
+}
 from .plugin_capabilities import (  # noqa: E402 - same grouping
     MAX_ALGORITHMS,
     PluginView,
@@ -424,6 +453,18 @@ def _tool_processing_describe_factory(
                 "available": False,
                 "algorithm_id": agent_context.bound_text(algorithm_id, 200),
             }
+        # Which parameters a processing_run proposal may actually set, and in
+        # which tagged binding form. Without this the provider tried to bind a
+        # reviewed-but-unbindable parameter (e.g. reprojectlayer's OPERATION)
+        # and the run failed with "This parameter cannot be set by a proposal".
+        run_record = default_policy().record_for(algorithm.id())
+
+        def _binding_of(name: str) -> str:
+            if run_record is None:
+                return ""
+            kind = run_record.bindable.get(name)
+            return _KIND_BINDING_FORM.get(kind, "") if kind else ""
+
         # The safe *contract* of each parameter: enough to explain and to fill
         # in correctly, and deliberately never ``defaultValue()``, which for a
         # third-party algorithm can be a file path or a connection string.
@@ -437,6 +478,8 @@ def _tool_processing_describe_factory(
                 "enum_options": _param_options(definition),
                 "minimum": _param_bound(definition, "minimum"),
                 "maximum": _param_bound(definition, "maximum"),
+                # "" means a processing_run may not set this parameter at all.
+                "proposal_binding": _binding_of(definition.name()),
             }
             for definition in algorithm.parameterDefinitions()
         )

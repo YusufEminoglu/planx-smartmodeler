@@ -428,5 +428,25 @@ class ModelDescribeTopologyTests(unittest.TestCase):
         )
 
 
+class ProposalBindingFormTests(unittest.TestCase):
+    """processing.describe advertises a binding form for every bindable
+    parameter of every allowlisted algorithm. A future allowlist entry that
+    used a kind with no mapped form would silently advertise an empty
+    proposal_binding (unbindable), so this pins the mapping's completeness."""
+
+    def test_every_allowlisted_kind_has_a_binding_form(self) -> None:
+        from planx_smartmodeler.core.agent.runtime_tools import _KIND_BINDING_FORM
+        from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
+
+        for record in _DEFAULT_ALLOWLIST.values():
+            for param_name, kind in record.bindable.items():
+                self.assertIn(
+                    kind,
+                    _KIND_BINDING_FORM,
+                    f"{record.algorithm_id}.{param_name} kind {kind!r} has no binding form",
+                )
+                self.assertTrue(_KIND_BINDING_FORM[kind])
+
+
 if __name__ == "__main__":
     unittest.main()

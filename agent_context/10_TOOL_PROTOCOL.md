@@ -138,6 +138,16 @@ a bare value, so a string can never be reinterpreted as a path or an output.
 Do **not** include any output/destination parameter; the application forces a
 temporary output.
 
+**Only set parameters `processing.describe` marks as bindable.** Each parameter
+it returns carries a `proposal_binding` field: an empty string means a
+`processing_run` may **not** set that parameter — omit it entirely — and a
+non-empty value (`layer`, `layers`, `field`, `number`, `distance`, `bool`,
+`enum`, `crs`, `string`) is the exact tagged form to use for it. Setting a
+parameter whose `proposal_binding` is empty fails the whole run. A parameter you
+omit simply keeps the algorithm's own default, which is usually what you want
+(for example `native:reprojectlayer` only exposes `INPUT` and `TARGET_CRS`;
+leave everything else out).
+
 ```json
 {
   "schema_version": 1,

@@ -575,7 +575,7 @@ class ProposalRunLoopTests(unittest.TestCase):
         self.assertEqual(event.reason_code, "proposal_scope_mismatch")
         self.assertEqual(validator.calls, [])
 
-    def test_validator_rejection_is_terminal_and_not_stored(self) -> None:
+    def test_validator_rejection_is_terminal_and_leaves_only_a_bounded_note(self) -> None:
         from planx_smartmodeler.core.agent.proposals import ProposalValidation
 
         validator = RecordingValidator(
@@ -590,7 +590,14 @@ class ProposalRunLoopTests(unittest.TestCase):
         )
         self.assertEqual(event.kind, RunEventKind.FAILED)
         self.assertEqual(event.reason_code, "stale_proposal_context")
-        self.assertTrue(loop.session_memory.is_empty())
+        # A failed attempt is now remembered so a follow-up "why?" has context,
+        # but only as a bounded note -- never the raw proposal payload.
+        exchanges = loop.session_memory.exchanges()
+        self.assertEqual(len(exchanges), 1)
+        stored = exchanges[0].assistant_text
+        self.assertIn("did not complete", stored)
+        self.assertNotIn("set_model_metadata", stored)
+        self.assertNotIn("context_token", stored)
 
     def test_valid_proposal_stores_only_bounded_summary(self) -> None:
         loop, _ = build_proposal_loop()
