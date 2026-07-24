@@ -2,6 +2,82 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [Unreleased]
+
+### Hardening, clarity and documentation
+
+- **Fixed a real hole found by the new fuzz suite:** abbreviated IPv4 hosts such
+  as `127.1`, `10.1` and `192.168.1` were accepted as ordinary public URLs. Every
+  browser resolves them to loopback or private addresses, but Python's
+  `ipaddress` does not parse them, so they missed the IP-literal checks entirely
+  and passed as two-label DNS names. A host whose rightmost label is all digits
+  is now rejected — no real top-level domain is numeric.
+- Added `tests/test_agent_fuzz.py`, a **seeded property/fuzz suite** over the
+  untrusted-input boundaries: the provider envelope (random text, random JSON,
+  nesting bombs, duplicate keys, oversized payloads), bounded text, the run-failure
+  sanitizer, the deny-by-default algorithm policy, and the public-URL validator.
+  Standard library only, fixed seed, no new dependency.
+- The **approval card now carries a risk badge** — computed by a new pure
+  `core/agent/action_risk.py` from the action kind and the already-validated
+  destructive flag, never from provider text, and never an input to any decision.
+  An unrecognized kind fails closed to "high risk, not reversible".
+- The current **mode's meaning is stated on screen**: Ask is read-only, Plan is
+  review-only, Act prepares one action that still needs your click.
+- A **stale approval card now visibly stops being approvable** instead of staying
+  clickable until it fails. The timer can only *disable*: it never creates,
+  extends, repairs or re-arms an action, and the authoritative expiry check
+  remains at the click.
+- The conversation transcript is now a **bounded rolling window** rather than an
+  unbounded buffer that grew for the life of the panel.
+- Panel heights are now derived from font metrics instead of fixed pixels, so the
+  proposal, approval, ledger and prompt boxes show their intended number of lines
+  at any display scaling; the whole panel scrolls rather than clipping controls in
+  a narrow dock.
+- Every control has an accessible name and a deliberate tab order. `Ctrl+Enter`
+  sends a message — and it is the only accelerator, so **no keyboard shortcut can
+  reach Apply, Run or Undo**.
+- An **Offline** profile now says so up front, next to the profile name, instead
+  of only failing when you press Send. Undo explains when and why it is available.
+- `plugin.capabilities` now enumerates algorithms only for providers that can
+  actually be attributed to the requested package, instead of for every installed
+  provider. Identical output, proportionally less work on a profile with many
+  plugins installed.
+- Documented the **privacy** boundary (what leaves the machine and what never
+  does), added **troubleshooting** for the messages users actually hit, and
+  described the Ask/Plan/Act workflow and its limits in the README.
+- Wrote a V1 **threat model** covering all thirteen vectors in the plan, each with
+  its control, where that control lives, and the test that proves it — including
+  the residual risks that are disclosed rather than solved.
+
+### Phase 06
+
+- Added Phase 06 **plugin-aware assistance**. A twelfth and final read-only
+  tool, `plugin.capabilities`, reports what an installed plugin can actually be
+  used for. It maps a plugin to its live Processing provider(s) by asking the
+  **provider registry** which Python package defined each provider, never by
+  touching the plugin: the plugin is never imported, instantiated, or read from,
+  not even one attribute, because an attribute can be a property that runs
+  third-party code. A mapping is therefore either **proved** or reported as
+  unproved (`declared_unconfirmed`, `candidate_only`, `ui_only_or_unmapped`) --
+  a resemblance is never presented as a confirmation, and an unconfirmed
+  provider contributes no algorithm listing.
+- Executing a plugin algorithm remains **unavailable** and is now said so up
+  front rather than discovered by failure. The reviewed run allowlist is
+  unchanged at the twelve core QGIS algorithms and still cannot be enumerated or
+  extended.
+- `processing.search` and `processing.describe` now expose the safe parameter
+  *contract* -- provider id, required/multiple/destination flags, enum option
+  labels, numeric bounds, output types, and whether that one algorithm is on the
+  reviewed run list. Parameter **default values are deliberately never exposed**,
+  since a third-party default can be a file path or a connection string.
+- Added **supervised multi-step continuation**. After an action finishes, one
+  bounded, sanitized line (kind, status, safe target -- no parameters, ids,
+  paths, tokens, or feature values) enters session memory so a later turn can
+  refer to it. The agent still never continues by itself: nothing is sent to the
+  provider as a consequence of an action completing. A chat session may complete
+  at most **ten** actions; **New chat** resets the count along with memory,
+  tokens and the ledger.
+
 ## [0.4.0] - 2026-07-23
 
 - Added Phase 05 **approved safe Processing and current-model execution** to the

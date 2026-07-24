@@ -159,9 +159,13 @@ class PluginListEnumerationTests(unittest.TestCase):
 
 
 class DefaultRegistryTests(unittest.TestCase):
-    """Prove all eight Phase 01 tools still register with strict, JSON-safe
+    """Prove every read-only tool still registers with strict, JSON-safe
     schemas after the second-review contract corrections (immutable schemas,
-    the stricter shape validator, and serialization-safe results)."""
+    the stricter shape validator, and serialization-safe results).
+
+    The set grew from eight (Phase 01) to eleven (Phase 03) to the final V1
+    twelve (Phase 06's ``plugin.capabilities``). It is asserted as an exact set,
+    so an accidental thirteenth tool fails here."""
 
     EXPECTED_TOOL_NAMES = frozenset(
         {
@@ -176,10 +180,11 @@ class DefaultRegistryTests(unittest.TestCase):
             "layer.style",
             "model.describe",
             "plugin.describe",
+            "plugin.capabilities",
         }
     )
 
-    def test_all_eight_tools_register_with_json_serializable_schemas(self) -> None:
+    def test_the_twelve_v1_tools_register_with_json_serializable_schemas(self) -> None:
         import json
 
         registry = runtime_tools.build_default_registry(lambda: None)

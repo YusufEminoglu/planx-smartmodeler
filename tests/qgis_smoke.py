@@ -5,7 +5,8 @@ import os
 import sys
 from pathlib import Path
 
-from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtCore import QEvent, Qt
+from qgis.PyQt.QtGui import QIcon, QKeyEvent
 from qgis.core import (
     QgsApplication,
     QgsFeature,
@@ -221,12 +222,13 @@ def run_checks() -> str:
             "layer.style",
             "model.describe",
             "plugin.describe",
+            "plugin.capabilities",
         }
         empty_dock = AgentWorkspaceDock(None, lambda: None)
         registry_tool_names = {spec.name for spec in empty_dock.registry.list_specs()}
         if registry_tool_names != expected_agent_tools:
             raise RuntimeError(
-                "The Agent Workspace registry must contain exactly eleven tools."
+                "The Agent Workspace registry must contain exactly the twelve V1 tools."
             )
         if empty_dock.scope_combo.count() != 4 or empty_dock.mode_combo.count() != 3:
             raise RuntimeError("Agent Workspace dock did not construct its selectors under Qt 6.")
@@ -238,6 +240,9 @@ def run_checks() -> str:
 
         # Phase 04 adds exactly one explicit-approval Apply plus Reject and a
         # single-level Undo. Any auto/bulk/execution action remains forbidden.
+        # Phase 05 relabels that one button to "Run" for a validated run
+        # proposal, so a *fresh* dock must still expose no Run control at all --
+        # which is exactly what this asserts.
         forbidden_actions = (
             "accept", "approve", "execute", "run", "commit", "export", "save",
             "approve all", "apply all",
@@ -1086,6 +1091,285 @@ def run_checks() -> str:
         if set(project.mapLayers()) != layers_before:
             raise RuntimeError("Phase 05 execution left layers behind in the project.")
 
+        # -- Phase 06: plugin-aware assistance ------------------------------
+        caps_dock = AgentWorkspaceDock(fake_iface, lambda: None)
+
+        def _capabilities(package_name):
+            outcome = caps_dock.controller.execute(
+                AgentToolCall(call_id="p6_caps", tool_name="plugin.capabilities",
+                              arguments={"package_name": package_name}),
+                AgentMode.ASK, AgentScope.PLUGINS,
+            )
+            if outcome.status != AgentResultStatus.SUCCESS:
+                raise RuntimeError(f"plugin.capabilities failed for {package_name}.")
+            return outcome.data
+
+        # The V1 registry is exactly twelve read-only tools.
+        tool_names = {d["name"] for d in caps_dock.registry.public_tool_descriptions()}
+        if len(tool_names) != 12 or "plugin.capabilities" not in tool_names:
+            raise RuntimeError(f"Expected the twelve-tool V1 registry, got {len(tool_names)}.")
+
+        # An unknown package is reported honestly, never invented.
+        unknown = _capabilities("definitely_not_a_real_plugin_xyz")
+        if unknown["status"] != "not_installed" or unknown["available"]:
+            raise RuntimeError("An unknown package was not reported as not installed.")
+        if unknown["algorithms"] or unknown["providers"]:
+            raise RuntimeError("An unknown package produced providers or algorithms.")
+
+        # Provider views must be derivable from the live registry without ever
+        # touching a plugin object, and must never carry a module/source path.
+        from planx_smartmodeler.core.agent.runtime_tools import build_provider_views
+
+        provider_views = build_provider_views(QgsApplication.processingRegistry())
+        if not provider_views:
+            raise RuntimeError("No live Processing providers were adapted.")
+        for view in provider_views:
+            if "/" in view.owning_package or "\\" in view.owning_package:
+                raise RuntimeError("A provider view leaked a filesystem path.")
+            if "." in view.owning_package:
+                raise RuntimeError("A provider view kept a dotted module path.")
+
+        # Every installed plugin must yield one of the five honest statuses, and
+        # a claim of 'confirmed' must be backed by a provider proved to come
+        # from that exact package.
+        import qgis.utils as _qgis_utils
+
+        packages = sorted(set(getattr(_qgis_utils, "available_plugins", []) or []))
+        confirmed_seen = 0
+        ui_only_seen = 0
+        by_package = {view.owning_package: view for view in provider_views}
+        for package in packages[:25]:
+            report = _capabilities(package)
+            if report["status"] not in (
+                "confirmed_provider", "declared_unconfirmed",
+                "candidate_only", "ui_only_or_unmapped",
+            ):
+                raise RuntimeError(f"{package} produced an unknown status.")
+            if report["agent_executable"]:
+                raise RuntimeError("A plugin was reported as agent-executable.")
+            if report["status"] == "confirmed_provider":
+                confirmed_seen += 1
+                if package not in by_package:
+                    raise RuntimeError(
+                        f"{package} was confirmed without a provider proving it."
+                    )
+                if report["confidence"] != "confirmed":
+                    raise RuntimeError("A confirmed status carried the wrong confidence.")
+            else:
+                ui_only_seen += 1
+                if report["algorithms"]:
+                    raise RuntimeError(
+                        f"{package} listed algorithms without a confirmed provider."
+                    )
+        if not packages:
+            print("  note: no installed plugins in this clean profile; per-package "
+                  "capability statuses were not exercised against real packages")
+
+        # The confirmed-mapping path must be proven against a REAL live provider
+        # even when the clean profile has no third-party plugin installed: take
+        # an actual provider, claim its own defining package, and assert it is
+        # confirmed and lists that provider's real algorithms.
+        from planx_smartmodeler.core.agent.plugin_capabilities import (
+            PluginView as _PluginView,
+            build_capabilities as _build_capabilities,
+        )
+
+        real = next((v for v in provider_views if v.owning_package and v.algorithms), None)
+        if real is None:
+            raise RuntimeError("No live provider with algorithms was available to test.")
+        confirmed_report = _build_capabilities(
+            _PluginView(real.owning_package, declares_processing_provider=True),
+            provider_views,
+            algorithm_allowed=AlgorithmCatalog.ai_algorithm_allowed,
+        )
+        if confirmed_report["status"] != "confirmed_provider":
+            raise RuntimeError("A provider's own defining package was not confirmed.")
+        if confirmed_report["confidence"] != "confirmed":
+            raise RuntimeError("A confirmed mapping reported the wrong confidence.")
+        if not confirmed_report["algorithms"]:
+            raise RuntimeError("A confirmed provider listed no algorithms.")
+        # One package may legitimately define several providers, so the expected
+        # id set is the union over every provider that package defined.
+        live_ids = {
+            algorithm[0]
+            for view in provider_views
+            if view.owning_package == real.owning_package
+            for algorithm in view.algorithms
+        }
+        if not live_ids:
+            raise RuntimeError("The confirmed package exposed no live algorithm ids.")
+        for row in confirmed_report["algorithms"]:
+            if row["algorithm_id"] not in live_ids:
+                raise RuntimeError("A confirmed listing contained a foreign algorithm.")
+        if confirmed_report["agent_executable"]:
+            raise RuntimeError("A confirmed provider was reported as agent-executable.")
+
+        # The same providers must NOT confirm a package that did not define them.
+        foreign_report = _build_capabilities(
+            _PluginView("totally_unrelated_package_name", declares_processing_provider=True),
+            provider_views,
+        )
+        if foreign_report["status"] == "confirmed_provider":
+            raise RuntimeError("A foreign package was falsely confirmed.")
+        if foreign_report["algorithms"]:
+            raise RuntimeError("A foreign package received an algorithm listing.")
+
+        # A plugin algorithm stays non-runnable: the reviewed allowlist is
+        # unchanged, so processing.describe reports agent_runnable false for a
+        # provider algorithm and true for a reviewed native one.
+        native_described = caps_dock.controller.execute(
+            AgentToolCall(call_id="p6_pd1", tool_name="processing.describe",
+                          arguments={"algorithm_id": "native:buffer"}),
+            AgentMode.ASK, AgentScope.PROJECT,
+        ).data
+        if not native_described.get("agent_runnable"):
+            raise RuntimeError("A reviewed native algorithm was not reported as runnable.")
+        if not native_described.get("provider_id"):
+            raise RuntimeError("processing.describe did not expose the provider id.")
+        for parameter in native_described.get("parameters", []):
+            if "default" in parameter:
+                raise RuntimeError("processing.describe leaked a parameter default value.")
+            if not isinstance(parameter.get("required"), bool):
+                raise RuntimeError("processing.describe omitted the required flag.")
+        if not native_described.get("outputs"):
+            raise RuntimeError("processing.describe did not report output definitions.")
+        non_native = next(
+            (a for a in ("gdal:buffervectors", "qgis:basicstatisticsforfields")
+             if AlgorithmCatalog.algorithm_exists(a)), "")
+        if non_native:
+            other = caps_dock.controller.execute(
+                AgentToolCall(call_id="p6_pd2", tool_name="processing.describe",
+                              arguments={"algorithm_id": non_native}),
+                AgentMode.ASK, AgentScope.PROJECT,
+            ).data
+            if other.get("agent_runnable"):
+                raise RuntimeError(
+                    f"{non_native} was reported runnable; the allowlist grew unexpectedly."
+                )
+
+        # Continuation: an outcome note is bounded/sanitized, the cap holds, and
+        # New chat resets it.
+        caps_dock._record_action_outcome("processing_run", "completed", "Buffer")
+        notes = caps_dock.run_loop.session_memory.exchanges()
+        if not notes or "processing_run" not in notes[-1].assistant_text:
+            raise RuntimeError("A completed action left no outcome note in session memory.")
+        for leaked in ("C:\\", "TEMPORARY_OUTPUT", "EPSG:"):
+            if leaked in notes[-1].assistant_text:
+                raise RuntimeError(f"The outcome note leaked {leaked}.")
+        while caps_dock._session_action_budget_left():
+            caps_dock._record_action_outcome("processing_run", "completed", "T")
+        if caps_dock._session_action_budget_left():
+            raise RuntimeError("The per-session action cap never engaged.")
+        caps_dock.run_loop.new_chat()
+        caps_dock._clear_all_action_state()
+        if not caps_dock._session_action_budget_left():
+            raise RuntimeError("New chat did not reset the per-session action cap.")
+
+        # -- Phase 07: hardening, UX and lifecycle --------------------------
+        # The two-pass provider walk must be an optimization only: enumerating
+        # algorithms for just the requested package has to produce byte-identical
+        # capability reports, for a package that owns providers and one that does
+        # not.
+        for probe_package in (real.owning_package, "totally_unrelated_package_name"):
+            full = _build_capabilities(
+                _PluginView(probe_package, declares_processing_provider=True),
+                build_provider_views(QgsApplication.processingRegistry()),
+                algorithm_allowed=AlgorithmCatalog.ai_algorithm_allowed,
+            )
+            filtered = _build_capabilities(
+                _PluginView(probe_package, declares_processing_provider=True),
+                build_provider_views(
+                    QgsApplication.processingRegistry(), for_package=probe_package
+                ),
+                algorithm_allowed=AlgorithmCatalog.ai_algorithm_allowed,
+            )
+            if full != filtered:
+                raise RuntimeError(
+                    f"The two-pass provider walk changed the report for {probe_package}."
+                )
+
+        # The panel must survive being wrapped in a scroll area on both Qt
+        # builds, and the transcript must be a bounded rolling window.
+        if caps_dock.widget() is None or caps_dock.widget().widget() is None:
+            raise RuntimeError("The Agent Workspace scroll container did not construct.")
+        if caps_dock.transcript.maximumBlockCount() <= 0:
+            raise RuntimeError("The transcript is unbounded.")
+        for _ in range(caps_dock.transcript.maximumBlockCount() + 200):
+            caps_dock._append_line("flood")
+        if caps_dock.transcript.blockCount() > caps_dock.transcript.maximumBlockCount() + 1:
+            raise RuntimeError("The transcript grew past its cap.")
+
+        # Visible Plan/Act semantics: each mode states its own limit.
+        hints = set()
+        for index in range(caps_dock.mode_combo.count()):
+            caps_dock.mode_combo.setCurrentIndex(index)
+            hints.add(caps_dock.mode_hint_label.text())
+        if len(hints) != caps_dock.mode_combo.count():
+            raise RuntimeError("The mode hint did not change with the selected mode.")
+        caps_dock.mode_combo.setCurrentIndex(0)
+
+        # Every interactive control announces itself, and Apply is never the
+        # default button a stray Enter could trigger.
+        for control in (
+            caps_dock.apply_button, caps_dock.reject_button, caps_dock.undo_button,
+            caps_dock.send_button, caps_dock.prompt_input, caps_dock.mode_combo,
+        ):
+            if not control.accessibleName():
+                raise RuntimeError("An Agent Workspace control has no accessible name.")
+        if caps_dock.apply_button.isDefault() or caps_dock.apply_button.autoDefault():
+            raise RuntimeError("Apply became a default button.")
+
+        # The risk badge is rendered from the kind and the validated destructive
+        # flag, and an unknown kind must not be shown as reassuring.
+        class _CardStub:
+            def __init__(self, kind, destructive):
+                self.kind = kind
+                self._destructive = destructive
+
+            def to_public_card(self):
+                return {
+                    "kind": self.kind, "title": "t", "target": "target",
+                    "summary": "s", "destructive": self._destructive, "warnings": [],
+                }
+
+        badges = {}
+        for kind, destructive in (
+            ("layer_style", False), ("model_patch", True), ("processing_run", False),
+            ("not_a_real_kind", False),
+        ):
+            caps_dock._show_approval_card(_CardStub(kind, destructive))
+            if not caps_dock.risk_badge_label.isVisible() and caps_dock.isVisible():
+                raise RuntimeError(f"No risk badge was shown for {kind}.")
+            badges[kind] = caps_dock.risk_badge_label.text()
+        if not badges["layer_style"].lower().startswith("low"):
+            raise RuntimeError("A style change was not shown as low risk.")
+        if not badges["model_patch"].lower().startswith("high"):
+            raise RuntimeError("A destructive model patch was not shown as high risk.")
+        if not badges["not_a_real_kind"].lower().startswith("high"):
+            raise RuntimeError("An unknown action kind did not fail closed to high risk.")
+
+        # The stale-check timer runs only while a card is up, and clearing the
+        # card stops it -- no Qt timer may outlive the pending action.
+        if not caps_dock._stale_timer.isActive():
+            raise RuntimeError("The stale-check timer did not start with an approval card.")
+        caps_dock._clear_approval_card()
+        if caps_dock._stale_timer.isActive():
+            raise RuntimeError("The stale-check timer outlived the approval card.")
+        if caps_dock.risk_badge_label.isVisible():
+            raise RuntimeError("The risk badge survived clearing the approval card.")
+
+        # A stale tick can only take approval away, and only when the action has
+        # really expired: with no pending action it must simply stop.
+        caps_dock._pending_action = None
+        caps_dock._stale_timer.start()
+        caps_dock._on_stale_tick()
+        if caps_dock._stale_timer.isActive() or caps_dock.apply_button.isEnabled():
+            raise RuntimeError("A stale tick without a pending action misbehaved.")
+
+        caps_dock.shutdown()
+        if caps_dock._stale_timer.isActive():
+            raise RuntimeError("shutdown left the stale-check timer running.")
+
         proposal_dock.shutdown()
         project.removeMapLayer(style_layer.id())
 
@@ -1204,10 +1488,25 @@ def run_checks() -> str:
         offline_dock.ai_client.generate_structured = (
             lambda *_args, **_kwargs: offline_network_calls.append(True)
         )
+        # Phase 07: an offline profile says so before the user writes anything,
+        # rather than only failing once they press Send.
+        if "quick inspections only" not in offline_dock.profile_label.text():
+            raise RuntimeError("The Offline state was not shown up front on the profile line.")
         offline_dock.prompt_input.setPlainText("hello")
         offline_dock._on_send_clicked()
         if offline_network_calls or offline_dock.run_loop.is_active():
             raise RuntimeError("Offline Agent Chat started network activity or a run.")
+
+        # Ctrl+Enter sends; it must go through the same guarded send path and
+        # must not be able to reach an approval control.
+        offline_dock.prompt_input.setPlainText("second message")
+        _ctrl_enter = QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.ControlModifier
+        )
+        offline_dock.eventFilter(offline_dock.prompt_input, _ctrl_enter)
+        if offline_network_calls or offline_dock.apply_button.isEnabled():
+            raise RuntimeError("Ctrl+Enter reached the network or an approval control.")
+        offline_dock.shutdown()
 
         workflow_context = AiMcpBridge.workflow_context(graph)
         if '"id":"source"' not in workflow_context or '"id":"buffer"' not in workflow_context:

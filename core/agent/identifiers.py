@@ -20,6 +20,7 @@ STYLE_PROPOSAL_KIND = "layer_style"
 # different algorithm) invalidates it. A ``model_run`` reuses the model receipt
 # above: it names no algorithm and runs only the current graph.
 PROCESSING_PROPOSAL_KIND = "processing_run"
+MODEL_RUN_KIND = "model_run"
 
 # Display-limit-independent bound used only for the style *freshness* signing
 # state, so the receipt depends on the layer's meaningful style, not on the

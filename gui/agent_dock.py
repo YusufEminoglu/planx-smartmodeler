@@ -16,6 +16,7 @@ import time
 import uuid
 from typing import Any, Optional
 
+from qgis.PyQt.QtCore import QEvent, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QComboBox,
     QDockWidget,
@@ -25,11 +26,13 @@ from qgis.PyQt.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from ..core.agent.action_ledger import ActionLedger, ActionStatus
+from ..core.agent.action_risk import assess_risk, mode_hint
 from ..core.agent.context_tokens import ContextTokenService
 from ..core.agent.contracts import (
     AgentMode,
@@ -50,6 +53,23 @@ from ..core.ai_client import AiNetworkClient, StructuredResponseContract
 from ..core.ai_settings import AiSettingsStore, PROVIDERS
 from ..core.prompt_context import PromptContextLoader
 from .theme import STUDIO_STYLE
+
+# Phase 06: a chat session may complete at most this many terminal actions
+# (applied / completed / canceled / failed / undone). The cap bounds how far one
+# conversation can drive the project before the human must consciously start
+# over with New chat, which also rotates tokens and clears memory and the ledger.
+MAX_SESSION_ACTIONS = 10
+
+# Phase 07 (§9.2): the transcript is a rolling window, not an archive. Without a
+# cap it grows for the whole life of the dock -- a long session with large tool
+# results would hold every line forever. Qt drops the oldest block past this.
+MAX_TRANSCRIPT_BLOCKS = 2_000
+
+# How often the dock re-checks whether the one pending action has aged out. The
+# TTL is 300 s, so a two-second tick disables the control promptly without being
+# a busy loop. This timer is a *courtesy*: the authoritative expiry check still
+# happens at the click, where it fails closed.
+_STALE_CHECK_INTERVAL_MS = 2_000
 
 _AGENT_CONTEXT_DIR_NAME = "agent_context"
 _AGENT_TURN_SCHEMA_NAME = "agent_turn"
@@ -141,12 +161,31 @@ class AgentWorkspaceDock(QDockWidget):
         self._last_applied = None
         # The one approved action currently executing, if any.
         self._running_action = None
+        # How many terminal actions this chat session has completed.
+        self._session_action_count = 0
+        # One dock-owned timer whose only power is to *disable* an approval that
+        # has aged past its TTL. It never creates, extends, repairs or re-arms a
+        # pending action, and the authoritative expiry check stays at the click.
+        self._stale_timer = QTimer(self)
+        self._stale_timer.setInterval(_STALE_CHECK_INTERVAL_MS)
+        self._stale_timer.timeout.connect(self._on_stale_tick)
 
         self.setStyleSheet(STUDIO_STYLE)
         self._build_ui()
         self._refresh_profile()
 
     # -- UI construction ---------------------------------------------------
+
+    def _text_height(self, lines: int) -> int:
+        """Return a pixel height that fits ``lines`` of text at this font and DPI.
+
+        Phase 07 (§9.2): the panel used fixed pixel heights, which show roughly
+        half the intended lines at 200 % scaling. Deriving from
+        ``QFontMetrics.lineSpacing()`` expresses the actual intent -- "about this
+        many lines" -- and scales with the user's font and screen.
+        """
+        metrics = self.fontMetrics()
+        return int(metrics.lineSpacing() * max(1, lines) + metrics.height())
 
     def _build_ui(self) -> None:
         container = QWidget(self)
@@ -195,6 +234,13 @@ class AgentWorkspaceDock(QDockWidget):
         selectors.addWidget(self.mode_combo, 1)
         layout.addLayout(selectors)
 
+        # Visible Plan vs Act semantics (§9.2): one sentence, always on screen,
+        # saying what the *currently selected* mode is allowed to reach.
+        self.mode_hint_label = QLabel(mode_hint(AgentMode.ASK))
+        self.mode_hint_label.setWordWrap(True)
+        self.mode_hint_label.setStyleSheet("color: #8FA6C4; font-style: italic;")
+        layout.addWidget(self.mode_hint_label)
+
         quick_actions = QHBoxLayout()
         self.project_summary_button = QPushButton("Project summary")
         self.project_summary_button.clicked.connect(
@@ -220,8 +266,14 @@ class AgentWorkspaceDock(QDockWidget):
 
         self.transcript = QPlainTextEdit()
         self.transcript.setReadOnly(True)
+        # Bounded rendering (§9.2): a rolling window, not an archive. Qt discards
+        # the oldest block once the cap is reached, so a long session cannot grow
+        # this widget without bound.
+        self.transcript.setMaximumBlockCount(MAX_TRANSCRIPT_BLOCKS)
+        self.transcript.setMinimumHeight(self._text_height(4))
         self.transcript.setPlaceholderText(
-            "Quick inspection results and Agent Chat conversation appear here."
+            "Quick inspection results and Agent Chat conversation appear here. "
+            f"Only the most recent {MAX_TRANSCRIPT_BLOCKS} lines are kept."
         )
         layout.addWidget(self.transcript, 1)
 
@@ -235,7 +287,8 @@ class AgentWorkspaceDock(QDockWidget):
         proposal_layout.addWidget(self.proposal_status_label)
         self.proposal_view = QPlainTextEdit()
         self.proposal_view.setReadOnly(True)
-        self.proposal_view.setFixedHeight(150)
+        self.proposal_view.setMinimumHeight(self._text_height(6))
+        self.proposal_view.setMaximumHeight(self._text_height(12))
         self.proposal_view.setPlaceholderText(
             "A validated model or style proposal appears here. It is never "
             "applied - there is no Apply, Run, or Accept action."
@@ -253,9 +306,17 @@ class AgentWorkspaceDock(QDockWidget):
         self.approval_status_label.setWordWrap(True)
         self.approval_status_label.setStyleSheet("color: #E0B341;")
         approval_layout.addWidget(self.approval_status_label)
+        # Risk badge (§9.2). Computed by the pure ``action_risk`` classifier from
+        # the kind and the *validated* destructive flag -- never from provider
+        # text, and never an input to any decision.
+        self.risk_badge_label = QLabel("")
+        self.risk_badge_label.setWordWrap(True)
+        self.risk_badge_label.setVisible(False)
+        approval_layout.addWidget(self.risk_badge_label)
         self.approval_view = QPlainTextEdit()
         self.approval_view.setReadOnly(True)
-        self.approval_view.setFixedHeight(120)
+        self.approval_view.setMinimumHeight(self._text_height(5))
+        self.approval_view.setMaximumHeight(self._text_height(10))
         approval_layout.addWidget(self.approval_view)
         approval_buttons = QHBoxLayout()
         # One primary action button for the one pending action. For a run
@@ -299,7 +360,8 @@ class AgentWorkspaceDock(QDockWidget):
         ledger_layout.setSpacing(4)
         self.ledger_view = QPlainTextEdit()
         self.ledger_view.setReadOnly(True)
-        self.ledger_view.setFixedHeight(90)
+        self.ledger_view.setMinimumHeight(self._text_height(3))
+        self.ledger_view.setMaximumHeight(self._text_height(8))
         self.ledger_view.setPlaceholderText(
             "Proposed, approved, rejected, applied, failed and undone actions "
             "appear here. No raw values are recorded."
@@ -308,6 +370,11 @@ class AgentWorkspaceDock(QDockWidget):
         self.undo_button = QPushButton("Undo last agent action")
         self.undo_button.setAutoDefault(False)
         self.undo_button.setEnabled(False)
+        self.undo_button.setToolTip(
+            "Undo becomes available after an action is applied or a run adds "
+            "temporary layers, and stays available only while that exact target "
+            "is unchanged."
+        )
         self.undo_button.clicked.connect(self._on_undo_clicked)
         ledger_layout.addWidget(self.undo_button)
         layout.addWidget(self.ledger_group)
@@ -323,9 +390,14 @@ class AgentWorkspaceDock(QDockWidget):
         self.prompt_input = QPlainTextEdit()
         self.prompt_input.setPlaceholderText(
             "Ask a question about your project, layers, Processing, the "
-            "current model, or installed plugins."
+            "current model, or installed plugins. Ctrl+Enter sends."
         )
-        self.prompt_input.setFixedHeight(70)
+        self.prompt_input.setMinimumHeight(self._text_height(2))
+        self.prompt_input.setMaximumHeight(self._text_height(5))
+        # Ctrl+Enter sends. Deliberately the *only* keyboard accelerator in this
+        # panel: no shortcut reaches Apply, Run or Undo, so an approval always
+        # costs a deliberate click or an explicit focus-then-Space.
+        self.prompt_input.installEventFilter(self)
         layout.addWidget(self.prompt_input)
 
         button_row = QHBoxLayout()
@@ -341,7 +413,65 @@ class AgentWorkspaceDock(QDockWidget):
         button_row.addWidget(self.new_chat_button)
         layout.addLayout(button_row)
 
-        self.setWidget(container)
+        # Narrow/short dock behaviour (§9.2): the panel has a natural minimum
+        # width and five stacked regions. Rather than clipping controls when the
+        # user drags the dock small, scroll the whole panel -- every control
+        # stays reachable at any dock size or font scale.
+        scroller = QScrollArea(self)
+        scroller.setWidgetResizable(True)
+        scroller.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroller.setWidget(container)
+        self.setWidget(scroller)
+        # Applied *after* the final reparent into the scroll area: setting a tab
+        # order before a reparent is not guaranteed to survive it.
+        self._apply_accessibility()
+        # Read the hint from the live selector rather than assuming the default
+        # index, so the sentence can never disagree with the combo.
+        self._refresh_mode_hint()
+
+    def _apply_accessibility(self) -> None:
+        """Give every interactive control a name and a deliberate tab order.
+
+        Phase 07 (§9.2). Without this a screen reader announces a bare glyph, and
+        tab order follows construction order, which interleaves the quick-action
+        row with the approval controls. The order below walks the panel the way
+        the workflow reads: configure, inspect, converse, then decide.
+        """
+        names = (
+            (self.scope_combo, "Inspection scope"),
+            (self.mode_combo, "Agent mode"),
+            (self.ai_settings_button, "Open AI connection settings"),
+            (self.project_summary_button, "Quick inspection: project summary"),
+            (self.layers_button, "Quick inspection: layers"),
+            (self.model_button, "Quick inspection: current model"),
+            (self.plugins_button, "Quick inspection: installed plugins"),
+            (self.transcript, "Conversation and inspection results"),
+            (self.proposal_view, "Proposal preview, review only"),
+            (self.approval_view, "Action awaiting your approval"),
+            (self.apply_button, "Approve and carry out the pending action"),
+            (self.reject_button, "Reject the pending action"),
+            (self.cancel_run_button, "Cancel the running action"),
+            (self.ledger_view, "Action ledger"),
+            (self.undo_button, "Undo the last agent action"),
+            (self.prompt_input, "Message to the agent"),
+            (self.send_button, "Send the message"),
+            (self.stop_button, "Stop the current turn"),
+            (self.new_chat_button, "Start a new chat"),
+        )
+        for widget, name in names:
+            widget.setAccessibleName(name)
+        order = [widget for widget, _ in names]
+        for first, second in zip(order, order[1:]):
+            QWidget.setTabOrder(first, second)
+
+    def eventFilter(self, watched, event):  # noqa: N802 - Qt override signature
+        """Send on Ctrl+Enter from the prompt box; never approve anything."""
+        if watched is self.prompt_input and event.type() == QEvent.Type.KeyPress:
+            is_enter = event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            if is_enter and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self._on_send_clicked()
+                return True
+        return super().eventFilter(watched, event)
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt override signature
         super().showEvent(event)
@@ -352,6 +482,9 @@ class AgentWorkspaceDock(QDockWidget):
         # no execution continues against a panel the human has dismissed.
         self.run_coordinator.cancel()
         self._cancel_active_run()
+        # A dismissed panel runs no timer. The pending action is left alone --
+        # it still expires on its own terms and is still checked at the click.
+        self._stale_timer.stop()
         super().closeEvent(event)
 
     def shutdown(self) -> None:
@@ -369,6 +502,9 @@ class AgentWorkspaceDock(QDockWidget):
         self._active_request_token = None
         self._active_api_key = ""
         self._active_profile = None
+        # Stop the stale-check timer explicitly and first, so no Qt timer event
+        # can reach a dock that is being torn down.
+        self._stale_timer.stop()
         # Cancel and tear down any running action first, so a Processing result
         # that returns after unload adds no layer and revives nothing.
         self.run_coordinator.shutdown()
@@ -383,12 +519,26 @@ class AgentWorkspaceDock(QDockWidget):
 
     # -- profile -------------------------------------------------------
 
+    def _refresh_mode_hint(self) -> None:
+        self.mode_hint_label.setText(mode_hint(self.mode_combo.currentData() or AgentMode.ASK))
+
     def _refresh_profile(self) -> None:
+        """Show the active AI profile, and say up front when chat is unavailable.
+
+        Reads only the profile record, never the stored key -- so simply opening
+        or showing the dock cannot trigger a QGIS master-password prompt
+        (§9.2, "no modal storms during normal loading").
+        """
         store = AiSettingsStore()
         profile = store.active_profile()
         provider = PROVIDERS[profile.provider_id]
         label = profile.name if profile.name else provider.name
-        self.profile_label.setText(f"Profile: {label} ({provider.name})")
+        text = f"Profile: {label} ({provider.name})"
+        if profile.provider_id == "offline":
+            # Empty/offline state (§9.2): stated before the user writes a
+            # message, not only as a failure after they press Send.
+            text = f"{text} - quick inspections only, Agent Chat needs a connection"
+        self.profile_label.setText(text)
 
     def _open_ai_settings(self) -> None:
         from .ai_settings_dialog import AiSettingsDialog
@@ -699,16 +849,48 @@ class AgentWorkspaceDock(QDockWidget):
                 "[proposal] A run is in progress; this proposal is shown for review only."
             )
             return
+        if self.run_loop.mode == AgentMode.ACT and not self._session_action_budget_left():
+            # The cap gates *acting*, not previewing: a Plan proposal is
+            # unaffected and still renders normally below.
+            self._clear_approval_card()
+            self._append_line(
+                f"[proposal] This chat has already completed its limit of "
+                f"{MAX_SESSION_ACTIONS} actions, so no new action can be approved. "
+                "The proposal above is review-only; start a New chat to continue."
+            )
+            return
         if self.run_loop.mode == AgentMode.ACT and isinstance(ingredients, dict):
             self._create_pending_action(ingredients, preview)
+            verb = "Run" if ingredients.get("kind") in RUN_KINDS else "Apply"
             self._append_line(
-                "[proposal] Validated. Review the approval card and click Apply to apply it."
+                f"[proposal] Validated. Review the approval card and click {verb} to proceed."
             )
         else:
             self._clear_approval_card()
             self._append_line(
                 "[proposal] A validated proposal is shown below (Not applied; review only)."
             )
+
+    # -- supervised continuation (Phase 06) ------------------------------
+
+    def _record_action_outcome(self, kind: str, status: str, target: str) -> None:
+        """Count one terminal action and put a sanitized line into session memory.
+
+        This is the *only* thing an action contributes to the conversation, so a
+        later user-initiated turn can know what happened. It carries no
+        parameter, layer id, path, token, digest, or feature value -- the same
+        discipline as the action ledger. It never triggers a provider call: the
+        agent continues only when the human asks it to.
+        """
+        self._session_action_count += 1
+        note = f"[Action: {str(kind)[:40]}] {str(status)[:40]}"
+        if target:
+            note = f"{note} - {str(target)[:120]}"
+        with contextlib.suppress(Exception):
+            self.run_loop.session_memory.append("(agent action outcome)", note)
+
+    def _session_action_budget_left(self) -> bool:
+        return self._session_action_count < MAX_SESSION_ACTIONS
 
     def _create_pending_action(self, ingredients: dict, preview: dict) -> None:
         # A new validated Act proposal supersedes any previous pending action.
@@ -729,6 +911,8 @@ class AgentWorkspaceDock(QDockWidget):
         self._record_ledger(pending, ActionStatus.PROPOSED)
         self._show_approval_card(pending)
 
+    _RISK_COLORS = {"low": "#6FBF73", "medium": "#E0B341", "high": "#E2705F"}
+
     def _show_approval_card(self, pending) -> None:
         card = pending.to_public_card()
         is_run = pending.kind in RUN_KINDS
@@ -742,6 +926,15 @@ class AgentWorkspaceDock(QDockWidget):
             f"Explicit approval required for this {card['kind']} action ({note}). "
             f"Nothing happens until you click {verb}."
         )
+        # Risk badge: derived from the kind and the validated destructive flag,
+        # so it states what the trusted boundary already decided rather than what
+        # the proposal calls itself.
+        risk = assess_risk(pending.kind, card["destructive"])
+        self.risk_badge_label.setText(risk.badge())
+        self.risk_badge_label.setStyleSheet(
+            f"color: {self._RISK_COLORS.get(risk.level, '#E2705F')}; font-weight: 600;"
+        )
+        self.risk_badge_label.setVisible(True)
         self.apply_button.setEnabled(True)
         self.reject_button.setEnabled(True)
         # Apply must never be the default/auto-focused button.
@@ -749,6 +942,32 @@ class AgentWorkspaceDock(QDockWidget):
         self.apply_button.setAutoDefault(False)
         self.reject_button.setFocus()
         self.approval_group.setVisible(True)
+        # Watch for the TTL elapsing so a forgotten card visibly goes stale
+        # instead of staying invitingly clickable until it fails at the click.
+        self._stale_timer.start()
+
+    def _on_stale_tick(self) -> None:
+        """Disable a pending action that has aged past its TTL.
+
+        Deliberately the *weakest* possible behaviour: it can only take the
+        approval away. It never creates, extends, repairs or re-arms a pending
+        action, and it does not consume the nonce or touch the ledger -- the
+        click path still performs the authoritative expiry check and records the
+        outcome. If this timer never fired, nothing about the security of an
+        expired action would change.
+        """
+        pending = self._pending_action
+        if pending is None:
+            self._stale_timer.stop()
+            return
+        if not pending.is_expired(time.monotonic()):
+            return
+        self._stale_timer.stop()
+        self.apply_button.setEnabled(False)
+        self.approval_status_label.setText(
+            "This proposal is no longer fresh, so it can no longer be approved. "
+            "Ask again to get a proposal against the current state."
+        )
 
     @staticmethod
     def _format_card(card: dict) -> str:
@@ -793,14 +1012,17 @@ class AgentWorkspaceDock(QDockWidget):
         if pending.kind in RUN_KINDS:
             self._start_run(pending)
             return
+        card_target = pending.to_public_card().get("target", "")
         result = self._apply_coordinator.apply(pending)
         if result.ok:
             self._last_applied = result.applied_action
             self._record_ledger(pending, ActionStatus.APPLIED)
+            self._record_action_outcome(pending.kind, ActionStatus.APPLIED, card_target)
             self._append_line(f"[action] Applied the {pending.kind} action.")
             self.status_label.setText("Action applied.")
         else:
             self._record_ledger(pending, ActionStatus.FAILED, result.reason_code)
+            self._record_action_outcome(pending.kind, ActionStatus.FAILED, card_target)
             self._append_line(f"[action] Not applied: {result.message}")
         self._clear_approval_card()
         self._refresh_undo_button()
@@ -854,6 +1076,9 @@ class AgentWorkspaceDock(QDockWidget):
         self._running_action = None
         self._set_running_ui(False, "")
         self._record_ledger(pending, ActionStatus.FAILED, reason_code)
+        # The approval nonce was already consumed, so this counts as an attempted
+        # action against the session budget even though nothing executed.
+        self._record_action_outcome(pending.kind, ActionStatus.FAILED, "")
         self._append_line(f"[run] {message}")
         self._clear_approval_card()
         self._refresh_undo_button()
@@ -912,6 +1137,9 @@ class AgentWorkspaceDock(QDockWidget):
         )
         if pending is not None:
             self._record_ledger(pending, ActionStatus.COMPLETED)
+        self._record_action_outcome(
+            str(summary.get("kind", "")), ActionStatus.COMPLETED, str(summary.get("target", ""))
+        )
         added = ", ".join(names) if names else "no layer"
         self._append_line(f"[run] Finished. Added as temporary layer(s): {added}.")
         self.status_label.setText("Run complete.")
@@ -924,6 +1152,9 @@ class AgentWorkspaceDock(QDockWidget):
         self._set_running_ui(False, "")
         if pending is not None:
             self._record_ledger(pending, ActionStatus.FAILED, reason_code)
+        self._record_action_outcome(
+            pending.kind if pending is not None else "run", ActionStatus.FAILED, ""
+        )
         self._append_line(f"[run] Not completed: {message} The project is unchanged.")
         self.status_label.setText("Run failed.")
         self._clear_approval_card()
@@ -935,6 +1166,9 @@ class AgentWorkspaceDock(QDockWidget):
         self._set_running_ui(False, "")
         if pending is not None:
             self._record_ledger(pending, ActionStatus.CANCELED, ProposalReason.EXECUTION_CANCELED)
+        self._record_action_outcome(
+            pending.kind if pending is not None else "run", ActionStatus.CANCELED, ""
+        )
         self._append_line("[run] Cancelled. No layer was added and the project is unchanged.")
         self.status_label.setText("Run cancelled.")
         self._clear_approval_card()
@@ -963,6 +1197,7 @@ class AgentWorkspaceDock(QDockWidget):
             self.action_ledger.record(
                 applied.action_id, applied.kind, "", applied.title, ActionStatus.UNDONE,
             )
+            self._record_action_outcome(applied.kind, ActionStatus.UNDONE, applied.title)
             self._append_line(f"[undo] Reverted the last {applied.kind} action.")
         else:
             self._append_line(f"[undo] Could not undo: {result.message}")
@@ -974,6 +1209,7 @@ class AgentWorkspaceDock(QDockWidget):
         # A mode/scope change fails any pending action closed and cancels a
         # running one. (The selectors are disabled while a run executes, so the
         # cancellation here is defense in depth against a programmatic change.)
+        self._refresh_mode_hint()
         if self.run_coordinator.is_running():
             self.run_coordinator.cancel()
         if self._pending_action is not None:
@@ -986,8 +1222,11 @@ class AgentWorkspaceDock(QDockWidget):
         self._clear_approval_card()
 
     def _clear_approval_card(self) -> None:
+        self._stale_timer.stop()
         self.approval_view.clear()
         self.approval_status_label.setText("No action awaiting approval.")
+        self.risk_badge_label.setText("")
+        self.risk_badge_label.setVisible(False)
         self.apply_button.setText("Apply")
         self.apply_button.setEnabled(False)
         self.reject_button.setEnabled(False)
@@ -1031,6 +1270,7 @@ class AgentWorkspaceDock(QDockWidget):
         self._pending_action = None
         self._running_action = None
         self._last_applied = None
+        self._session_action_count = 0
         self.action_ledger.clear()
         self._clear_approval_card()
         self._refresh_ledger_view()

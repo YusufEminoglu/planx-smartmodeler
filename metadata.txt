@@ -6,7 +6,7 @@ version=0.4.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
-about=SmartModeler GIS is a QGIS 4-only visual Processing studio. It discovers installed algorithms, builds and runs typed acyclic workflows, imports and exports native .model3 models, and offers schema-validated iterative AI planning through local or remote providers. API keys use password-free session memory or the optional encrypted QGIS vault. No pip dependencies are required.
+about=SmartModeler GIS is a QGIS 4-only visual Processing studio. It discovers installed algorithms, builds and runs typed acyclic workflows, imports and exports native .model3 models, and offers schema-validated iterative AI planning through local or remote providers. A separate Agent Workspace dock adds bounded read-only inspections and a supervised assistant: it can propose a workflow patch, a symbology intent, a run of one reviewed core algorithm, or a run of your current workflow, but nothing takes effect until you click Apply or Run yourself, results go to temporary layers, and the last action can be undone. The assistant never invokes a plugin, runs an arbitrary algorithm, writes a file or database, or continues on its own. Only metadata leaves your machine, never feature values, source paths or credentials. API keys use password-free session memory or the optional encrypted QGIS vault. No pip dependencies are required.
 
 tracker=https://github.com/YusufEminoglu/planx-smartmodeler/issues
 repository=https://github.com/YusufEminoglu/planx-smartmodeler
@@ -22,4 +22,8 @@ hasProcessingProvider=no
 license=GPL-3
 
 changelog=
-    Unreleased - Real Processing execution, native model interchange, multi-provider AI profiles, encrypted credentials, strict AI graph validation, and a redesigned Qt 6 interface.
+    0.4.0 - New Agent Workspace dock: bounded read-only project, layer, Processing, model and plugin inspections, a provider-neutral Agent Chat over twelve read-only tools, and four kinds of validated proposal. Explicit approval is required for every action; an approved run is limited to twelve reviewed native algorithms or your current workflow, always writes to temporary layers, and can be cancelled and undone.
+    0.3.1 - Clean node palette and focus strictly on GIS graphical modeler workflows.
+    0.3.0 - Add the first AI settings dialog and experimental visual nodes.
+    0.2.0 - Add the initial AI prompt engine, auto-layout, and prompt bar prototypes.
+    0.1.0 - Initial release.

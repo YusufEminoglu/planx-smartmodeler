@@ -44,7 +44,13 @@ from .identifiers import (  # noqa: E402 - grouped with the other module constan
     STYLE_PROPOSAL_KIND,
     STYLE_STATE_LIMIT,
 )
-from .safe_algorithm_policy import ParamSpec  # noqa: E402 - same grouping
+from .safe_algorithm_policy import ParamSpec, default_policy  # noqa: E402 - same grouping
+from .plugin_capabilities import (  # noqa: E402 - same grouping
+    MAX_ALGORITHMS,
+    PluginView,
+    ProviderView,
+    build_capabilities,
+)
 
 _LIMIT_PROPERTY = {"type": "integer", "minimum": 1, "maximum": MAX_LIST_LIMIT}
 
@@ -162,6 +168,15 @@ def _tool_layer_describe(call: AgentToolCall) -> Dict[str, Any]:
     return result
 
 
+def _algorithm_provider_id(algorithm: Any) -> str:
+    """The owning provider's id, or "" -- never a source path or module path."""
+    with contextlib.suppress(Exception):
+        provider = algorithm.provider()
+        if provider is not None:
+            return agent_context.bound_text(provider.id(), 128)
+    return ""
+
+
 def _tool_processing_search(call: AgentToolCall) -> Dict[str, Any]:
     query = call.arguments.get("query", "")
     if not isinstance(query, str):
@@ -184,6 +199,7 @@ def _tool_processing_search(call: AgentToolCall) -> Dict[str, Any]:
                     "group": agent_context.bound_text(
                         algorithm.group(), agent_context.MAX_DISPLAY_NAME
                     ),
+                    "provider_id": _algorithm_provider_id(algorithm),
                 }
             )
     # Relevance ranking requires the full match set before truncation; this
@@ -220,6 +236,37 @@ def _param_is_optional(definition: Any) -> bool:
             if flags & int(target):
                 return True
     return False
+
+
+def _param_allows_multiple(definition: Any) -> bool:
+    """Whether the parameter accepts a list of inputs."""
+    type_names = {cls.__name__ for cls in type(definition).__mro__}
+    return "QgsProcessingParameterMultipleLayers" in type_names
+
+
+def _param_options(definition: Any) -> list:
+    """Bounded enum option labels, or [] for a non-enum parameter."""
+    options: list = []
+    with contextlib.suppress(Exception):  # only enum parameters have options
+        options = [
+            agent_context.bound_text(str(option), 128)
+            for option in list(definition.options())[: agent_context.MAX_LIST_ITEMS]
+        ]
+    return options
+
+
+def _param_bound(definition: Any, which: str) -> Any:
+    """A numeric parameter's live minimum/maximum, or ``None``.
+
+    Sentinel-sized bounds (the float min/max QGIS uses to mean "unbounded") are
+    reported as ``None`` so they do not read as real limits.
+    """
+    with contextlib.suppress(Exception):
+        value = float(getattr(definition, which)())
+        if abs(value) >= 1e307:
+            return None
+        return value
+    return None
 
 
 def build_param_specs(algorithm: Any) -> List[ParamSpec]:
@@ -303,14 +350,33 @@ def _tool_processing_describe_factory(
                 "available": False,
                 "algorithm_id": agent_context.bound_text(algorithm_id, 200),
             }
+        # The safe *contract* of each parameter: enough to explain and to fill
+        # in correctly, and deliberately never ``defaultValue()``, which for a
+        # third-party algorithm can be a file path or a connection string.
         parameters = (
             {
                 "name": agent_context.bound_text(definition.name(), 128),
                 "type": agent_context.bound_text(definition.type(), 64),
+                "required": not _param_is_optional(definition),
+                "destination": bool(definition.isDestination()),
+                "multiple": _param_allows_multiple(definition),
+                "enum_options": _param_options(definition),
+                "minimum": _param_bound(definition, "minimum"),
+                "maximum": _param_bound(definition, "maximum"),
             }
             for definition in algorithm.parameterDefinitions()
         )
         bounded, truncated = agent_context.bound_list(parameters, limit)
+        outputs, outputs_truncated = agent_context.bound_list(
+            (
+                {
+                    "name": agent_context.bound_text(output.name(), 128),
+                    "type": agent_context.bound_text(output.type(), 64),
+                }
+                for output in algorithm.outputDefinitions()
+            ),
+            limit,
+        )
         return {
             "available": True,
             "algorithm_id": agent_context.bound_text(algorithm.id(), 200),
@@ -318,8 +384,15 @@ def _tool_processing_describe_factory(
                 algorithm.displayName(), agent_context.MAX_DISPLAY_NAME
             ),
             "group": agent_context.bound_text(algorithm.group(), agent_context.MAX_DISPLAY_NAME),
+            "provider_id": _algorithm_provider_id(algorithm),
             "parameters": bounded,
             "parameters_truncated": truncated,
+            "outputs": outputs,
+            "outputs_truncated": outputs_truncated,
+            # A membership *test* for this one id, not an enumerator: it stops
+            # the provider proposing a run that would certainly be refused. The
+            # allowlist itself remains non-enumerable and cannot be extended.
+            "agent_runnable": default_policy().record_for(algorithm.id()) is not None,
             # The freshness receipt for a later processing_run proposal. It
             # authorizes nothing: the deny-by-default SafeAlgorithmPolicy is the
             # only thing that decides whether this algorithm may ever run, and
@@ -770,9 +843,20 @@ def _is_valid_dns_host(host: str) -> bool:
 
     Rejects empty labels, leading/trailing hyphens and any character outside the
     ordinary DNS host set. Operates only on an already-canonical ASCII host.
+
+    A host whose **rightmost label is all digits** is also rejected. Two reasons,
+    and the second is the one that matters: no real top-level domain is numeric
+    (RFC 1123 / RFC 3696), and -- found by the Phase 07 fuzzer -- the abbreviated
+    IPv4 forms browsers and ``inet_aton`` still accept, such as ``127.1`` for
+    ``127.0.0.1`` or ``10.1`` for ``10.0.0.1``, are *not* parsed by
+    ``ipaddress.ip_address``. Without this rule they miss the IP branch entirely
+    and are then waved through as ordinary two-label DNS names, so a local or
+    private address could be surfaced as a public link.
     """
     labels = host.split(".")
     if len(labels) < 2:  # an ordinary public URL host is never a single label
+        return False
+    if labels[-1].isdigit():
         return False
     return all(_DNS_LABEL.match(label) for label in labels)
 
@@ -897,6 +981,115 @@ def build_plugin_describe(qgis_utils: Any, package_name: str) -> Dict[str, Any]:
     }
 
 
+def build_plugin_view(qgis_utils: Any, package_name: str) -> Optional[PluginView]:
+    """Bounded metadata for one plugin, or ``None`` when it is not installed.
+
+    Reads only the plugin *name union* and QGIS' own ``pluginMetadata`` API. It
+    never touches ``qgis.utils.plugins[name]`` -- the loaded plugin *instance* --
+    because even reading an attribute off it can execute third-party code.
+    """
+    if package_name not in _plugin_union(qgis_utils):
+        return None
+    active = set(getattr(qgis_utils, "active_plugins", []) or [])
+
+    def _meta(key: str) -> str:
+        value = ""
+        with contextlib.suppress(Exception):
+            value = str(qgis_utils.pluginMetadata(package_name, key) or "")
+        return value
+
+    return PluginView(
+        package_name=package_name,
+        display_name=_meta("name") or package_name,
+        version=_meta("version"),
+        enabled=package_name in active,
+        declares_processing_provider=_meta("hasProcessingProvider").strip().lower() == "yes",
+        installed=True,
+    )
+
+
+def build_provider_views(
+    registry: Any, *, with_algorithms: bool = True, for_package: str = ""
+) -> List[ProviderView]:
+    """Adapt every live Processing provider into a QGIS-free view.
+
+    ``owning_package`` comes from ``type(provider).__module__`` -- the Python
+    package that defined the provider class. QGIS already constructed and holds
+    these objects, and reading a class's ``__module__`` executes no plugin code,
+    so this is the one way to *prove* a plugin-to-provider mapping without ever
+    asking the plugin.
+
+    Phase 07 (§9.4) makes this two-pass. ``build_capabilities`` lists algorithms
+    only for a provider whose owning package **equals** the requested one; every
+    other provider contributes identity alone. Passing ``for_package`` therefore
+    enumerates algorithms for at most those providers instead of for all of them,
+    which matters on a profile with many plugins installed. The returned report is
+    byte-for-byte identical either way -- ``for_package`` is a work filter, never
+    a visibility filter: every provider is still returned and still eligible to be
+    reported as a candidate.
+    """
+    views: List[ProviderView] = []
+    if registry is None:
+        return views
+    providers = []
+    with contextlib.suppress(Exception):
+        providers = list(registry.providers())
+    wanted = str(for_package or "")
+    for provider in providers:
+        owning = ""
+        with contextlib.suppress(Exception):
+            owning = str(type(provider).__module__ or "").split(".")[0]
+        provider_id = ""
+        with contextlib.suppress(Exception):
+            provider_id = str(provider.id() or "")
+        name = ""
+        with contextlib.suppress(Exception):
+            name = str(provider.name() or "")
+        algorithms: List[tuple] = []
+        if with_algorithms and (not wanted or owning == wanted):
+            with contextlib.suppress(Exception):
+                for algorithm in list(provider.algorithms())[:MAX_ALGORITHMS * 2]:
+                    algorithms.append(
+                        (str(algorithm.id()), str(algorithm.displayName()), str(algorithm.group()))
+                    )
+        views.append(
+            ProviderView(
+                provider_id=provider_id,
+                name=name,
+                owning_package=owning,
+                algorithms=tuple(algorithms),
+            )
+        )
+    return views
+
+
+def _tool_plugin_capabilities(call: AgentToolCall) -> Dict[str, Any]:
+    package_name = call.arguments.get("package_name")
+    if not isinstance(package_name, str) or not package_name.strip():
+        raise ToolExecutionError("package_name must be a non-empty string.")
+    limit = _clamp_limit(call.arguments.get("limit"))
+    try:
+        import qgis.utils as qgis_utils
+    except ImportError as error:
+        raise ToolExecutionError("Plugin registry is unavailable.") from error
+    from ..algorithm_catalog import AlgorithmCatalog
+
+    plugin = build_plugin_view(qgis_utils, package_name)
+    if plugin is None:
+        return build_capabilities(
+            PluginView(package_name=package_name, installed=False), (), limit=limit
+        )
+    providers = build_provider_views(
+        QgsApplication.processingRegistry(), for_package=plugin.package_name
+    )
+    return build_capabilities(
+        plugin,
+        providers,
+        limit=limit,
+        algorithm_allowed=AlgorithmCatalog.ai_algorithm_allowed,
+    )
+
+
 def _tool_plugin_describe(call: AgentToolCall) -> Dict[str, Any]:
     package_name = call.arguments.get("package_name")
     if not isinstance(package_name, str) or not package_name.strip():
@@ -912,12 +1105,12 @@ def build_default_registry(
     model_provider: ModelProvider,
     token_service: Optional[ContextTokenService] = None,
 ) -> AgentToolRegistry:
-    """Build and return the eleven-tool read-only Agent Workspace registry.
+    """Build and return the twelve-tool read-only Agent Workspace registry.
 
-    ``token_service`` issues the opaque freshness tokens for ``model.describe``
-    and ``layer.style``; the dock passes the same instance to the runtime
-    proposal validator so tokens can be verified. When omitted a fresh service
-    is created (useful for isolated tool tests).
+    ``token_service`` issues the opaque freshness tokens for ``model.describe``,
+    ``layer.style`` and ``processing.describe``; the dock passes the same
+    instance to the runtime proposal validator so tokens can be verified. When
+    omitted a fresh service is created (useful for isolated tool tests).
     """
     token_service = token_service or ContextTokenService()
     registry = AgentToolRegistry()
@@ -1141,5 +1334,33 @@ def build_default_registry(
             allowed_scopes=(AgentScope.PLUGINS,),
         ),
         _tool_plugin_describe,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="plugin.capabilities",
+            title="Plugin capabilities",
+            description=(
+                "Reports what one installed plugin can actually be used for: "
+                "its live Processing provider(s) when that can be proved from "
+                "the provider registry, a bounded list of their algorithms, and "
+                "an honest status when no reliable mapping exists. Never "
+                "imports, instantiates, or calls the plugin, and never claims an "
+                "unproved mapping."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "package_name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": _PACKAGE_MAX_LENGTH,
+                    },
+                    "limit": _LIMIT_PROPERTY,
+                },
+                required=["package_name"],
+            ),
+            allowed_scopes=(AgentScope.PLUGINS, AgentScope.PROJECT),
+        ),
+        _tool_plugin_capabilities,
     )
     return registry
