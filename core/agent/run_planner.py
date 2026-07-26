@@ -62,7 +62,21 @@ MAX_RUN_NODES = 80
 # The only non-Processing node kinds a model_run may contain. They are
 # application-owned SmartModeler inputs with no side effect of their own.
 ALLOWED_SMART_NODES = frozenset(
-    {"smart:input_layer", "smart:raster_layer", "smart:number", "smart:slider"}
+    {
+        "smart:input_layer",
+        "smart:raster_layer",
+        "smart:number",
+        "smart:slider",
+        "smart:boolean",
+        "smart:string",
+        "smart:field",
+        "smart:crs",
+        "smart:extent",
+        "smart:enum",
+        "smart:map_layer",
+        "smart:multiple_vector",
+        "smart:multiple_raster",
+    }
 )
 
 # Which logical parameter kinds each tagged binding form may satisfy. A tag can

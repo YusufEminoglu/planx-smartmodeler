@@ -264,9 +264,12 @@ class SmartModelerWindow(QMainWindow):
     def _record_document_change(self) -> bool:
         if self._history_suspended:
             return False
-        changed = self.document_history.record(
-            Model3Serializer.export_to_json(self.graph)
-        )
+        try:
+            snapshot = Model3Serializer.export_to_json(self.graph)
+        except ValueError as error:
+            self.status_label.setText(f"Document change is not serializable: {error}")
+            return False
+        changed = self.document_history.record(snapshot)
         if changed:
             self._update_document_ui()
         return changed
@@ -816,7 +819,7 @@ class SmartModelerWindow(QMainWindow):
                 self._atomic_write_text(
                     path, Model3Serializer.export_to_json(self.graph)
                 )
-            except OSError as error:
+            except (OSError, ValueError) as error:
                 QMessageBox.critical(self, "Save failed", str(error))
                 return False
         if editable:
@@ -1013,9 +1016,13 @@ class SmartModelerWindow(QMainWindow):
     def _write_recovery_snapshot(self) -> None:
         if not self.document_history.is_dirty:
             return
+        try:
+            snapshot = Model3Serializer.export_to_json(self.graph)
+        except ValueError:
+            return
         self.settings.setValue(
             self.RECOVERY_PREFIX + "snapshot",
-            Model3Serializer.export_to_json(self.graph),
+            snapshot,
         )
         self.settings.setValue(
             self.RECOVERY_PREFIX + "path",

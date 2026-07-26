@@ -80,6 +80,102 @@ class GraphModelTests(unittest.TestCase):
         self.assertTrue(GraphModel.value_is_configured(0))
         self.assertTrue(GraphModel.value_is_configured(False))
 
+    def test_dependencies_participate_in_ordering_and_cycle_rejection(self) -> None:
+        graph = GraphModel()
+        first = node("first", SocketType.NUMBER, SocketType.NUMBER)
+        second = node("second", SocketType.NUMBER, SocketType.NUMBER)
+        first.dependencies = ["second"]
+        graph.add_node(first)
+        graph.add_node(second)
+        self.assertEqual(
+            [item.node_id for item in graph.get_topological_order()],
+            ["second", "first"],
+        )
+        self.assertIsNone(graph.add_edge("first", "OUTPUT", "second", "INPUT"))
+        self.assertIn("cycle", graph.last_error.lower())
+
+    def test_invalid_dependencies_fail_closed(self) -> None:
+        graph = GraphModel()
+        item = node("item", None, SocketType.NUMBER)
+        graph.add_node(item)
+        item.dependencies = ["missing"]
+        with self.assertRaisesRegex(ValueError, "missing node"):
+            graph.get_topological_order()
+        item.dependencies = ["item"]
+        with self.assertRaisesRegex(ValueError, "itself"):
+            graph.get_topological_order()
+        item.dependencies = ["other", "other"]
+        graph.add_node(node("other", None, SocketType.NUMBER))
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            graph.get_topological_order()
+
+    def test_removing_node_purges_dependencies_and_declared_outputs(self) -> None:
+        graph = GraphModel()
+        source = node("source", None, SocketType.NUMBER)
+        target = node("target", None, SocketType.NUMBER)
+        target.dependencies = ["source"]
+        graph.add_node(source)
+        graph.add_node(target)
+        graph.outputs["RESULT"] = {
+            "node_id": "source",
+            "output_name": "OUTPUT",
+            "description": "",
+        }
+        graph.remove_node("source")
+        self.assertEqual(target.dependencies, [])
+        self.assertEqual(graph.outputs, {})
+
+    def test_parallel_edges_do_not_create_a_false_cycle(self) -> None:
+        graph = GraphModel()
+        source = node("source", None, None)
+        source.add_output("A", "A", SocketType.NUMBER)
+        source.add_output("B", "B", SocketType.NUMBER)
+        target = node("target", None, SocketType.NUMBER)
+        target.add_input(
+            "A", "A", SocketType.NUMBER, allows_multiple=True
+        )
+        target.add_input(
+            "B", "B", SocketType.NUMBER, allows_multiple=True
+        )
+        graph.add_node(source)
+        graph.add_node(target)
+        self.assertIsNotNone(graph.add_edge("source", "A", "target", "A"))
+        self.assertIsNotNone(graph.add_edge("source", "B", "target", "B"))
+        self.assertEqual(
+            [item.node_id for item in graph.get_topological_order()],
+            ["source", "target"],
+        )
+
+    def test_edge_ids_do_not_collide_when_components_contain_underscores(self) -> None:
+        graph = GraphModel()
+        first = node("a_b", None, None)
+        first.add_output("c", "C", SocketType.NUMBER)
+        second = node("a", None, None)
+        second.add_output("b_c", "BC", SocketType.NUMBER)
+        target = node("target", None, None)
+        target.add_input(
+            "INPUT", "Input", SocketType.NUMBER, allows_multiple=True
+        )
+        for item in (first, second, target):
+            graph.add_node(item)
+        edge_one = graph.add_edge("a_b", "c", "target", "INPUT")
+        edge_two = graph.add_edge("a", "b_c", "target", "INPUT")
+        self.assertIsNotNone(edge_one)
+        self.assertIsNotNone(edge_two)
+        self.assertNotEqual(edge_one.edge_id, edge_two.edge_id)
+        self.assertEqual(len(graph.edges), 2)
+
+    def test_required_typed_model_parameter_must_be_configured(self) -> None:
+        graph = GraphModel()
+        item = node("flag", None, SocketType.BOOLEAN)
+        item.algorithm_id = "smart:boolean"
+        item.model_parameter_required = True
+        graph.add_node(item)
+        issues = graph.validate()
+        self.assertEqual(issues[0].code, "missing_input")
+        item.parameters["VALUE"] = False
+        self.assertEqual(graph.validate(), [])
+
 
 if __name__ == "__main__":
     unittest.main()

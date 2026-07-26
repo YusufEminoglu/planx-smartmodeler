@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from qgis.PyQt.QtCore import QEvent, QMetaType, Qt
+from qgis.PyQt.QtCore import QEvent, QMetaType, QPointF, Qt
 from qgis.PyQt.QtGui import QColor, QIcon, QKeyEvent
 from qgis.core import (
     QgsApplication,
@@ -14,7 +14,23 @@ from qgis.core import (
     QgsGeometry,
     QgsPointXY,
     QgsProcessingAlgorithm,
+    QgsProcessingContext,
+    QgsProcessingModelAlgorithm,
+    QgsProcessingModelChildAlgorithm,
+    QgsProcessingModelChildDependency,
+    QgsProcessingModelChildParameterSource,
+    QgsProcessingModelOutput,
+    QgsProcessingModelParameter,
     QgsProcessingOutputString,
+    QgsProcessingParameterBoolean,
+    QgsProcessingParameterCrs,
+    QgsProcessingParameterEnum,
+    QgsProcessingParameterExtent,
+    QgsProcessingParameterField,
+    QgsProcessingParameterMultipleLayers,
+    QgsProcessingParameterNumber,
+    QgsProcessingParameterString,
+    QgsProcessingParameterVectorLayer,
     QgsProject,
     QgsVectorLayer,
     Qgis,
@@ -160,6 +176,84 @@ def run_checks() -> str:
         report = GraphExecutionEngine().execute(graph)
         if report.executed_nodes != 2 or not report.added_layers:
             raise RuntimeError("Processing execution did not load the buffer result.")
+
+        branch_graph = GraphModel("Conditional execution")
+        branch_source = AlgorithmCatalog.create_node(
+            "smart:boolean", "condition", "Condition"
+        )
+        branch_source.parameters["VALUE"] = False
+        branch_target = AlgorithmCatalog.create_node(
+            "smart:number", "selected", "Selected branch"
+        )
+        branch_descendant = AlgorithmCatalog.create_node(
+            "smart:number", "descendant", "Branch descendant"
+        )
+        branch_target.dependencies = ["condition"]
+        branch_target.dependency_branches["condition"] = "OUTPUT"
+        branch_descendant.dependencies = ["selected"]
+        for branch_node in (branch_source, branch_target, branch_descendant):
+            branch_graph.add_node(branch_node)
+        branch_report = GraphExecutionEngine().execute(branch_graph)
+        if (
+            branch_report.executed_nodes != 1
+            or branch_target.execution_state != "skipped"
+            or branch_descendant.execution_state != "skipped"
+        ):
+            raise RuntimeError("A false conditional branch was executed.")
+
+        declared_graph = GraphModel("Declared outputs")
+        declared_source = AlgorithmCatalog.create_node(
+            "smart:input_layer", "declared_source", "Declared source"
+        )
+        declared_target = AlgorithmCatalog.create_node(
+            "native:buffer", "declared_target", "Undeclared terminal"
+        )
+        declared_graph.add_node(declared_source)
+        declared_graph.add_node(declared_target)
+        declared_graph.add_edge(
+            "declared_source", "OUTPUT", "declared_target", "INPUT"
+        )
+        declared_graph.outputs_declared = True
+        declared_context = QgsProcessingContext()
+        declared_context.setProject(project)
+        hidden_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "hidden_terminal", "memory"
+        )
+        public_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "public_intermediate", "memory"
+        )
+        if GraphExecutionEngine._load_terminal_outputs(
+            declared_graph,
+            {
+                "declared_source": {"OUTPUT": public_layer},
+                "declared_target": {"OUTPUT": hidden_layer},
+            },
+            declared_context,
+            project,
+        ):
+            raise RuntimeError("A zero-output declaration loaded a terminal layer.")
+        declared_graph.outputs["PUBLIC_RESULT"] = {
+            "node_id": "declared_source",
+            "output_name": "OUTPUT",
+            "description": "",
+            "mandatory": False,
+            "default": None,
+        }
+        added_declared = GraphExecutionEngine._load_terminal_outputs(
+            declared_graph,
+            {
+                "declared_source": {"OUTPUT": public_layer},
+                "declared_target": {"OUTPUT": hidden_layer},
+            },
+            declared_context,
+            project,
+        )
+        if (
+            added_declared != ["PUBLIC_RESULT"]
+            or project.mapLayer(public_layer.id()) is None
+            or project.mapLayer(hidden_layer.id()) is not None
+        ):
+            raise RuntimeError("Declared output loading ignored the public contract.")
 
         scene = CanvasScene(graph)
         for node in graph.nodes.values():
@@ -1757,6 +1851,290 @@ def run_checks() -> str:
                 )
         finally:
             model_path.unlink(missing_ok=True)
+
+        # -- V0.7: typed model parameters and semantic source round-trip ----
+        typed_path = Path(__file__).with_name("_smoke_typed.model3")
+        typed_roundtrip_path = Path(__file__).with_name(
+            "_smoke_typed_roundtrip.model3"
+        )
+        mixed_path = Path(__file__).with_name("_smoke_mixed.model3")
+        mixed_roundtrip_path = Path(__file__).with_name(
+            "_smoke_mixed_roundtrip.model3"
+        )
+        try:
+            typed_model = QgsProcessingModelAlgorithm(
+                "Typed inputs", "SmartModeler GIS", "typed_inputs"
+            )
+            typed_definitions = [
+                QgsProcessingParameterVectorLayer("VECTOR", "Vector"),
+                QgsProcessingParameterNumber(
+                    "NUMBER", "Number", defaultValue=12.5, minValue=0, maxValue=1000
+                ),
+                QgsProcessingParameterBoolean(
+                    "BOOLEAN", "Boolean", defaultValue=True
+                ),
+                QgsProcessingParameterString(
+                    "STRING", "String", defaultValue="roads"
+                ),
+                QgsProcessingParameterCrs(
+                    "CRS", "CRS", defaultValue="EPSG:3857"
+                ),
+                QgsProcessingParameterExtent(
+                    "EXTENT", "Extent", defaultValue="0,10,0,10 [EPSG:3857]"
+                ),
+                QgsProcessingParameterEnum(
+                    "ENUM",
+                    "Enum",
+                    options=["first", "second"],
+                    allowMultiple=True,
+                    defaultValue=[0, 1],
+                ),
+                QgsProcessingParameterField(
+                    "FIELD",
+                    "Field",
+                    defaultValue="name",
+                    parentLayerParameterName="VECTOR",
+                    allowMultiple=True,
+                ),
+                QgsProcessingParameterMultipleLayers(
+                    "VECTORS",
+                    "Vectors",
+                    layerType=Qgis.ProcessingSourceType.Vector,
+                ),
+                QgsProcessingParameterMultipleLayers(
+                    "RASTERS",
+                    "Rasters",
+                    layerType=Qgis.ProcessingSourceType.Raster,
+                ),
+            ]
+            for index, definition in enumerate(typed_definitions):
+                component = QgsProcessingModelParameter(definition.name())
+                component.setDescription(definition.description())
+                component.setPosition(QPointF(index * 40.0, index * 20.0))
+                typed_model.addModelParameter(definition, component)
+            if not typed_model.toFile(str(typed_path)):
+                raise RuntimeError("Could not write the typed .model3 fixture.")
+
+            typed_graph, error = Model3Serializer.import_from_model3(str(typed_path))
+            if typed_graph is None:
+                raise RuntimeError(error or "Typed .model3 import failed.")
+            expected_smart_types = {
+                "VECTOR": "smart:input_layer",
+                "NUMBER": "smart:number",
+                "BOOLEAN": "smart:boolean",
+                "STRING": "smart:string",
+                "CRS": "smart:crs",
+                "EXTENT": "smart:extent",
+                "ENUM": "smart:enum",
+                "FIELD": "smart:field",
+                "VECTORS": "smart:multiple_vector",
+                "RASTERS": "smart:multiple_raster",
+            }
+            actual_smart_types = {
+                node_id: node.algorithm_id
+                for node_id, node in typed_graph.nodes.items()
+            }
+            if actual_smart_types != expected_smart_types:
+                raise RuntimeError(
+                    f"Typed model inputs changed type: {actual_smart_types}"
+                )
+            typed_graph.nodes["NUMBER"].set_parameter("VALUE", 9.0)
+            typed_json = Model3Serializer.export_to_json(typed_graph)
+            typed_json_graph = Model3Serializer.import_from_json(typed_json)
+            if typed_json_graph is None:
+                raise RuntimeError("Typed SmartModeler JSON did not round-trip.")
+            ok, error = Model3Serializer.export_to_model3(
+                typed_json_graph,
+                str(typed_roundtrip_path),
+                allow_invalid=True,
+            )
+            if not ok:
+                raise RuntimeError(error)
+            typed_reopened = QgsProcessingModelAlgorithm()
+            if not typed_reopened.fromFile(str(typed_roundtrip_path)):
+                raise RuntimeError("Typed round-trip .model3 could not be reopened.")
+            original_parameter_maps = {
+                definition.name(): definition.toVariantMap()
+                for definition in typed_model.parameterDefinitions()
+            }
+            reopened_parameter_maps = {
+                definition.name(): definition.toVariantMap()
+                for definition in typed_reopened.parameterDefinitions()
+            }
+            for name, original_map in original_parameter_maps.items():
+                reopened_map = reopened_parameter_maps.get(name, {})
+                for key in (
+                    "parameter_type",
+                    "default",
+                    "options",
+                    "allow_multiple",
+                    "parent_layer",
+                    "layer_type",
+                ):
+                    expected_value = (
+                        9.0
+                        if name == "NUMBER" and key == "default"
+                        else original_map.get(key)
+                    )
+                    if key in original_map and reopened_map.get(key) != expected_value:
+                        raise RuntimeError(
+                            f"Typed parameter {name}.{key} changed in round-trip."
+                        )
+
+            mixed_model = QgsProcessingModelAlgorithm(
+                "Mixed sources", "SmartModeler GIS", "mixed_sources"
+            )
+            vector_definition = QgsProcessingParameterVectorLayer(
+                "VECTOR_INPUT", "Vector input"
+            )
+            vector_component = QgsProcessingModelParameter("VECTOR_INPUT")
+            vector_component.setPosition(QPointF(0, 0))
+            mixed_model.addModelParameter(vector_definition, vector_component)
+            buffer_child = QgsProcessingModelChildAlgorithm("native:buffer")
+            buffer_child.setChildId("buffer")
+            buffer_child.setDescription("Buffer")
+            buffer_child.setPosition(QPointF(250, 0))
+            buffer_child.setActive(False)
+            buffer_child.setConfiguration({"custom_mode": "preserve-me"})
+            mixed_model.addChildAlgorithm(buffer_child)
+            merge_child = QgsProcessingModelChildAlgorithm(
+                "native:mergevectorlayers"
+            )
+            merge_child.setChildId("merge")
+            merge_child.setDescription("Merge")
+            merge_child.setPosition(QPointF(500, 0))
+            merge_child.addParameterSources(
+                "LAYERS",
+                [
+                    QgsProcessingModelChildParameterSource.fromStaticValue(
+                        "static-layer-a"
+                    ),
+                    QgsProcessingModelChildParameterSource.fromModelParameter(
+                        "VECTOR_INPUT"
+                    ),
+                    QgsProcessingModelChildParameterSource.fromChildOutput(
+                        "buffer", "OUTPUT"
+                    ),
+                    QgsProcessingModelChildParameterSource.fromStaticValue(
+                        "static-layer-b"
+                    ),
+                ],
+            )
+            merge_child.setDependencies(
+                [QgsProcessingModelChildDependency("buffer", "OUTPUT")]
+            )
+            public_output = QgsProcessingModelOutput(
+                "MERGED_RESULT", "Merged public result"
+            )
+            public_output.setChildId("merge")
+            public_output.setChildOutputName("OUTPUT")
+            public_output.setMandatory(True)
+            public_output.setDefaultValue("temporary")
+            merge_child.setModelOutputs({"MERGED_RESULT": public_output})
+            mixed_model.addChildAlgorithm(merge_child)
+            if not mixed_model.toFile(str(mixed_path)):
+                raise RuntimeError("Could not write the mixed-source fixture.")
+
+            mixed_graph, error = Model3Serializer.import_from_model3(str(mixed_path))
+            if mixed_graph is None:
+                raise RuntimeError(error or "Mixed-source .model3 import failed.")
+            merge_node = mixed_graph.nodes["merge"]
+            imported_buffer = mixed_graph.nodes["buffer"]
+            if (
+                imported_buffer.is_active
+                or imported_buffer.algorithm_configuration
+                != {"custom_mode": "preserve-me"}
+            ):
+                raise RuntimeError("Child active/configuration state was not imported.")
+            source_order = merge_node.parameter_source_order.get("LAYERS", [])
+            source_kinds = [source.get("kind") for source in source_order]
+            if source_kinds != ["static", "edge", "edge", "static"]:
+                raise RuntimeError(f"Mixed source order changed: {source_order}")
+            if merge_node.parameters.get("LAYERS") != [
+                "static-layer-a",
+                "static-layer-b",
+            ]:
+                raise RuntimeError("Mixed static sources were lost or reordered.")
+            if (
+                merge_node.dependencies != ["buffer"]
+                or merge_node.dependency_branches.get("buffer") != "OUTPUT"
+            ):
+                raise RuntimeError("Conditional child dependency was not preserved.")
+            output_contract = mixed_graph.outputs.get("MERGED_RESULT", {})
+            if (
+                output_contract.get("node_id") != "merge"
+                or output_contract.get("output_name") != "OUTPUT"
+                or not output_contract.get("mandatory")
+                or output_contract.get("default") != "temporary"
+            ):
+                raise RuntimeError("Declared model output metadata was not preserved.")
+            ok, error = Model3Serializer.export_to_model3(
+                mixed_graph,
+                str(mixed_roundtrip_path),
+                allow_invalid=True,
+            )
+            if not ok:
+                raise RuntimeError(error)
+            mixed_reopened = QgsProcessingModelAlgorithm()
+            if not mixed_reopened.fromFile(str(mixed_roundtrip_path)):
+                raise RuntimeError("Mixed round-trip .model3 could not be reopened.")
+            reopened_merge = mixed_reopened.childAlgorithms()["merge"]
+            reopened_buffer = mixed_reopened.childAlgorithms()["buffer"]
+            if (
+                reopened_buffer.isActive()
+                or dict(reopened_buffer.configuration())
+                != {"custom_mode": "preserve-me"}
+            ):
+                raise RuntimeError("Child active/configuration state changed in round-trip.")
+            reopened_sources = reopened_merge.parameterSources()["LAYERS"]
+            reopened_source_kinds = [
+                int(source.source()) for source in reopened_sources
+            ]
+            expected_source_kinds = [
+                int(Qgis.ProcessingModelChildParameterSource.StaticValue),
+                int(Qgis.ProcessingModelChildParameterSource.ModelParameter),
+                int(Qgis.ProcessingModelChildParameterSource.ChildOutput),
+                int(Qgis.ProcessingModelChildParameterSource.StaticValue),
+            ]
+            if reopened_source_kinds != expected_source_kinds:
+                raise RuntimeError(
+                    "Native mixed parameter source order was not preserved."
+                )
+            reopened_dependencies = reopened_merge.dependencies()
+            dependency = reopened_dependencies[0] if reopened_dependencies else None
+            dependency_child = getattr(dependency, "childId", "")
+            dependency_branch = getattr(
+                dependency, "conditionalBranch", ""
+            )
+            dependency_child = (
+                dependency_child()
+                if callable(dependency_child)
+                else dependency_child
+            )
+            dependency_branch = (
+                dependency_branch()
+                if callable(dependency_branch)
+                else dependency_branch
+            )
+            if (
+                len(reopened_dependencies) != 1
+                or dependency_child != "buffer"
+                or dependency_branch != "OUTPUT"
+            ):
+                raise RuntimeError("Native dependency metadata changed in round-trip.")
+            reopened_output = reopened_merge.modelOutputs().get("MERGED_RESULT")
+            if (
+                reopened_output is None
+                or reopened_output.childOutputName() != "OUTPUT"
+                or not reopened_output.isMandatory()
+                or reopened_output.defaultValue() != "temporary"
+            ):
+                raise RuntimeError("Native model output metadata changed in round-trip.")
+        finally:
+            typed_path.unlink(missing_ok=True)
+            typed_roundtrip_path.unlink(missing_ok=True)
+            mixed_path.unlink(missing_ok=True)
+            mixed_roundtrip_path.unlink(missing_ok=True)
             for layer_id in set(project.mapLayers()) - original_layer_ids:
                 project.removeMapLayer(layer_id)
 

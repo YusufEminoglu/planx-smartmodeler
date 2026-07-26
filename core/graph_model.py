@@ -17,6 +17,9 @@ class SocketType:
     FIELD = "field"
     TABLE = "table"
     FILE = "file"
+    CRS = "crs"
+    EXTENT = "extent"
+    ENUM = "enum"
     ANY = "any"
 
 
@@ -79,6 +82,13 @@ class NodeDefinition:
         self.inputs: Dict[str, NodePort] = {}
         self.outputs: Dict[str, NodePort] = {}
         self.parameters: Dict[str, Any] = {}
+        self.model_parameter_definition: Dict[str, Any] = {}
+        self.model_parameter_required = False
+        self.is_active = True
+        self.algorithm_configuration: Dict[str, Any] = {}
+        self.dependencies: List[str] = []
+        self.dependency_branches: Dict[str, str] = {}
+        self.parameter_source_order: Dict[str, List[Dict[str, Any]]] = {}
         self.is_dirty = True
         self.cached_results: Dict[str, Any] = {}
         self.execution_state = "idle"
@@ -128,6 +138,7 @@ class NodeDefinition:
 
     def set_parameter(self, key: str, value: Any) -> None:
         self.parameters[key] = value
+        self.parameter_source_order.pop(key, None)
         self.is_dirty = True
 
 
@@ -157,6 +168,9 @@ class GraphModel:
         self.description = ""
         self.nodes: Dict[str, NodeDefinition] = {}
         self.edges: Dict[str, GraphEdge] = {}
+        self.outputs: Dict[str, Dict[str, Any]] = {}
+        self.outputs_declared = False
+        self._suspend_source_order_invalidation = False
         self.last_error = ""
 
     def add_node(self, node: NodeDefinition) -> str:
@@ -179,6 +193,18 @@ class GraphModel:
         for edge_id in attached:
             self.remove_edge(edge_id)
         del self.nodes[node_id]
+        for node in self.nodes.values():
+            node.dependencies = [
+                dependency
+                for dependency in node.dependencies
+                if dependency != node_id
+            ]
+            node.dependency_branches.pop(node_id, None)
+        self.outputs = {
+            name: value
+            for name, value in self.outputs.items()
+            if value.get("node_id") != node_id
+        }
 
     @staticmethod
     def socket_types_compatible(start_type: str, end_type: str) -> bool:
@@ -225,13 +251,18 @@ class GraphModel:
         self.last_error = reason
         if not valid:
             return None
-        edge_id = f"e_{start_node_id}_{start_port_id}__to__{end_node_id}_{end_port_id}"
+        identity = "\0".join(
+            (start_node_id, start_port_id, end_node_id, end_port_id)
+        )
+        edge_id = "e_" + uuid.uuid5(uuid.NAMESPACE_URL, identity).hex
         if edge_id in self.edges:
             return self.edges[edge_id]
         edge = GraphEdge(edge_id, start_node_id, start_port_id, end_node_id, end_port_id)
         self.edges[edge_id] = edge
         self.nodes[start_node_id].outputs[start_port_id].connected_edges.append(edge)
         self.nodes[end_node_id].inputs[end_port_id].connected_edges.append(edge)
+        if not self._suspend_source_order_invalidation:
+            self.nodes[end_node_id].parameter_source_order.pop(end_port_id, None)
         self.mark_dirty_from(end_node_id)
         return edge
 
@@ -249,6 +280,8 @@ class GraphModel:
             port = end_node.inputs.get(edge.end_port_id)
             if port is not None and edge in port.connected_edges:
                 port.connected_edges.remove(edge)
+            if not self._suspend_source_order_invalidation:
+                end_node.parameter_source_order.pop(edge.end_port_id, None)
         del self.edges[edge_id]
         if end_node is not None:
             self.mark_dirty_from(end_node.node_id)
@@ -289,22 +322,49 @@ class GraphModel:
                 continue
             visited.add(current)
             queue.extend(edge.end_node_id for edge in self.outgoing_edges(current))
+            queue.extend(
+                node_id
+                for node_id, node in self.nodes.items()
+                if current in node.dependencies
+            )
         return False
 
     def get_topological_order(self) -> List[NodeDefinition]:
         in_degree = {node_id: 0 for node_id in self.nodes}
+        followers: Dict[str, Set[str]] = {node_id: set() for node_id in self.nodes}
         for edge in self.edges.values():
-            if edge.end_node_id in in_degree:
+            if (
+                edge.end_node_id in in_degree
+                and edge.end_node_id not in followers[edge.start_node_id]
+            ):
                 in_degree[edge.end_node_id] += 1
+                followers[edge.start_node_id].add(edge.end_node_id)
+        for node_id, node in self.nodes.items():
+            if len(node.dependencies) != len(set(node.dependencies)):
+                raise GraphValidationError(
+                    f"Node '{node_id}' has duplicate dependencies."
+                )
+            for dependency in node.dependencies:
+                if dependency not in self.nodes:
+                    raise GraphValidationError(
+                        f"Node '{node_id}' depends on missing node '{dependency}'."
+                    )
+                if dependency == node_id:
+                    raise GraphValidationError(
+                        f"Node '{node_id}' cannot depend on itself."
+                    )
+                if node_id not in followers[dependency]:
+                    followers[dependency].add(node_id)
+                    in_degree[node_id] += 1
         queue = [node_id for node_id, degree in in_degree.items() if degree == 0]
         order: List[NodeDefinition] = []
         while queue:
             current = queue.pop(0)
             order.append(self.nodes[current])
-            for edge in self.outgoing_edges(current):
-                in_degree[edge.end_node_id] -= 1
-                if in_degree[edge.end_node_id] == 0:
-                    queue.append(edge.end_node_id)
+            for follower in sorted(followers[current]):
+                in_degree[follower] -= 1
+                if in_degree[follower] == 0:
+                    queue.append(follower)
         if len(order) != len(self.nodes):
             raise GraphValidationError("The graph contains a cycle.")
         return order
@@ -327,6 +387,8 @@ class GraphModel:
         except GraphValidationError as error:
             issues.append(GraphIssue("error", str(error), code="cycle"))
         for node in self.nodes.values():
+            if not node.is_active:
+                continue
             if not node.algorithm_id:
                 issues.append(
                     GraphIssue(
@@ -336,9 +398,11 @@ class GraphModel:
                         "algorithm",
                     )
                 )
-            if node.algorithm_id in ("smart:input_layer", "smart:raster_layer") and not str(
-                node.parameters.get("LAYER", "")
-            ).strip():
+            if (
+                node.algorithm_id in ("smart:input_layer", "smart:raster_layer")
+                and not node.model_parameter_definition
+                and not str(node.parameters.get("LAYER", "")).strip()
+            ):
                 issues.append(
                     GraphIssue(
                         "error",
@@ -347,6 +411,28 @@ class GraphModel:
                         "missing_input",
                     )
                 )
+            if node.model_parameter_required:
+                key = (
+                    "LAYER"
+                    if node.algorithm_id
+                    in (
+                        "smart:input_layer",
+                        "smart:raster_layer",
+                        "smart:map_layer",
+                        "smart:multiple_vector",
+                        "smart:multiple_raster",
+                    )
+                    else "VALUE"
+                )
+                if not self.value_is_configured(node.parameters.get(key)):
+                    issues.append(
+                        GraphIssue(
+                            "error",
+                            "Required model input is not configured.",
+                            node.node_id,
+                            "missing_input",
+                        )
+                    )
             for port in node.inputs.values():
                 if (
                     port.required

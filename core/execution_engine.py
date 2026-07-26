@@ -68,6 +68,11 @@ class GraphExecutionEngine(QObject):
         self.feedback = QgsProcessingFeedback()
         context.setFeedback(self.feedback)
         all_results: Dict[str, Dict[str, Any]] = {}
+        skipped = set()
+        for node in order:
+            if not node.is_active:
+                skipped.update(self._dependent_nodes(graph, node.node_id))
+                skipped.add(node.node_id)
         for node in graph.nodes.values():
             self._set_state(node, "idle", "")
 
@@ -76,6 +81,24 @@ class GraphExecutionEngine(QObject):
                 if self.feedback.isCanceled():
                     raise ExecutionError("Workflow execution was canceled.")
                 percent = int(index * 100 / max(len(order), 1))
+                if node.node_id in skipped:
+                    all_results[node.node_id] = {}
+                    self._set_state(node, "skipped", "Skipped")
+                    continue
+                false_branch = any(
+                    branch
+                    and not bool(
+                        all_results.get(dependency, {}).get(branch, False)
+                    )
+                    for dependency in node.dependencies
+                    for branch in [node.dependency_branches.get(dependency, "")]
+                )
+                if false_branch:
+                    skipped.add(node.node_id)
+                    skipped.update(self._dependent_nodes(graph, node.node_id))
+                    all_results[node.node_id] = {}
+                    self._set_state(node, "skipped", "Conditional branch not selected")
+                    continue
                 self.progress_changed.emit(percent, f"Running {node.title}")
                 self._set_state(node, "running", "Running")
                 try:
@@ -100,7 +123,7 @@ class GraphExecutionEngine(QObject):
             except (QgsProcessingException, RuntimeError, ValueError) as error:
                 raise ExecutionError(f"Could not load workflow outputs: {error}") from error
             self.progress_changed.emit(100, "Workflow complete")
-            return ExecutionReport(len(order), added, all_results)
+            return ExecutionReport(len(order) - len(skipped), added, all_results)
         finally:
             self.feedback = None
 
@@ -116,11 +139,32 @@ class GraphExecutionEngine(QObject):
                 return {"OUTPUT": float(node.parameters.get("VALUE", 0.0))}
             except (TypeError, ValueError) as error:
                 raise ExecutionError("Numeric input VALUE is invalid.") from error
+        if node.algorithm_id == "smart:boolean":
+            return {"OUTPUT": bool(node.parameters.get("VALUE", False))}
+        if node.algorithm_id in (
+            "smart:string",
+            "smart:field",
+            "smart:crs",
+            "smart:extent",
+            "smart:enum",
+        ):
+            return {"OUTPUT": node.parameters.get("VALUE")}
 
-        layer_ref = str(node.parameters.get("LAYER", "")).strip()
+        layer_value = node.parameters.get("LAYER", "")
+        if node.algorithm_id in ("smart:multiple_vector", "smart:multiple_raster"):
+            refs = layer_value if isinstance(layer_value, list) else [layer_value]
+            layers = []
+            for reference in refs:
+                layer = project.mapLayer(str(reference).strip())
+                if layer is None:
+                    raise ExecutionError("A collection input layer is unavailable.")
+                layers.append(layer)
+            return {"OUTPUT": layers}
+
+        layer_ref = str(layer_value).strip()
         expected = (
             SocketType.RASTER
-            if node.algorithm_id == "smart:raster_layer"
+            if node.algorithm_id in ("smart:raster_layer", "smart:multiple_raster")
             else SocketType.VECTOR
         )
         layer = project.mapLayer(layer_ref) if layer_ref else None
@@ -143,14 +187,40 @@ class GraphExecutionEngine(QObject):
         context: QgsProcessingContext,
     ) -> Dict[str, Any]:
         registry = QgsApplication.processingRegistry()
-        algorithm = registry.createAlgorithmById(node.algorithm_id)
+        algorithm = registry.createAlgorithmById(
+            node.algorithm_id, node.algorithm_configuration
+        )
         if algorithm is None:
             raise ExecutionError(
                 f"Processing algorithm is unavailable: {node.algorithm_id}"
             )
         parameters = dict(node.parameters)
         parameters.pop("alg_id", None)
+        for input_name, order in node.parameter_source_order.items():
+            values = []
+            for source in order:
+                if source.get("kind") == "static":
+                    values.append(source.get("value"))
+                    continue
+                source_results = all_results.get(source.get("node_id"), {})
+                output_name = source.get("output_name")
+                if output_name not in source_results:
+                    raise ExecutionError(
+                        "An ordered upstream output is unavailable."
+                    )
+                value = source_results[output_name]
+                if isinstance(value, list):
+                    values.extend(value)
+                else:
+                    values.append(value)
+            port = node.inputs.get(input_name)
+            if port is not None and port.allows_multiple:
+                parameters[input_name] = values
+            elif values:
+                parameters[input_name] = values[-1]
         for edge in graph.incoming_edges(node.node_id):
+            if edge.end_port_id in node.parameter_source_order:
+                continue
             source_results = all_results.get(edge.start_node_id, {})
             if edge.start_port_id not in source_results:
                 raise ExecutionError(
@@ -166,7 +236,10 @@ class GraphExecutionEngine(QObject):
                     current = [current]
                 else:
                     current = list(current)
-                current.append(value)
+                if isinstance(value, list):
+                    current.extend(value)
+                else:
+                    current.append(value)
                 parameters[edge.end_port_id] = current
             else:
                 parameters[edge.end_port_id] = value
@@ -199,29 +272,66 @@ class GraphExecutionEngine(QObject):
         project: QgsProject,
     ) -> List[str]:
         added: List[str] = []
-        terminal_ids = {
-            node_id
-            for node_id in graph.nodes
-            if not any(True for _edge in graph.outgoing_edges(node_id))
-        }
-        for node_id in terminal_ids:
+        if graph.outputs_declared:
+            output_contracts = [
+                (
+                    public_name,
+                    str(contract.get("node_id", "")),
+                    str(contract.get("output_name", "")),
+                )
+                for public_name, contract in graph.outputs.items()
+            ]
+        else:
+            output_contracts = [
+                (output_name, node_id, output_name)
+                for node_id, node in graph.nodes.items()
+                if not any(True for _edge in graph.outgoing_edges(node_id))
+                for output_name in all_results.get(node_id, {})
+            ]
+        for public_name, node_id, output_name in output_contracts:
             node = graph.nodes[node_id]
-            for output_name, value in all_results.get(node_id, {}).items():
-                layer: QgsMapLayer | None
-                if isinstance(value, QgsMapLayer):
-                    layer = value
-                elif isinstance(value, str):
-                    layer = context.getMapLayer(value)
-                    if layer is None:
-                        layer = QgsProcessingUtils.mapLayerFromString(value, context, True)
-                else:
-                    layer = None
-                if layer is None or project.mapLayer(layer.id()) is not None:
-                    continue
-                owned = context.takeResultLayer(layer.id())
-                if owned is not None:
-                    layer = owned
-                layer.setName(f"{node.title} - {output_name}")
-                project.addMapLayer(layer)
-                added.append(layer.name())
+            value = all_results.get(node_id, {}).get(output_name)
+            layer: QgsMapLayer | None
+            if isinstance(value, QgsMapLayer):
+                layer = value
+            elif isinstance(value, str):
+                layer = context.getMapLayer(value)
+                if layer is None:
+                    layer = QgsProcessingUtils.mapLayerFromString(value, context, True)
+            else:
+                layer = None
+            if layer is None or project.mapLayer(layer.id()) is not None:
+                continue
+            owned = context.takeResultLayer(layer.id())
+            if owned is not None:
+                layer = owned
+            layer.setName(
+                public_name
+                if graph.outputs_declared
+                else f"{node.title} - {output_name}"
+            )
+            project.addMapLayer(layer)
+            added.append(layer.name())
         return added
+
+    @staticmethod
+    def _dependent_nodes(graph: GraphModel, node_id: str) -> set:
+        """Return all data-flow and explicit-dependency descendants."""
+        descendants = set()
+        queue = [node_id]
+        while queue:
+            current = queue.pop(0)
+            followers = {
+                edge.end_node_id for edge in graph.outgoing_edges(current)
+            }
+            followers.update(
+                candidate_id
+                for candidate_id, candidate in graph.nodes.items()
+                if current in candidate.dependencies
+            )
+            for follower in followers:
+                if follower not in descendants:
+                    descendants.add(follower)
+                    queue.append(follower)
+        descendants.discard(node_id)
+        return descendants

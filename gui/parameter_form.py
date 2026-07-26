@@ -31,6 +31,7 @@ from qgis.core import (
     QgsProcessingParameterField,
     QgsProcessingParameterMapLayer,
     QgsProcessingParameterNumber,
+    QgsProcessingParameters,
     QgsProcessingParameterRasterLayer,
     QgsProcessingParameterVectorLayer,
     QgsProject,
@@ -100,6 +101,22 @@ class NodeParameterForm:
     def unconfigured_names(self) -> List[str]:
         """Names of required inputs that are neither connected nor set."""
         missing: List[str] = []
+        if self.node.model_parameter_required:
+            key = (
+                "LAYER"
+                if self.node.algorithm_id
+                in (
+                    "smart:input_layer",
+                    "smart:raster_layer",
+                    "smart:map_layer",
+                    "smart:multiple_vector",
+                    "smart:multiple_raster",
+                )
+                else "VALUE"
+            )
+            if not GraphModel.value_is_configured(self.node.parameters.get(key)):
+                missing.append(self.node.title)
+            return missing
         if self.node.algorithm_id in ("smart:input_layer", "smart:raster_layer"):
             if not GraphModel.value_is_configured(self.node.parameters.get("LAYER")):
                 missing.append("Project layer")
@@ -116,6 +133,30 @@ class NodeParameterForm:
         return missing
 
     def _add_smart_editor(self, form: QFormLayout) -> None:
+        parameter_key = (
+            "LAYER"
+            if self.node.algorithm_id
+            in (
+                "smart:input_layer",
+                "smart:raster_layer",
+                "smart:map_layer",
+                "smart:multiple_vector",
+                "smart:multiple_raster",
+            )
+            else "VALUE"
+        )
+        if self.node.model_parameter_definition:
+            definition = QgsProcessingParameters.parameterFromVariantMap(
+                self.node.model_parameter_definition
+            )
+            if definition is not None:
+                definition.setName(parameter_key)
+                definition.setDescription(self.node.title)
+                current = self.node.parameters.get(
+                    parameter_key, definition.defaultValue()
+                )
+                if self._add_native_editor(form, definition, current):
+                    return
         if self.node.algorithm_id in ("smart:number", "smart:slider"):
             editor = QDoubleSpinBox()
             editor.setRange(-1.0e12, 1.0e12)
@@ -124,9 +165,31 @@ class NodeParameterForm:
             form.addRow("Value", editor)
             self.editors["VALUE"] = (editor, "number")
             return
+        if self.node.algorithm_id == "smart:boolean":
+            editor = QCheckBox()
+            editor.setChecked(bool(self.node.parameters.get("VALUE", False)))
+            form.addRow("Value", editor)
+            self.editors["VALUE"] = (editor, "boolean")
+            return
+        if self.node.algorithm_id in (
+            "smart:string",
+            "smart:field",
+            "smart:crs",
+            "smart:extent",
+            "smart:enum",
+        ):
+            editor = QLineEdit(
+                self.display_value(self.node.parameters.get("VALUE", ""))
+            )
+            form.addRow("Value", editor)
+            self.editors["VALUE"] = (editor, "text")
+            return
         socket_type = (
             SocketType.RASTER
-            if self.node.algorithm_id == "smart:raster_layer"
+            if self.node.algorithm_id
+            in ("smart:raster_layer", "smart:multiple_raster")
+            else SocketType.ANY
+            if self.node.algorithm_id == "smart:map_layer"
             else SocketType.VECTOR
         )
         editor = self.layer_combo(socket_type, self.node.parameters.get("LAYER", ""))
@@ -280,6 +343,22 @@ class NodeParameterForm:
     def missing_in(self, parameters: Dict[str, Any]) -> List[str]:
         """Required inputs still unset in ``parameters`` (a collect() result)."""
         missing: List[str] = []
+        if self.node.model_parameter_required:
+            key = (
+                "LAYER"
+                if self.node.algorithm_id
+                in (
+                    "smart:input_layer",
+                    "smart:raster_layer",
+                    "smart:map_layer",
+                    "smart:multiple_vector",
+                    "smart:multiple_raster",
+                )
+                else "VALUE"
+            )
+            if not GraphModel.value_is_configured(parameters.get(key)):
+                missing.append(self.node.title)
+            return missing
         if self.node.algorithm_id in ("smart:input_layer", "smart:raster_layer"):
             if not GraphModel.value_is_configured(parameters.get("LAYER")):
                 missing.append("Project layer")
@@ -295,6 +374,13 @@ class NodeParameterForm:
         return missing
 
     def apply(self, parameters: Dict[str, Any]) -> None:
+        changed = {
+            name
+            for name in set(self.node.parameters) | set(parameters)
+            if self.node.parameters.get(name) != parameters.get(name)
+        }
+        for name in changed:
+            self.node.parameter_source_order.pop(name, None)
         self.node.parameters = parameters
         self.node.is_dirty = True
 

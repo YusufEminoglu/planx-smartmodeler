@@ -2,7 +2,7 @@
 name=SmartModeler GIS
 qgisMinimumVersion=4.0
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.6.0
+version=0.7.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -22,6 +22,7 @@ hasProcessingProvider=no
 license=GPL-3
 
 changelog=
+    0.7.0 - Add bounded V3 SmartModeler JSON with validated V2 migration and live-registry port reconstruction; preserve typed parameters, ordered sources, inactive/configured children, edited defaults, conditional execution, and declared output behavior across Studio and .model3.
     0.6.0 - Remove attribute-value inspection and redact all existing workflow parameters from provider context; restrict AI workflow algorithms to the reviewed deny-by-default policy; harden live signatures and edit-aware Undo; add general document Undo/Redo, guarded lifecycle, atomic save, and crash recovery.
     0.4.0 - New Agent Workspace dock: bounded read-only project, layer, Processing, model and plugin inspections, a provider-neutral Agent Chat over twelve read-only tools, and four kinds of validated proposal. Explicit approval is required for every action; an approved run is limited to twelve reviewed native algorithms or your current workflow, always writes to temporary layers, and can be cancelled and undone.
     0.3.1 - Clean node palette and focus strictly on GIS graphical modeler workflows.

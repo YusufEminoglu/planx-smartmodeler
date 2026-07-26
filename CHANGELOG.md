@@ -2,6 +2,66 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.7.0] - 2026-07-26
+
+### SmartModeler documents are versioned, bounded, and registry-validated
+
+- Replaced the permissive JSON reader with the V3 document codec. It enforces a
+  4 MiB file limit, bounded node/edge/output/parameter collections, finite
+  coordinates and numbers, bounded nesting/text, exact fields, unique JSON
+  keys, and typed primitive/list/tuple/dictionary values.
+- Rebuilds every node and port from the live Processing registry. Stored files
+  can no longer inject fake ports or parameters.
+- Migrates valid `SmartModelerGIS_v2` documents through the same live-signature
+  validation and writes them back as V3.
+- Rejects unavailable algorithms, dangling dependencies/outputs, mismatched
+  ordered sources, unknown source kinds, malformed graphs, cycles, and future
+  format versions before they reach the canvas.
+
+### Native QGIS model interchange is semantic instead of lossy
+
+- Preserves QGIS model parameter definitions through the official
+  `toVariantMap()` and `parameterFromVariantMap()` APIs.
+- Imports vector, raster, number, boolean, string, field, CRS, extent, enum,
+  generic map-layer, multi-vector, and multi-raster inputs as distinct typed
+  SmartModeler nodes. Default-less required inputs remain visibly unconfigured
+  instead of silently becoming `0` or `False`.
+- Preserves ordered mixtures of static values, model parameters, and child
+  outputs on multi-input parameters. Studio execution and exported `.model3`
+  files now consume the same ordered source list.
+- Preserves explicit child dependencies including conditional branches.
+- Preserves inactive children and algorithm configuration maps. Studio runs
+  skip inactive descendants and prune branches whose conditional output is
+  false, matching native model control flow.
+- Preserves only the model outputs actually published by the native model,
+  including public name, description, mandatory flag, and default value.
+  Studio runs load that same declared subset, including non-terminal outputs;
+  an explicit zero-output model adds no result layer.
+- Applies edited SmartModeler model-input values back to the native parameter
+  default instead of restoring the value captured at import time.
+- Fails closed when a native model uses an unsupported expression source rather
+  than silently dropping it.
+
+### Graph integrity
+
+- Includes explicit dependencies in deterministic topological sorting and cycle
+  checks.
+- Purges dependency/output references when a node is removed and invalidates a
+  preserved source order when the user changes its parameter or connections.
+- Replaced separator-concatenated edge IDs with deterministic UUID5 identities,
+  preventing collisions when node or port IDs contain underscores.
+- Handles multiple data edges between the same node pair without false cycle
+  reports.
+
+### Verification
+
+- 690 pure-Python tests, including a malformed-document and V2 migration corpus.
+- QGIS 4.2.0 semantic smoke with 784 catalog records.
+- QGIS 3.44.12 LTR semantic smoke with 452 catalog records.
+- Both runtimes round-trip ten model parameter types plus ordered
+  static/model/child sources, inactive/configured children, edited defaults,
+  conditional dependencies, branch execution, and declared output metadata.
+
 ## [0.6.0] - 2026-07-26
 
 ### Security boundaries now match the product's privacy claims

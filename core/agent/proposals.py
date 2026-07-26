@@ -621,6 +621,15 @@ _SMART_OFF_PORT_PARAMETERS = frozenset(
         ("smart:raster_layer", "LAYER"),
         ("smart:number", "VALUE"),
         ("smart:slider", "VALUE"),
+        ("smart:boolean", "VALUE"),
+        ("smart:string", "VALUE"),
+        ("smart:field", "VALUE"),
+        ("smart:crs", "VALUE"),
+        ("smart:extent", "VALUE"),
+        ("smart:enum", "VALUE"),
+        ("smart:map_layer", "LAYER"),
+        ("smart:multiple_vector", "LAYER"),
+        ("smart:multiple_raster", "LAYER"),
     }
 )
 
@@ -647,7 +656,7 @@ def _bind_parameter(node: NodeDefinition, name: str, value: Any, catalog: Any) -
         _validate_smart_parameter(node, name, value, catalog)
     else:
         _validate_by_socket(value, port.socket_type, bool(port.allows_multiple), catalog)
-    node.parameters[name] = value
+    node.set_parameter(name, value)
 
 
 def _validate_smart_parameter(node: NodeDefinition, name: str, value: Any, catalog: Any) -> None:
@@ -665,6 +674,43 @@ def _validate_smart_parameter(node: NodeDefinition, name: str, value: Any, catal
             _reject_value("A numeric value is required.")
         if isinstance(value, float) and value != value:
             _reject_value("A numeric value must be finite.")
+        return
+    if node.algorithm_id == "smart:boolean" and name == "VALUE":
+        if not isinstance(value, bool):
+            _reject_value("A boolean value is required.")
+        return
+    if node.algorithm_id in (
+        "smart:string",
+        "smart:field",
+        "smart:crs",
+        "smart:extent",
+    ) and name == "VALUE":
+        if not isinstance(value, str):
+            _reject_value("A text value is required.")
+        _require_safe_text(value, MAX_PARAM_STRING_CHARS)
+        return
+    if node.algorithm_id == "smart:enum" and name == "VALUE":
+        if isinstance(value, bool) or not isinstance(value, (int, list)):
+            _reject_value("An enum index or index list is required.")
+        return
+    if node.algorithm_id in (
+        "smart:map_layer",
+        "smart:multiple_vector",
+        "smart:multiple_raster",
+    ) and name == "LAYER":
+        expected = (
+            "raster"
+            if node.algorithm_id == "smart:multiple_raster"
+            else "vector"
+            if node.algorithm_id == "smart:multiple_vector"
+            else ""
+        )
+        _require_layer_binding(
+            value,
+            expected,
+            node.algorithm_id.startswith("smart:multiple_"),
+            catalog,
+        )
         return
     # Defense in depth: no ANY fallback for an off-contract off-port parameter.
     _reject_value("This parameter is not permitted on the target node.")

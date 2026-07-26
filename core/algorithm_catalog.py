@@ -10,7 +10,10 @@ from qgis.core import (
     Qgis,
     QgsApplication,
     QgsProcessingParameterBoolean,
+    QgsProcessingParameterCrs,
     QgsProcessingParameterDefinition,
+    QgsProcessingParameterEnum,
+    QgsProcessingParameterExtent,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterField,
     QgsProcessingParameterFile,
@@ -48,6 +51,23 @@ class AlgorithmCatalog:
         "smart:raster_layer": ("Raster layer input", "Inputs", SocketType.RASTER),
         "smart:number": ("Numeric input", "Inputs", SocketType.NUMBER),
         "smart:slider": ("Numeric input", "Inputs", SocketType.NUMBER),
+        "smart:boolean": ("Boolean input", "Inputs", SocketType.BOOLEAN),
+        "smart:string": ("Text input", "Inputs", SocketType.STRING),
+        "smart:field": ("Field input", "Inputs", SocketType.FIELD),
+        "smart:crs": ("CRS input", "Inputs", SocketType.CRS),
+        "smart:extent": ("Extent input", "Inputs", SocketType.EXTENT),
+        "smart:enum": ("Enum input", "Inputs", SocketType.ENUM),
+        "smart:map_layer": ("Map layer input", "Inputs", SocketType.ANY),
+        "smart:multiple_vector": (
+            "Vector layer collection",
+            "Inputs",
+            SocketType.VECTOR,
+        ),
+        "smart:multiple_raster": (
+            "Raster layer collection",
+            "Inputs",
+            SocketType.RASTER,
+        ),
     }
 
     @classmethod
@@ -112,6 +132,51 @@ class AlgorithmCatalog:
                     and not isinstance(value, bool)
                     and math.isfinite(float(value))
                 )
+            if node.algorithm_id == "smart:boolean":
+                return name == "VALUE" and isinstance(value, bool)
+            if node.algorithm_id in (
+                "smart:string",
+                "smart:field",
+                "smart:crs",
+                "smart:extent",
+            ):
+                return (
+                    name == "VALUE"
+                    and isinstance(value, str)
+                    and cls._safe_ai_text(value)
+                )
+            if node.algorithm_id == "smart:enum":
+                values = value if isinstance(value, list) else [value]
+                return (
+                    name == "VALUE"
+                    and bool(values)
+                    and all(
+                        isinstance(item, int) and not isinstance(item, bool)
+                        for item in values
+                    )
+                )
+            if node.algorithm_id in (
+                "smart:map_layer",
+                "smart:multiple_vector",
+                "smart:multiple_raster",
+            ):
+                expected = (
+                    SocketType.RASTER
+                    if node.algorithm_id == "smart:multiple_raster"
+                    else SocketType.VECTOR
+                    if node.algorithm_id == "smart:multiple_vector"
+                    else SocketType.ANY
+                )
+                values = value if isinstance(value, list) else [value]
+                choices = cls.layer_choices(expected)
+                return (
+                    name == "LAYER"
+                    and bool(values)
+                    and all(
+                        isinstance(item, str) and item in choices
+                        for item in values
+                    )
+                )
             return False
         port = node.inputs[name]
         socket_type = port.socket_type
@@ -166,10 +231,22 @@ class AlgorithmCatalog:
                 category=category,
                 algorithm_id=algorithm_id,
             )
-            if socket_type == SocketType.NUMBER:
+            if algorithm_id in ("smart:number", "smart:slider"):
                 node.parameters["VALUE"] = 0.0
-            else:
+            elif algorithm_id == "smart:boolean":
+                node.parameters["VALUE"] = False
+            elif algorithm_id in (
+                "smart:input_layer",
+                "smart:raster_layer",
+                "smart:map_layer",
+                "smart:multiple_vector",
+                "smart:multiple_raster",
+            ):
                 node.parameters["LAYER"] = ""
+            elif algorithm_id == "smart:enum":
+                node.parameters["VALUE"] = 0
+            else:
+                node.parameters["VALUE"] = ""
             node.add_output("OUTPUT", "Output", socket_type)
             return node
 
@@ -256,6 +333,12 @@ class AlgorithmCatalog:
             return SocketType.NUMBER
         if isinstance(definition, QgsProcessingParameterBoolean):
             return SocketType.BOOLEAN
+        if isinstance(definition, QgsProcessingParameterCrs):
+            return SocketType.CRS
+        if isinstance(definition, QgsProcessingParameterExtent):
+            return SocketType.EXTENT
+        if isinstance(definition, QgsProcessingParameterEnum):
+            return SocketType.ENUM
         if isinstance(definition, QgsProcessingParameterField):
             return SocketType.FIELD
         if isinstance(definition, QgsProcessingParameterFile):

@@ -15,12 +15,23 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   step's connected inputs come from, and every open input editable in place with
   the project's layers offered in a combo -- while safely auto-binding the sole
   compatible project layer when unambiguous.
-- Executes nodes in topological order through the QGIS Processing framework.
-- Adds terminal vector and raster results to the current project.
-- Imports and exports SmartModeler JSON and native QGIS `.model3` files, and
-  exports the workflow as a runnable QGIS Python algorithm. A workflow whose
+- Executes active nodes in topological order through the QGIS Processing
+  framework and prunes unselected conditional branches.
+- Adds only explicitly published vector and raster model results to the current
+  project; legacy Studio graphs without declarations retain terminal-output
+  behavior.
+- Imports and exports bounded, versioned SmartModeler JSON and native QGIS
+  `.model3` files, and exports the workflow as a runnable QGIS Python algorithm.
+  V3 documents rebuild ports from the live Processing registry instead of
+  trusting stored schemas; V2 documents migrate through the same validation.
+  A workflow whose
   inputs are not bound yet still saves: each unbound required input becomes a
   model input, so the `.model3` opens in the QGIS Model Designer and asks for it.
+- Preserves native boolean, string, number, field, CRS, extent, enum, map-layer,
+  vector/raster, and multi-layer model parameters; ordered mixed static/model/
+  child sources; inactive/configured children; conditional child dependencies;
+  edited input defaults; and explicitly published model outputs with their
+  public metadata.
 - Tracks the complete editable document with general Undo/Redo, dirty-state
   indication, guarded New/Open/Close, atomic Save/Save As, and crash recovery.
 - Offers contextual next-step proposals and executable starter workflows.
@@ -245,6 +256,8 @@ core/execution_engine.py
                      Sequential Processing execution and result loading
 core/model3_serializer.py
                      SmartModeler JSON and native QGIS model bridge
+core/document_codec.py
+                     Bounded V3 JSON schema, typed values and V2 migration
 core/ai_*.py         Provider profiles, network client and graph validator
 core/agent/          Agent Workspace core, split by trust:
                        pure, QGIS-free, unit-tested security logic

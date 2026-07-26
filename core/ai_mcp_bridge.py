@@ -306,10 +306,10 @@ class AiMcpBridge:
             None,
         )
         if existing_buffer is not None and distance:
-            existing_buffer.parameters["DISTANCE"] = float(
-                distance.group(1).replace(",", ".")
+            existing_buffer.set_parameter(
+                "DISTANCE",
+                float(distance.group(1).replace(",", ".")),
             )
-            existing_buffer.is_dirty = True
             changed = True
 
         requested = []

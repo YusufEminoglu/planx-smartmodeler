@@ -1,7 +1,6 @@
 """SmartModeler JSON and native QGIS .model3 serialization."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -12,16 +11,28 @@ from qgis.core import (
     QgsProcessing,
     QgsProcessingModelAlgorithm,
     QgsProcessingModelChildAlgorithm,
+    QgsProcessingModelChildDependency,
     QgsProcessingModelChildParameterSource,
     QgsProcessingModelOutput,
     QgsProcessingModelParameter,
+    QgsProcessingParameterBoolean,
+    QgsProcessingParameterCrs,
+    QgsProcessingParameterEnum,
+    QgsProcessingParameterExtent,
+    QgsProcessingParameterFeatureSource,
+    QgsProcessingParameterField,
+    QgsProcessingParameterMapLayer,
+    QgsProcessingParameterMultipleLayers,
     QgsProcessingParameterNumber,
     QgsProcessingParameterRasterLayer,
+    QgsProcessingParameters,
+    QgsProcessingParameterString,
     QgsProcessingParameterVectorLayer,
 )
 
 from .algorithm_catalog import AlgorithmCatalog
-from .graph_model import GraphModel, NodeDefinition, SocketType
+from .document_codec import DocumentCodecError, GraphDocumentCodec
+from .graph_model import GraphModel, NodeDefinition
 
 # Scoped on purpose: QGIS 4/Qt6 requires the scoped form, and the enum lives on
 # QgsProcessing (not Qgis) on both QGIS 3.44 LTR and QGIS 4.2 -- verified on
@@ -34,118 +45,17 @@ _PYTHON_ALGORITHM_SUBCLASS = (
 class Model3Serializer:
     """Round-trips internal JSON and bridges to QGIS' native model API."""
 
-    FORMAT = "SmartModelerGIS_v2"
+    FORMAT = GraphDocumentCodec.FORMAT
 
     @classmethod
     def export_to_json(cls, graph: GraphModel) -> str:
-        nodes_data = []
-        for node in graph.nodes.values():
-            nodes_data.append(
-                {
-                    "id": node.node_id,
-                    "title": node.title,
-                    "category": node.category,
-                    "algorithm_id": node.algorithm_id,
-                    "description": node.description,
-                    "x": node.x,
-                    "y": node.y,
-                    "parameters": node.parameters,
-                    "inputs": {
-                        port_id: {
-                            "name": port.name,
-                            "type": port.socket_type,
-                            "default": port.default_value,
-                            "required": port.required,
-                            "allows_multiple": port.allows_multiple,
-                            "description": port.description,
-                        }
-                        for port_id, port in node.inputs.items()
-                    },
-                    "outputs": {
-                        port_id: {
-                            "name": port.name,
-                            "type": port.socket_type,
-                            "description": port.description,
-                        }
-                        for port_id, port in node.outputs.items()
-                    },
-                }
-            )
-        edges_data = [
-            {
-                "id": edge.edge_id,
-                "start_node": edge.start_node_id,
-                "start_port": edge.start_port_id,
-                "end_node": edge.end_node_id,
-                "end_port": edge.end_port_id,
-            }
-            for edge in graph.edges.values()
-        ]
-        return json.dumps(
-            {
-                "format": cls.FORMAT,
-                "qgis_minimum_version": "4.0",
-                "name": graph.name,
-                "description": graph.description,
-                "nodes": nodes_data,
-                "edges": edges_data,
-            },
-            indent=2,
-            ensure_ascii=False,
-            default=str,
-        )
+        return GraphDocumentCodec.encode(graph)
 
     @classmethod
     def import_from_json(cls, json_str: str) -> Optional[GraphModel]:
         try:
-            data = json.loads(json_str)
-            if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
-                return None
-            graph = GraphModel(str(data.get("name", "Imported workflow")))
-            graph.description = str(data.get("description", ""))
-            for item in data["nodes"]:
-                algorithm_id = str(
-                    item.get("algorithm_id") or item.get("parameters", {}).get("alg_id", "")
-                )
-                node = NodeDefinition(
-                    node_id=str(item["id"]),
-                    title=str(item.get("title", algorithm_id)),
-                    category=str(item.get("category", "General")),
-                    algorithm_id=algorithm_id,
-                    description=str(item.get("description", "")),
-                )
-                node.x = float(item.get("x", 0.0))
-                node.y = float(item.get("y", 0.0))
-                node.parameters = dict(item.get("parameters", {}))
-                node.parameters.pop("alg_id", None)
-                for port_id, port in item.get("inputs", {}).items():
-                    node.add_input(
-                        str(port_id),
-                        str(port.get("name", port_id)),
-                        str(port.get("type", SocketType.ANY)),
-                        port.get("default"),
-                        bool(port.get("required", False)),
-                        bool(port.get("allows_multiple", False)),
-                        str(port.get("description", "")),
-                    )
-                for port_id, port in item.get("outputs", {}).items():
-                    node.add_output(
-                        str(port_id),
-                        str(port.get("name", port_id)),
-                        str(port.get("type", SocketType.ANY)),
-                        str(port.get("description", "")),
-                    )
-                graph.add_node(node)
-            for item in data.get("edges", []):
-                if graph.add_edge(
-                    str(item["start_node"]),
-                    str(item["start_port"]),
-                    str(item["end_node"]),
-                    str(item["end_port"]),
-                ) is None:
-                    return None
-            return graph
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return GraphDocumentCodec.decode(json_str, AlgorithmCatalog.create_node)
+        except (DocumentCodecError, TypeError, ValueError):
             return None
 
     @classmethod
@@ -186,6 +96,17 @@ class Model3Serializer:
             child.setChildId(node.node_id)
             child.setDescription(node.title)
             child.setPosition(QPointF(node.x, node.y))
+            child.setActive(node.is_active)
+            child.setConfiguration(node.algorithm_configuration)
+            child.setDependencies(
+                [
+                    QgsProcessingModelChildDependency(
+                        dependency,
+                        node.dependency_branches.get(dependency, ""),
+                    )
+                    for dependency in node.dependencies
+                ]
+            )
             child_nodes[node.node_id] = child
 
         registry = QgsApplication.processingRegistry()
@@ -218,12 +139,62 @@ class Model3Serializer:
                     if algorithm is not None
                     else None
                 )
+                has_source_order = input_name in node.parameter_source_order
+                if has_source_order:
+                    sources = []
+                    for ordered in node.parameter_source_order[input_name]:
+                        if ordered.get("kind") == "static":
+                            sources.append(
+                                QgsProcessingModelChildParameterSource.fromStaticValue(
+                                    ordered.get("value")
+                                )
+                            )
+                            continue
+                        source_node = graph.nodes.get(ordered.get("node_id"))
+                        if source_node is None:
+                            continue
+                        if source_node.algorithm_id.startswith("smart:"):
+                            sources.append(
+                                QgsProcessingModelChildParameterSource.fromModelParameter(
+                                    source_node.node_id
+                                )
+                            )
+                        else:
+                            sources.append(
+                                QgsProcessingModelChildParameterSource.fromChildOutput(
+                                    source_node.node_id,
+                                    str(ordered.get("output_name", "")),
+                                )
+                            )
+                if (
+                    not has_source_order
+                    and port.allows_multiple
+                    and input_name in node.parameters
+                ):
+                    literal = node.parameters[input_name]
+                    values = literal if isinstance(literal, list) else [literal]
+                    literal_sources = []
+                    for value in values:
+                        if definition is None or definition.checkValueIsAcceptable(
+                            [value]
+                        ):
+                            literal_sources.append(
+                                QgsProcessingModelChildParameterSource.fromStaticValue(
+                                    value
+                                ),
+                            )
+                    sources = literal_sources + sources
                 # A literal the algorithm itself rejects is worse than no
                 # literal: it makes the whole exported model invalid and the
                 # message ("Value for X is not acceptable") names the parameter
                 # rather than the value. Drop it and fall through to the
                 # promotion below, which produces a model the user can fill in.
-                if not sources and input_name in node.parameters:
+                if (
+                    not sources
+                    and not has_source_order
+                    and not port.allows_multiple
+                    and input_name in node.parameters
+                ):
                     value = node.parameters[input_name]
                     if definition is None or definition.checkValueIsAcceptable(value):
                         sources = [
@@ -250,7 +221,25 @@ class Model3Serializer:
                 if sources:
                     child.addParameterSources(input_name, sources)
 
-            if not any(True for _edge in graph.outgoing_edges(node_id)):
+            if graph.outputs_declared:
+                outputs = {}
+                for public_name, contract in graph.outputs.items():
+                    if contract.get("node_id") != node_id:
+                        continue
+                    output_name = str(contract.get("output_name", ""))
+                    model_output = QgsProcessingModelOutput(
+                        public_name,
+                        str(contract.get("description", "")),
+                    )
+                    model_output.setChildId(node_id)
+                    model_output.setChildOutputName(output_name)
+                    model_output.setMandatory(
+                        bool(contract.get("mandatory", False))
+                    )
+                    model_output.setDefaultValue(contract.get("default"))
+                    outputs[public_name] = model_output
+                child.setModelOutputs(outputs)
+            elif not any(True for _edge in graph.outgoing_edges(node_id)):
                 outputs = {}
                 for output_name, port in node.outputs.items():
                     model_output = QgsProcessingModelOutput(output_name, port.name)
@@ -363,18 +352,23 @@ class Model3Serializer:
             component = parameter_components.get(definition.name())
             if component is None:
                 continue
-            socket_type = AlgorithmCatalog.parameter_socket_type(definition)
-            if socket_type == SocketType.RASTER:
-                algorithm_id = "smart:raster_layer"
-            elif socket_type == SocketType.NUMBER:
-                algorithm_id = "smart:number"
-            else:
-                algorithm_id = "smart:input_layer"
+            algorithm_id = cls._smart_algorithm_for_definition(definition)
+            if not algorithm_id:
+                return (
+                    None,
+                    "Unsupported QGIS model parameter type: "
+                    + definition.__class__.__name__,
+                )
             node = AlgorithmCatalog.create_node(
                 algorithm_id, definition.name(), definition.description()
             )
+            node.model_parameter_definition = dict(definition.toVariantMap())
+            node.model_parameter_required = not bool(
+                definition.flags() & Qgis.ProcessingParameterFlag.Optional
+            )
+            node.parameters = {}
             if definition.defaultValue() not in (None, ""):
-                key = "VALUE" if algorithm_id == "smart:number" else "LAYER"
+                key = cls._smart_parameter_key(algorithm_id)
                 node.parameters[key] = definition.defaultValue()
             node.x = component.position().x()
             node.y = component.position().y()
@@ -390,15 +384,55 @@ class Model3Serializer:
                 return None, str(error)
             node.x = child.position().x()
             node.y = child.position().y()
+            node.is_active = bool(child.isActive())
+            node.algorithm_configuration = dict(child.configuration())
+            node.dependencies = [
+                str(cls._member_value(dependency, "childId"))
+                for dependency in child.dependencies()
+            ]
+            node.dependency_branches = {
+                str(cls._member_value(dependency, "childId")): str(
+                    cls._member_value(dependency, "conditionalBranch")
+                )
+                for dependency in child.dependencies()
+            }
             for input_name, sources in child.parameterSources().items():
+                node.parameter_source_order[input_name] = []
+                node.parameters.pop(input_name, None)
                 for source in sources:
                     if source.source() == Qgis.ProcessingModelChildParameterSource.StaticValue:
-                        node.parameters[input_name] = source.staticValue()
+                        static_value = source.staticValue()
+                        node.parameter_source_order[input_name].append(
+                            {"kind": "static", "value": static_value}
+                        )
+                        port = node.inputs.get(input_name)
+                        if port is not None and port.allows_multiple:
+                            existing = node.parameters.get(input_name, [])
+                            if not isinstance(existing, list):
+                                existing = [existing]
+                            existing.append(static_value)
+                            node.parameters[input_name] = existing
+                        else:
+                            node.parameters[input_name] = static_value
                     elif source.source() == Qgis.ProcessingModelChildParameterSource.ModelParameter:
+                        node.parameter_source_order[input_name].append(
+                            {
+                                "kind": "edge",
+                                "node_id": source.parameterName(),
+                                "output_name": "OUTPUT",
+                            }
+                        )
                         pending_edges.append(
                             (source.parameterName(), "OUTPUT", child_id, input_name)
                         )
                     elif source.source() == Qgis.ProcessingModelChildParameterSource.ChildOutput:
+                        node.parameter_source_order[input_name].append(
+                            {
+                                "kind": "edge",
+                                "node_id": source.outputChildId(),
+                                "output_name": source.outputName(),
+                            }
+                        )
                         pending_edges.append(
                             (
                                 source.outputChildId(),
@@ -407,16 +441,59 @@ class Model3Serializer:
                                 input_name,
                             )
                         )
+                    else:
+                        return (
+                            None,
+                            "Unsupported QGIS model input source on "
+                            f"{child_id}.{input_name}.",
+                        )
             graph.add_node(node)
-        for edge in pending_edges:
-            if graph.add_edge(*edge) is None:
-                return None, f"Invalid connection in .model3 file: {graph.last_error}"
+        graph._suspend_source_order_invalidation = True
+        try:
+            for edge in pending_edges:
+                if graph.add_edge(*edge) is None:
+                    return None, f"Invalid connection in .model3 file: {graph.last_error}"
+        finally:
+            graph._suspend_source_order_invalidation = False
+        graph.outputs_declared = True
+        for child_id, child in model.childAlgorithms().items():
+            for public_name, output in child.modelOutputs().items():
+                output_name = output.childOutputName()
+                node = graph.nodes.get(child_id)
+                if node is None or output_name not in node.outputs:
+                    return None, "A QGIS model output references an unavailable child output."
+                if public_name in graph.outputs:
+                    return None, f"Duplicate QGIS model output: {public_name}"
+                graph.outputs[public_name] = {
+                    "node_id": child_id,
+                    "output_name": output_name,
+                    "description": output.description(),
+                    "mandatory": bool(output.isMandatory()),
+                    "default": output.defaultValue(),
+                }
+        try:
+            graph.get_topological_order()
+        except ValueError as error:
+            return None, f"Invalid QGIS model dependency: {error}"
         return graph, ""
 
-    @staticmethod
-    def _model_parameter_for_node(node: NodeDefinition):
+    @classmethod
+    def _model_parameter_for_node(cls, node: NodeDefinition):
+        if node.model_parameter_definition:
+            definition = QgsProcessingParameters.parameterFromVariantMap(
+                node.model_parameter_definition
+            )
+            if definition is not None:
+                definition.setName(node.node_id)
+                definition.setDescription(node.title)
+                definition.setDefaultValue(
+                    node.parameters.get(
+                        cls._smart_parameter_key(node.algorithm_id)
+                    )
+                )
+                return definition
         default = node.parameters.get(
-            "VALUE" if node.algorithm_id in ("smart:number", "smart:slider") else "LAYER"
+            cls._smart_parameter_key(node.algorithm_id)
         )
         if node.algorithm_id == "smart:raster_layer":
             return QgsProcessingParameterRasterLayer(
@@ -426,6 +503,104 @@ class Model3Serializer:
             return QgsProcessingParameterNumber(
                 node.node_id, node.title, defaultValue=default, optional=False
             )
+        if node.algorithm_id == "smart:boolean":
+            return QgsProcessingParameterBoolean(
+                node.node_id, node.title, defaultValue=default, optional=False
+            )
+        if node.algorithm_id == "smart:string":
+            return QgsProcessingParameterString(
+                node.node_id, node.title, defaultValue=default, optional=False
+            )
+        if node.algorithm_id == "smart:field":
+            return QgsProcessingParameterField(
+                node.node_id, node.title, defaultValue=default, optional=False
+            )
+        if node.algorithm_id == "smart:crs":
+            return QgsProcessingParameterCrs(
+                node.node_id, node.title, defaultValue=default, optional=False
+            )
+        if node.algorithm_id == "smart:extent":
+            return QgsProcessingParameterExtent(
+                node.node_id, node.title, defaultValue=default, optional=False
+            )
+        if node.algorithm_id == "smart:enum":
+            return QgsProcessingParameterEnum(
+                node.node_id,
+                node.title,
+                options=[],
+                defaultValue=default,
+                optional=False,
+            )
+        if node.algorithm_id == "smart:map_layer":
+            return QgsProcessingParameterMapLayer(
+                node.node_id, node.title, defaultValue=default, optional=False
+            )
+        if node.algorithm_id in ("smart:multiple_vector", "smart:multiple_raster"):
+            layer_type = (
+                Qgis.ProcessingSourceType.Raster
+                if node.algorithm_id == "smart:multiple_raster"
+                else Qgis.ProcessingSourceType.Vector
+            )
+            return QgsProcessingParameterMultipleLayers(
+                node.node_id,
+                node.title,
+                layerType=layer_type,
+                defaultValue=default,
+                optional=False,
+            )
         return QgsProcessingParameterVectorLayer(
             node.node_id, node.title, defaultValue=default, optional=False
         )
+
+    @staticmethod
+    def _smart_parameter_key(algorithm_id: str) -> str:
+        return (
+            "LAYER"
+            if algorithm_id
+            in (
+                "smart:input_layer",
+                "smart:raster_layer",
+                "smart:map_layer",
+                "smart:multiple_vector",
+                "smart:multiple_raster",
+            )
+            else "VALUE"
+        )
+
+    @staticmethod
+    def _smart_algorithm_for_definition(definition) -> str:
+        if isinstance(definition, QgsProcessingParameterMultipleLayers):
+            return (
+                "smart:multiple_raster"
+                if definition.layerType() == Qgis.ProcessingSourceType.Raster
+                else "smart:multiple_vector"
+            )
+        if isinstance(definition, QgsProcessingParameterRasterLayer):
+            return "smart:raster_layer"
+        if isinstance(
+            definition,
+            (QgsProcessingParameterVectorLayer, QgsProcessingParameterFeatureSource),
+        ):
+            return "smart:input_layer"
+        if isinstance(definition, QgsProcessingParameterBoolean):
+            return "smart:boolean"
+        if isinstance(definition, QgsProcessingParameterNumber):
+            return "smart:number"
+        if isinstance(definition, QgsProcessingParameterString):
+            return "smart:string"
+        if isinstance(definition, QgsProcessingParameterField):
+            return "smart:field"
+        if isinstance(definition, QgsProcessingParameterCrs):
+            return "smart:crs"
+        if isinstance(definition, QgsProcessingParameterExtent):
+            return "smart:extent"
+        if isinstance(definition, QgsProcessingParameterEnum):
+            return "smart:enum"
+        if isinstance(definition, QgsProcessingParameterMapLayer):
+            return "smart:map_layer"
+        return ""
+
+    @staticmethod
+    def _member_value(value, name: str):
+        member = getattr(value, name)
+        return member() if callable(member) else member
