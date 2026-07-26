@@ -25,6 +25,7 @@ from .proposals import ProposalReason
 VECTOR_LAYER = "vector_layer"
 RASTER_LAYER = "raster_layer"
 MULTI_RASTER = "multi_raster"
+MULTI_VECTOR = "multi_vector"
 FIELD = "field"
 NUMBER = "number"
 DISTANCE = "distance"
@@ -38,7 +39,11 @@ _KIND_CLASS_NAMES: Mapping[str, FrozenSet[str]] = {
         {"QgsProcessingParameterFeatureSource", "QgsProcessingParameterVectorLayer"}
     ),
     RASTER_LAYER: frozenset({"QgsProcessingParameterRasterLayer"}),
+    # Both multi kinds are the same QGIS class; they differ only in the layer
+    # *type* the run planner then demands (raster vs vector). Keeping them as
+    # separate kinds is what lets an allowlist entry pin which one it means.
     MULTI_RASTER: frozenset({"QgsProcessingParameterMultipleLayers"}),
+    MULTI_VECTOR: frozenset({"QgsProcessingParameterMultipleLayers"}),
     FIELD: frozenset({"QgsProcessingParameterField"}),
     NUMBER: frozenset({"QgsProcessingParameterNumber"}),
     # A Distance parameter is-a Number, so either class name satisfies it.
@@ -181,7 +186,7 @@ class SafeAlgorithmPolicy:
 
 
 # -- the shipped, reviewed initial allowlist (owner decision 2026-07-23) -----
-# Focused core of twelve native algorithms; signatures probed live on QGIS
+# Focused core of sixteen native algorithms; signatures probed live on QGIS
 # 4.2.0 and 3.44.12 LTR. Bindable holds only the safe, cross-version inputs a
 # proposal may set; every destination is forced to a temporary output.
 
@@ -234,6 +239,43 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         # every destination is forced to a temporary output, so the run adds a
         # matching-features layer and a non-matching (FAIL_OUTPUT) layer.
         destinations=("OUTPUT", "FAIL_OUTPUT"),
+    ),
+    # "Extract the features of X that intersect / are within / touch Y" -- the
+    # spatial sibling of extract-by-attribute. Reads two vector layers, writes a
+    # forced temporary output, and PREDICATE is bound only as a live option
+    # index (a single int satisfies its multi-value enum on both runtimes).
+    "native:extractbylocation": _alg(
+        "native:extractbylocation",
+        {"INPUT": VECTOR_LAYER, "PREDICATE": ENUM, "INTERSECT": VECTOR_LAYER},
+        ("INPUT", "INTERSECT"),
+    ),
+    # "Join the attributes of layer B onto layer A where a field matches" -- a
+    # table join, no expression and no path. FIELD binds to INPUT and FIELD_2 to
+    # INPUT_2 via each field binding's layer_param. Both sinks are pinned so the
+    # signature gate accepts it; each is forced to a temporary output, so the run
+    # adds the joined layer and a non-matching (NON_MATCHING) layer. The optional
+    # multi-field FIELDS_TO_COPY and the PREFIX string are deliberately left
+    # unbindable.
+    "native:joinattributestable": _alg(
+        "native:joinattributestable",
+        {
+            "INPUT": VECTOR_LAYER,
+            "FIELD": FIELD,
+            "INPUT_2": VECTOR_LAYER,
+            "FIELD_2": FIELD,
+            "METHOD": ENUM,
+            "DISCARD_NONMATCHING": BOOL,
+        },
+        ("INPUT", "INPUT_2"),
+        destinations=("OUTPUT", "NON_MATCHING"),
+    ),
+    # "Merge all these layers into one." LAYERS is a *vector* multilayer, so it
+    # is pinned as MULTI_VECTOR (the run planner then demands vector inputs);
+    # CRS is an authid the QGIS adapter validates, never a path.
+    "native:mergevectorlayers": _alg(
+        "native:mergevectorlayers",
+        {"LAYERS": MULTI_VECTOR, "CRS": CRS, "ADD_SOURCE_FIELDS": BOOL},
+        ("LAYERS",),
     ),
     "native:difference": _alg(
         "native:difference",

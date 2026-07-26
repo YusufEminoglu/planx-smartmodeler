@@ -11,6 +11,7 @@ from planx_smartmodeler.core.agent.proposals import ProposalReason
 from planx_smartmodeler.core.agent.safe_algorithm_policy import (
     BOOL,
     DISTANCE,
+    MULTI_VECTOR,
     NUMBER,
     VECTOR_LAYER,
     AllowedAlgorithm,
@@ -62,10 +63,13 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 13)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 16)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
         self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))
+        self.assertIsNotNone(self.policy.record_for("native:extractbylocation"))
+        self.assertIsNotNone(self.policy.record_for("native:joinattributestable"))
+        self.assertIsNotNone(self.policy.record_for("native:mergevectorlayers"))
         self.assertIsNone(self.policy.record_for("native:refactorfields"))
 
     def test_extract_by_attribute_run_signature(self) -> None:
@@ -80,6 +84,54 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         decision = self.policy.is_runnable("native:extractbyattribute", params)
         self.assertTrue(decision.allowed)
         self.assertIsNotNone(decision.record)
+
+    def test_extract_by_location_run_signature(self) -> None:
+        # Live signature probed identical on 3.44.12 LTR and 4.2.0.
+        params = (
+            ParamSpec("INPUT", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
+            ParamSpec("PREDICATE", False, frozenset({"QgsProcessingParameterEnum"}), False, True),
+            ParamSpec("INTERSECT", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
+            ParamSpec("OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), False, False),
+        )
+        decision = self.policy.is_runnable("native:extractbylocation", params)
+        self.assertTrue(decision.allowed)
+        self.assertIsNotNone(decision.record)
+
+    def test_join_attributes_table_run_signature(self) -> None:
+        # Two pinned sinks (OUTPUT, NON_MATCHING); the optional FIELDS_TO_COPY and
+        # PREFIX are tolerated unbound. Probed identical on both runtimes.
+        params = (
+            ParamSpec("INPUT", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
+            ParamSpec("FIELD", False, frozenset({"QgsProcessingParameterField"}), False, False),
+            ParamSpec("INPUT_2", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
+            ParamSpec("FIELD_2", False, frozenset({"QgsProcessingParameterField"}), False, False),
+            ParamSpec("FIELDS_TO_COPY", False, frozenset({"QgsProcessingParameterField"}), True, False),
+            ParamSpec("METHOD", False, frozenset({"QgsProcessingParameterEnum"}), False, True),
+            ParamSpec("DISCARD_NONMATCHING", False, frozenset({"QgsProcessingParameterBoolean"}), False, True),
+            ParamSpec("PREFIX", False, frozenset({"QgsProcessingParameterString"}), True, False),
+            ParamSpec("OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), True, False),
+            ParamSpec("NON_MATCHING", True, frozenset({"QgsProcessingParameterFeatureSink"}), True, False),
+        )
+        decision = self.policy.is_runnable("native:joinattributestable", params)
+        self.assertTrue(decision.allowed)
+        record = decision.record
+        self.assertIsNotNone(record)
+        self.assertEqual(record.destinations, ("OUTPUT", "NON_MATCHING"))
+
+    def test_merge_vector_layers_run_signature(self) -> None:
+        # LAYERS is pinned as MULTI_VECTOR: the same QGIS class as a multi-raster
+        # input, distinguished only by the vector layer-type the planner demands.
+        params = (
+            ParamSpec("LAYERS", False, frozenset({"QgsProcessingParameterMultipleLayers"}), False, False),
+            ParamSpec("CRS", False, frozenset({"QgsProcessingParameterCrs"}), True, False),
+            ParamSpec("ADD_SOURCE_FIELDS", False, frozenset({"QgsProcessingParameterBoolean"}), False, True),
+            ParamSpec("OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), False, False),
+        )
+        decision = self.policy.is_runnable("native:mergevectorlayers", params)
+        self.assertTrue(decision.allowed)
+        record = decision.record
+        self.assertIsNotNone(record)
+        self.assertEqual(self.policy.expected_kind(record, "LAYERS"), MULTI_VECTOR)
 
     def test_the_policy_cannot_enumerate_its_allowlist(self) -> None:
         for accessor in ("allowed_ids", "allowlist", "algorithms", "ids"):

@@ -2,6 +2,36 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.5.3] - 2026-07-24
+
+### The agent can run three more everyday GIS requests
+
+The v0.5.2 run made "filter these features into a new layer" a one-click action,
+but the very next natural asks — "keep what's inside this boundary", "join this
+table onto that layer", "merge these layers into one" — still had no runnable
+algorithm behind them. Three more side-effect-safe native algorithms join the
+reviewed safe-run allowlist (**sixteen** algorithms now):
+
+- **`native:extractbylocation`** — the spatial sibling of extract-by-attribute.
+  "Keep the features of X that intersect / are inside / touch Y." Reads the two
+  vector layers and the spatial predicate (bound only as a live option index)
+  and writes a forced temporary output.
+- **`native:joinattributestable`** — attach the attributes of one layer onto
+  another where a key field matches. Each join key binds to its own input layer,
+  and both sinks (the joined layer and the non-matching complement) are pinned
+  to forced temporary outputs. It runs no expression and takes no path.
+- **`native:mergevectorlayers`** — combine several vector layers into one. Its
+  multi-layer input is pinned as a new `MULTI_VECTOR` binding kind, so the run
+  planner demands vector inputs for it (the existing multi-raster kind demanded
+  rasters); a raster bound here is refused.
+
+Every new signature was probed identical on QGIS 3.44.12 LTR and 4.2.0, each
+algorithm executes and undoes through the real-QGIS smoke, and the deny-by-
+default policy is unchanged: the allowlist still grows only by shipped code and
+review, never at runtime, and every destination is still forced to a temporary
+output. The tool instructions now point the model at these three runs so it
+reaches for them instead of stopping at "I can't".
+
 ## [0.5.2] - 2026-07-24
 
 ### The agent can now run a filter and produce a layer

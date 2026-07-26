@@ -34,6 +34,7 @@ from .safe_algorithm_policy import (
     ENUM,
     FIELD,
     MULTI_RASTER,
+    MULTI_VECTOR,
     NUMBER,
     ParamSpec,
     RASTER_LAYER,
@@ -69,7 +70,7 @@ ALLOWED_SMART_NODES = frozenset(
 # parameter and a number can never land on a field.
 _TAG_KINDS: Mapping[str, FrozenSet[str]] = {
     "layer": frozenset({VECTOR_LAYER, RASTER_LAYER}),
-    "layers": frozenset({MULTI_RASTER}),
+    "layers": frozenset({MULTI_RASTER, MULTI_VECTOR}),
     "field": frozenset({FIELD}),
     "number": frozenset({NUMBER}),
     "distance": frozenset({DISTANCE}),
@@ -81,7 +82,12 @@ _TAG_KINDS: Mapping[str, FrozenSet[str]] = {
 }
 
 # Which layer kind each layer-ish parameter kind demands.
-_KIND_LAYER_TYPE = {VECTOR_LAYER: VECTOR, RASTER_LAYER: RASTER, MULTI_RASTER: RASTER}
+_KIND_LAYER_TYPE = {
+    VECTOR_LAYER: VECTOR,
+    RASTER_LAYER: RASTER,
+    MULTI_RASTER: RASTER,
+    MULTI_VECTOR: VECTOR,
+}
 
 
 @dataclass(frozen=True)

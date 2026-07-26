@@ -198,9 +198,23 @@ at "I am read-only". Prefer the proposal that gets closest:
 - "Filter/extract/select these features into a new layer" → a `processing_run`
   of `native:extractbyattribute` (result added as a temporary layer). This is
   usually exactly what the user means by "save the bus stops as a new layer".
+- "Keep the features of X that intersect / are inside / touch Y" → a
+  `processing_run` of `native:extractbylocation` (bind `INPUT` and `INTERSECT`
+  to the two layers and `PREDICATE` to the option index from
+  `processing.describe`).
+- "Join / attach the attributes of layer B onto layer A where a field matches"
+  → a `processing_run` of `native:joinattributestable` (bind `FIELD` to A's key
+  with `"layer_param": "INPUT"` and `FIELD_2` to B's key with
+  `"layer_param": "INPUT_2"`).
+- "Merge / combine these layers into one" → a `processing_run` of
+  `native:mergevectorlayers` (bind `LAYERS` to the list of vector layer ids).
 - A multi-step transformation, or an algorithm that is not runnable → a
   `model_patch` that builds the workflow, which the user runs from the Workflow
   Studio.
+
+Always confirm an algorithm is runnable and read its live parameter binding
+forms with `processing.describe` before proposing a `processing_run`; never
+assume a parameter name or option index.
 
 Offer a proposal only in Plan or Act mode. If even a proposal cannot express
 the request, say so plainly and name the manual QGIS step that would.

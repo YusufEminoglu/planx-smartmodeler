@@ -107,6 +107,32 @@ CELLSTATS_PARAMS = [
     spec("OUTPUT_NODATA_VALUE", NUMBER_PARAM, default=True),
     spec("OUTPUT", "QgsProcessingParameterRasterDestination", destination=True),
 ]
+EXTRACTLOC_PARAMS = [
+    spec("INPUT", SOURCE),
+    spec("PREDICATE", ENUM_PARAM, default=True,
+         options=("intersect", "contain", "disjoint", "equal", "touch",
+                  "overlap", "are within", "cross")),
+    spec("INTERSECT", SOURCE),
+    spec("OUTPUT", SINK, destination=True),
+]
+JOIN_PARAMS = [
+    spec("INPUT", SOURCE),
+    spec("FIELD", FIELD_PARAM),
+    spec("INPUT_2", SOURCE),
+    spec("FIELD_2", FIELD_PARAM),
+    spec("FIELDS_TO_COPY", FIELD_PARAM, optional=True),
+    spec("METHOD", ENUM_PARAM, default=True, options=("one-to-many", "one-to-one")),
+    spec("DISCARD_NONMATCHING", BOOL_PARAM, default=True),
+    spec("PREFIX", STRING_PARAM, optional=True),
+    spec("OUTPUT", SINK, destination=True, optional=True),
+    spec("NON_MATCHING", SINK, destination=True, optional=True),
+]
+MERGE_PARAMS = [
+    spec("LAYERS", MULTI),
+    spec("CRS", CRS_PARAM, optional=True),
+    spec("OUTPUT", SINK, destination=True),
+    spec("ADD_SOURCE_FIELDS", BOOL_PARAM, default=True),
+]
 
 VEC = LayerView("L_vec", "Roads", VECTOR, frozenset({"name", "class"}))
 VEC2 = LayerView("L_vec2", "Districts", VECTOR, frozenset({"code"}))
@@ -203,6 +229,55 @@ class ProcessingRunPlannerTests(unittest.TestCase):
         )
         self.assertEqual(plan.binding_for("INPUT").layer_ids, ("L_ras", "L_ras2"))
         self.assertEqual(plan.input_layer_ids, ("L_ras", "L_ras2"))
+
+    def test_extract_by_location_resolves_two_layers_and_predicate(self):
+        plan = self.plan(
+            "native:extractbylocation",
+            {
+                "INPUT": {"layer": "L_vec"},
+                "PREDICATE": {"enum": 0},
+                "INTERSECT": {"layer": "L_vec2"},
+            },
+            EXTRACTLOC_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("INPUT").layer_ids, ("L_vec",))
+        self.assertEqual(plan.binding_for("INTERSECT").layer_ids, ("L_vec2",))
+        self.assertEqual(plan.binding_for("PREDICATE").value, 0)
+
+    def test_join_binds_each_field_to_its_own_input_layer(self):
+        plan = self.plan(
+            "native:joinattributestable",
+            {
+                "INPUT": {"layer": "L_vec"},
+                "FIELD": {"field": "class", "layer_param": "INPUT"},
+                "INPUT_2": {"layer": "L_vec2"},
+                "FIELD_2": {"field": "code", "layer_param": "INPUT_2"},
+                "METHOD": {"enum": 1},
+            },
+            JOIN_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("FIELD").value, "class")
+        self.assertEqual(plan.binding_for("FIELD_2").value, "code")
+        self.assertEqual(plan.destinations, ("OUTPUT", "NON_MATCHING"))
+
+    def test_merge_accepts_multiple_vector_layers(self):
+        plan = self.plan(
+            "native:mergevectorlayers",
+            {"LAYERS": {"layers": ["L_vec", "L_vec2"]}, "CRS": {"crs": "EPSG:3857"}},
+            MERGE_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("LAYERS").layer_ids, ("L_vec", "L_vec2"))
+        self.assertEqual(plan.binding_for("CRS").value, "EPSG:3857")
+
+    def test_merge_rejects_a_raster_layer_bound_to_the_vector_multilayer(self):
+        # MULTI_VECTOR shares its QGIS class with a multi-raster input; the
+        # planner's layer-type demand is the only thing keeping a raster out.
+        self.assert_rejects(
+            "native:mergevectorlayers",
+            {"LAYERS": {"layers": ["L_vec", "L_ras"]}},
+            MERGE_PARAMS,
+            ProposalReason.VALIDATION_FAILED,
+        )
 
     def test_preview_lines_name_layers_not_identifiers_or_paths(self):
         plan = self.plan(

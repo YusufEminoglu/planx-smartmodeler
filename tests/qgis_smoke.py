@@ -1012,6 +1012,39 @@ def run_checks() -> str:
         if set(project.mapLayers()) != extract_before:
             raise RuntimeError("Undo did not remove the extract-by-attribute outputs.")
 
+        # -- Owner-QA follow-up: spatial extract (extract by location) -------
+        # native:extractbylocation joined the allowlist so "keep the features of
+        # X that intersect Y" runs as a reviewed processing_run. PREDICATE is
+        # bound as a single live option index; the run writes a forced temporary
+        # output and never touches disk. Intersecting a layer with itself keeps
+        # every feature, which is enough to prove the run and its Undo.
+        extractloc_before = set(project.mapLayers())
+        extractloc_run = _run_json(
+            _alg_token("native:extractbylocation"), "native:extractbylocation",
+            {
+                "INPUT": {"layer": tagged_layer.id()},
+                "PREDICATE": {"enum": 0},
+                "INTERSECT": {"layer": tagged_layer.id()},
+            },
+            title="Extract by location",
+        )
+        _feed_act(run_dock, AgentScope.PROJECT, "processing_run", extractloc_run)
+        if run_dock._pending_action is None:
+            raise RuntimeError("extractbylocation produced no pending run action.")
+        run_dock._on_apply_clicked()
+        extractloc_added = set(project.mapLayers()) - extractloc_before
+        if len(extractloc_added) != 1:
+            raise RuntimeError(
+                f"An extractbylocation run added {len(extractloc_added)} layers instead of one."
+            )
+        run_dock._on_undo_clicked()
+        if set(project.mapLayers()) != extractloc_before:
+            raise RuntimeError("Undo did not remove the extract-by-location output.")
+        # This QA run is undone; neutralize its one-action cost so the rest of
+        # Phase 05 keeps its careful per-session budget calibration (the later
+        # model_run must still land inside MAX_SESSION_ACTIONS).
+        run_dock._session_action_count -= 1
+
         # A second reviewed algorithm runs the same way.
         centroids_run = _run_json(
             _alg_token("native:centroids"), "native:centroids",
