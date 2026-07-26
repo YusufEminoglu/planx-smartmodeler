@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
-from qgis.PyQt.QtCore import QEvent, QMetaType, QPointF, Qt
-from qgis.PyQt.QtGui import QColor, QIcon, QKeyEvent
+from qgis.PyQt.QtCore import QEvent, QMetaType, QPointF, QTimer, Qt
+from qgis.PyQt.QtGui import QAction, QColor, QIcon, QKeyEvent
+from qgis.PyQt.QtWidgets import QApplication
 from qgis.core import (
     QgsApplication,
     QgsFeature,
@@ -38,6 +40,8 @@ from qgis.core import (
     Qgis,
 )
 
+SILENT_CANCEL_OBSERVATIONS = []
+
 
 def run_checks() -> str:
     plugin_root = Path(__file__).resolve().parents[2]
@@ -60,6 +64,10 @@ def run_checks() -> str:
         AgentToolCall,
     )
     from planx_smartmodeler.core.agent.controller import AgentController
+    from planx_smartmodeler.core.agent.run_coordinator import (
+        MAX_RESULT_LAYERS,
+        RunCoordinator,
+    )
     from planx_smartmodeler.core.agent.runtime_tools import build_default_registry
     from planx_smartmodeler.core.algorithm_catalog import AlgorithmCatalog
     from planx_smartmodeler.core.ai_client import AiNetworkClient
@@ -71,6 +79,7 @@ def run_checks() -> str:
     )
     from planx_smartmodeler.core.execution_engine import (
         ExecutionError,
+        ExecutionStatus,
         GraphExecutionEngine,
     )
     from planx_smartmodeler.core.graph_model import GraphModel
@@ -184,8 +193,21 @@ def run_checks() -> str:
             raise RuntimeError(graph.last_error)
 
         report = GraphExecutionEngine().execute(graph)
-        if report.executed_nodes != 2 or not report.added_layers:
+        if (
+            report.status != ExecutionStatus.COMPLETED
+            or report.executed_nodes != 2
+            or not report.added_layers
+            or not report.added_layer_ids
+            or any(
+                project.mapLayer(layer_id) is None
+                for layer_id in report.added_layer_ids
+            )
+        ):
             raise RuntimeError("Processing execution did not load the buffer result.")
+        if isinstance(
+            report.results.get("buffer", {}).get("OUTPUT"), QgsVectorLayer
+        ):
+            raise RuntimeError("Execution report retained a raw QGIS layer result.")
 
         branch_graph = GraphModel("Conditional execution")
         branch_source = AlgorithmCatalog.create_node(
@@ -205,11 +227,153 @@ def run_checks() -> str:
             branch_graph.add_node(branch_node)
         branch_report = GraphExecutionEngine().execute(branch_graph)
         if (
-            branch_report.executed_nodes != 1
+            branch_report.status != ExecutionStatus.COMPLETED
+            or branch_report.executed_nodes != 1
             or branch_target.execution_state != "skipped"
             or branch_descendant.execution_state != "skipped"
         ):
             raise RuntimeError("A false conditional branch was executed.")
+
+        cancel_graph = GraphModel("Cancelable execution")
+        cancel_first = AlgorithmCatalog.create_node(
+            "smart:number", "cancel_first", "First"
+        )
+        cancel_second = AlgorithmCatalog.create_node(
+            "smart:number", "cancel_second", "Second"
+        )
+        cancel_second.dependencies = ["cancel_first"]
+        cancel_graph.add_node(cancel_first)
+        cancel_graph.add_node(cancel_second)
+        cancel_engine = GraphExecutionEngine()
+        cancel_engine.progress_changed.connect(
+            lambda _value, _message: cancel_engine.cancel()
+        )
+        cancel_project_ids = set(project.mapLayers())
+        cancel_report = cancel_engine.execute(cancel_graph)
+        if (
+            cancel_report.status != ExecutionStatus.CANCELED
+            or cancel_report.executed_nodes != 0
+            or cancel_engine.is_running()
+            or set(project.mapLayers()) != cancel_project_ids
+        ):
+            raise RuntimeError("Studio cancellation was not terminal and atomic.")
+
+        prestart_cancel_engine = GraphExecutionEngine()
+        prestart_cancel_engine.cancel()
+        prestart_cancel_report = prestart_cancel_engine.execute(cancel_graph)
+        if (
+            prestart_cancel_report.status != ExecutionStatus.CANCELED
+            or prestart_cancel_report.executed_nodes != 0
+            or prestart_cancel_engine.is_running()
+            or set(project.mapLayers()) != cancel_project_ids
+        ):
+            raise RuntimeError(
+                "A cancellation arriving immediately before execution was lost."
+            )
+
+        partial_graph = GraphModel("Partial execution")
+        partial_first = AlgorithmCatalog.create_node(
+            "smart:number", "partial_first", "First"
+        )
+        partial_bad = AlgorithmCatalog.create_node(
+            "smart:number", "partial_bad", "Invalid number"
+        )
+        partial_bad.parameters["VALUE"] = "not-a-number"
+        partial_bad.dependencies = ["partial_first"]
+        partial_graph.add_node(partial_first)
+        partial_graph.add_node(partial_bad)
+        partial_project_ids = set(project.mapLayers())
+        partial_report = GraphExecutionEngine().execute(partial_graph)
+        if (
+            partial_report.status != ExecutionStatus.PARTIAL
+            or partial_report.executed_nodes != 1
+            or partial_report.failed_node_id != "partial_bad"
+            or partial_report.added_layer_ids
+            or set(project.mapLayers()) != partial_project_ids
+        ):
+            raise RuntimeError("Partial execution outcome or ownership is invalid.")
+
+        exception_graph = GraphModel("Structured provider exception")
+        exception_graph.add_node(
+            AlgorithmCatalog.create_node(
+                "smart:number", "exception_node", "Exception node"
+            )
+        )
+        original_smart_executor = GraphExecutionEngine._execute_smart_node
+
+        def _raise_plain_provider_exception(
+            _node, _project, _layer_lookup=None
+        ):
+            raise Exception("plain provider failure")
+
+        GraphExecutionEngine._execute_smart_node = staticmethod(
+            _raise_plain_provider_exception
+        )
+        try:
+            exception_report = GraphExecutionEngine().execute(exception_graph)
+        finally:
+            GraphExecutionEngine._execute_smart_node = staticmethod(
+                original_smart_executor
+            )
+        if (
+            exception_report.status != ExecutionStatus.FAILED
+            or exception_report.failed_node_id != "exception_node"
+            or "plain provider failure" not in exception_report.message
+        ):
+            raise RuntimeError("A plain provider exception escaped its report.")
+
+        reentrant_graph = GraphModel("Reentrant execution")
+        reentrant_graph.add_node(
+            AlgorithmCatalog.create_node(
+                "smart:number", "reentrant_number", "Number"
+            )
+        )
+        reentrant_engine = GraphExecutionEngine()
+        nested_reports = []
+
+        def _attempt_nested_run(_value, _message):
+            if not nested_reports:
+                nested_reports.append(reentrant_engine.execute(reentrant_graph))
+
+        reentrant_engine.progress_changed.connect(_attempt_nested_run)
+        reentrant_report = reentrant_engine.execute(reentrant_graph)
+        if (
+            reentrant_report.status != ExecutionStatus.COMPLETED
+            or len(nested_reports) != 1
+            or nested_reports[0].status != ExecutionStatus.FAILED
+            or "already running" not in nested_reports[0].message
+            or reentrant_engine.is_running()
+        ):
+            raise RuntimeError("Execution engine accepted a reentrant run.")
+
+        mutation_graph = GraphModel("Immutable execution snapshot")
+        mutation_first = AlgorithmCatalog.create_node(
+            "smart:number", "mutation_first", "First"
+        )
+        mutation_second = AlgorithmCatalog.create_node(
+            "smart:number", "mutation_second", "Second"
+        )
+        mutation_second.dependencies = ["mutation_first"]
+        mutation_graph.add_node(mutation_first)
+        mutation_graph.add_node(mutation_second)
+        mutation_engine = GraphExecutionEngine()
+        mutation_attempted = []
+
+        def _mutate_live_graph(_value, _message):
+            if not mutation_attempted:
+                mutation_attempted.append(True)
+                mutation_graph.remove_node("mutation_second")
+
+        mutation_engine.progress_changed.connect(_mutate_live_graph)
+        mutation_report = mutation_engine.execute(mutation_graph)
+        if (
+            mutation_report.status != ExecutionStatus.COMPLETED
+            or mutation_report.executed_nodes != 2
+            or set(mutation_graph.nodes) != {"mutation_first"}
+            or set(mutation_report.results)
+            != {"mutation_first", "mutation_second"}
+        ):
+            raise RuntimeError("Execution did not use an immutable graph snapshot.")
 
         properties_graph = GraphModel("Declared outputs")
         properties_source = AlgorithmCatalog.create_node(
@@ -333,6 +497,225 @@ def run_checks() -> str:
                 "A failed mandatory output contract partially mutated the project."
             )
         properties_graph.outputs.pop("MISSING_RESULT")
+
+        class _RejectSecondOutputProject:
+            def __init__(self):
+                self.layers = {}
+                self.add_calls = 0
+
+            def mapLayer(self, layer_id):
+                return self.layers.get(layer_id)
+
+            def addMapLayer(self, layer):
+                self.add_calls += 1
+                if self.add_calls == 2:
+                    return None
+                self.layers[layer.id()] = layer
+                return layer
+
+            def removeMapLayer(self, layer_id):
+                self.layers.pop(layer_id, None)
+
+        rollback_graph = GraphModel("Atomic output commit")
+        rollback_first_node = AlgorithmCatalog.create_node(
+            "native:buffer", "rollback_first", "First output"
+        )
+        rollback_second_node = AlgorithmCatalog.create_node(
+            "native:centroids", "rollback_second", "Second output"
+        )
+        rollback_graph.add_node(rollback_first_node)
+        rollback_graph.add_node(rollback_second_node)
+        rollback_graph.outputs_declared = True
+        rollback_graph.outputs["FIRST"] = {
+            "node_id": "rollback_first",
+            "output_name": "OUTPUT",
+            "mandatory": True,
+        }
+        rollback_graph.outputs["SECOND"] = {
+            "node_id": "rollback_second",
+            "output_name": "OUTPUT",
+            "mandatory": True,
+        }
+        rollback_first_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "rollback_first_original", "memory"
+        )
+        rollback_second_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "rollback_second_original", "memory"
+        )
+        rejecting_project = _RejectSecondOutputProject()
+        try:
+            GraphExecutionEngine._load_terminal_outputs(
+                rollback_graph,
+                {
+                    "rollback_first": {"OUTPUT": rollback_first_layer},
+                    "rollback_second": {"OUTPUT": rollback_second_layer},
+                },
+                declared_context,
+                rejecting_project,
+            )
+        except ExecutionError:
+            pass
+        else:
+            raise RuntimeError("A partial QGIS output commit was accepted.")
+        if (
+            rejecting_project.layers
+            or rollback_first_layer.name() != "rollback_first_original"
+            or rollback_second_layer.name() != "rollback_second_original"
+        ):
+            raise RuntimeError("A rejected output commit was not rolled back.")
+
+        class _RejectRollbackProject(_RejectSecondOutputProject):
+            def removeMapLayer(self, _layer_id):
+                return False
+
+        failed_rollback_project = _RejectRollbackProject()
+        failed_rollback_ids = []
+        try:
+            GraphExecutionEngine._load_terminal_outputs(
+                rollback_graph,
+                {
+                    "rollback_first": {"OUTPUT": rollback_first_layer},
+                    "rollback_second": {"OUTPUT": rollback_second_layer},
+                },
+                declared_context,
+                failed_rollback_project,
+                committed_ids=failed_rollback_ids,
+            )
+        except ExecutionError as error:
+            if "rollback was incomplete" not in str(error):
+                raise RuntimeError(
+                    "An incomplete output rollback was not reported."
+                ) from error
+        else:
+            raise RuntimeError("An incomplete output rollback was accepted.")
+        if failed_rollback_ids != [rollback_first_layer.id()]:
+            raise RuntimeError(
+                "An incomplete output rollback lost ownership of its remaining layer."
+            )
+
+        ledger_graph = GraphModel("Exact output ledger")
+        ledger_node = AlgorithmCatalog.create_node(
+            "native:buffer", "ledger_node", "Ledger output"
+        )
+        ledger_graph.add_node(ledger_node)
+        ledger_graph.outputs_declared = True
+        ledger_graph.outputs["LEDGER_RESULT"] = {
+            "node_id": "ledger_node",
+            "output_name": "OUTPUT",
+            "mandatory": True,
+        }
+        ledger_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "ledger_result", "memory"
+        )
+        unrelated_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "unrelated_injected", "memory"
+        )
+        injected_layer_ids = []
+
+        def _inject_unrelated_layer(layers):
+            if (
+                not injected_layer_ids
+                and any(layer.id() == ledger_layer.id() for layer in layers)
+            ):
+                injected_layer_ids.append(unrelated_layer.id())
+                project.addMapLayer(unrelated_layer)
+
+        project.layersAdded.connect(_inject_unrelated_layer)
+        exact_committed_ids = []
+        try:
+            GraphExecutionEngine._load_terminal_outputs(
+                ledger_graph,
+                {"ledger_node": {"OUTPUT": ledger_layer}},
+                declared_context,
+                project,
+                committed_ids=exact_committed_ids,
+            )
+        finally:
+            project.layersAdded.disconnect(_inject_unrelated_layer)
+        if (
+            exact_committed_ids != [ledger_layer.id()]
+            or injected_layer_ids != [unrelated_layer.id()]
+            or unrelated_layer.id() in exact_committed_ids
+        ):
+            raise RuntimeError("Output ownership used a whole-project layer diff.")
+        project.removeMapLayer(ledger_layer.id())
+        project.removeMapLayer(unrelated_layer.id())
+
+        ownership_coordinator = RunCoordinator(lambda: None)
+        ownership_context = QgsProcessingContext()
+        ownership_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "ownership", "memory"
+        )
+        ownership_cases = (
+            ({}, ("OUTPUT",), "omitted"),
+            ({"OUTPUT": 3}, ("OUTPUT",), "not a map layer"),
+            (
+                {"FIRST": ownership_layer, "SECOND": ownership_layer},
+                ("FIRST", "SECOND"),
+                "same layer",
+            ),
+        )
+        for ownership_results, ownership_destinations, expected_message in ownership_cases:
+            try:
+                ownership_coordinator._take_result_layers(
+                    ownership_results,
+                    ownership_destinations,
+                    ownership_context,
+                )
+            except RuntimeError as error:
+                if expected_message not in str(error):
+                    raise
+            else:
+                raise RuntimeError(
+                    f"Agent result ownership accepted {expected_message}."
+                )
+        project.addMapLayer(ownership_layer)
+        try:
+            try:
+                ownership_coordinator._take_result_layers(
+                    {"OUTPUT": ownership_layer},
+                    ("OUTPUT",),
+                    ownership_context,
+                )
+            except RuntimeError as error:
+                if "existing project layer" not in str(error):
+                    raise
+            else:
+                raise RuntimeError(
+                    "Agent result ownership accepted an existing project layer."
+                )
+        finally:
+            project.removeMapLayer(ownership_layer.id())
+
+        late_cancel_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "late_cancel", "memory"
+        )
+        late_cancel_layer_id = late_cancel_layer.id()
+        late_cancel_layer_name = late_cancel_layer.name()
+        project.addMapLayer(late_cancel_layer)
+        late_cancel_coordinator = RunCoordinator(lambda: None)
+        late_cancel_events = []
+        late_cancel_coordinator.run_canceled.connect(
+            lambda: late_cancel_events.append("canceled")
+        )
+        late_cancel_ticket = late_cancel_coordinator._state.start(
+            "late-cancel", "processing_run", "Late cancel"
+        )
+        late_cancel_coordinator.cancel()
+        late_cancel_coordinator._finish_success(
+            late_cancel_ticket,
+            "processing_run",
+            "Late cancel",
+            [late_cancel_layer_id],
+            [late_cancel_layer_name],
+        )
+        if (
+            late_cancel_events != ["canceled"]
+            or project.mapLayer(late_cancel_layer_id) is not None
+        ):
+            raise RuntimeError(
+                "A cancel during the layer-add boundary became a success."
+            )
 
         invalid_output_graph = GraphModel("Invalid output")
         invalid_number = AlgorithmCatalog.create_node(
@@ -468,6 +851,38 @@ def run_checks() -> str:
         from planx_smartmodeler.gui.modeler_window import SmartModelerWindow
         import tempfile as _document_tempfile
 
+        no_thread_flag = None
+        processing_flag_enum = getattr(Qgis, "ProcessingAlgorithmFlag", None)
+        if processing_flag_enum is not None:
+            no_thread_flag = getattr(
+                processing_flag_enum, "NoThreading", None
+            )
+        if no_thread_flag is None:
+            no_thread_flag = getattr(
+                QgsProcessingAlgorithm, "FlagNoThreading", None
+            )
+        no_thread_graph = None
+        if no_thread_flag is not None:
+            for candidate in QgsApplication.processingRegistry().algorithms():
+                if not bool(candidate.flags() & no_thread_flag):
+                    continue
+                try:
+                    candidate_node = AlgorithmCatalog.create_node(
+                        candidate.id(), "no_thread_fixture"
+                    )
+                except Exception:
+                    continue
+                no_thread_graph = GraphModel("No-threading guard")
+                no_thread_graph.add_node(candidate_node)
+                break
+        if (
+            no_thread_graph is None
+            or not SmartModelerWindow._no_threading_algorithms(no_thread_graph)
+        ):
+            raise RuntimeError(
+                "Studio did not identify a live NoThreading algorithm."
+            )
+
         document_window = SmartModelerWindow(None)
         if document_window.document_history.is_dirty:
             raise RuntimeError("A new Workflow Studio document started dirty.")
@@ -575,6 +990,72 @@ def run_checks() -> str:
                 raise RuntimeError(
                     "Agent Workspace did not report the model again after the studio was reopened."
                 )
+            agent_ticket = lifecycle_plugin.agent_dock.run_coordinator._state.start(
+                "global-lock", "model_run", "Global lock"
+            )
+            lifecycle_plugin.window.run_model()
+            if (
+                agent_ticket is None
+                or lifecycle_plugin.window._is_executing
+                or "Agent Workspace" not in lifecycle_plugin.window.status_label.text()
+            ):
+                raise RuntimeError(
+                    "Studio started while an Agent action owned the global run slot."
+                )
+            lifecycle_plugin.agent_dock.run_coordinator._state.finish(
+                agent_ticket, "failed"
+            )
+            active_unload_graph = GraphModel("Active unload")
+            active_unload_first = AlgorithmCatalog.create_node(
+                "smart:number", "active_unload_first", "First"
+            )
+            active_unload_second = AlgorithmCatalog.create_node(
+                "smart:number", "active_unload_second", "Second"
+            )
+            active_unload_second.dependencies = ["active_unload_first"]
+            active_unload_graph.add_node(active_unload_first)
+            active_unload_graph.add_node(active_unload_second)
+            active_window = lifecycle_plugin.window
+            active_window._set_graph(active_unload_graph)
+            active_unload_events = []
+            active_ui_lock_checks = []
+
+            def _unload_during_run(_value, _message):
+                if not active_unload_events:
+                    active_ui_lock_checks.append(
+                        not active_window.centralWidget().isEnabled()
+                        and active_window.cancel_run_action.isEnabled()
+                        and lifecycle_plugin.agent_dock._external_run_active()
+                        and all(
+                            not action.isEnabled()
+                            for action in active_window.findChildren(QAction)
+                            if action is not active_window.cancel_run_action
+                        )
+                    )
+                    active_unload_events.append("unload")
+                    lifecycle_plugin.unload()
+
+            active_window.execution_engine.progress_changed.connect(
+                _unload_during_run
+            )
+            active_unload_project_ids = set(project.mapLayers())
+            active_window.run_model()
+            active_unload_deadline = time.monotonic() + 10.0
+            while (
+                active_window._is_executing
+                and time.monotonic() < active_unload_deadline
+            ):
+                QApplication.processEvents()
+                time.sleep(0.01)
+            if (
+                active_unload_events != ["unload"]
+                or active_ui_lock_checks != [True]
+                or lifecycle_plugin.window is not None
+                or active_window.execution_engine.is_running()
+                or set(project.mapLayers()) != active_unload_project_ids
+            ):
+                raise RuntimeError("Active plugin unload was not terminal and clean.")
+            active_window._clear_recovery_snapshot()
         finally:
             lifecycle_plugin.unload()
         if lifecycle_plugin._current_graph() is not None:
@@ -1149,6 +1630,23 @@ def run_checks() -> str:
         apply_dock._on_apply_clicked()
         if adapter.current_graph().name != "Applied by agent":
             raise RuntimeError("A repeated Apply click mutated the model again.")
+
+        # A Studio run owns the global mutation slot, including Agent Undo.
+        applied_before_lock = apply_dock._last_applied
+        apply_dock._external_run_active = lambda: True
+        apply_dock._refresh_undo_button()
+        if apply_dock.undo_button.isEnabled():
+            raise RuntimeError("Agent Undo stayed enabled during a Studio run.")
+        apply_dock._on_undo_clicked()
+        if (
+            apply_dock._last_applied is not applied_before_lock
+            or adapter.current_graph().name != "Applied by agent"
+        ):
+            raise RuntimeError("Agent Undo mutated the model during a Studio run.")
+        apply_dock._external_run_active = lambda: False
+        apply_dock._refresh_undo_button()
+        if not apply_dock.undo_button.isEnabled():
+            raise RuntimeError("Agent Undo did not recover after the Studio run.")
 
         # Undo restores the exact prior model.
         apply_dock._on_undo_clicked()
@@ -2077,6 +2575,82 @@ def run_checks() -> str:
             "_smoke_mixed_roundtrip.model3"
         )
         try:
+            for invalid_destinations in (
+                (),
+                tuple(
+                    f"RESULT_{index}"
+                    for index in range(MAX_RESULT_LAYERS + 1)
+                ),
+            ):
+                destination_coordinator = RunCoordinator(lambda: None)
+                destination_failures = []
+                destination_coordinator.run_failed.connect(
+                    lambda _reason, message: destination_failures.append(message)
+                )
+                refusal = destination_coordinator.start_processing_run(
+                    "invalid-destinations",
+                    "Invalid destinations",
+                    "Configured fixture",
+                    "smartmodeler_fixture:configured_schema",
+                    {"NUMBER": 1},
+                    invalid_destinations,
+                )
+                if (
+                    refusal
+                    or len(destination_failures) != 1
+                    or "invalid result-layer count"
+                    not in destination_failures[0]
+                ):
+                    raise RuntimeError(
+                        "Agent execution accepted an invalid result-layer count."
+                    )
+
+            silent_graph = GraphModel("Progressless cancellation")
+            silent_node = AlgorithmCatalog.create_node(
+                "smartmodeler_fixture:silent_cancel",
+                "silent_cancel",
+                "Progressless task",
+            )
+            silent_graph.add_node(silent_node)
+            silent_window = SmartModelerWindow(None)
+            silent_window._set_graph(silent_graph)
+            silent_reports = []
+            silent_window._show_execution_report = silent_reports.append
+            SILENT_CANCEL_OBSERVATIONS.clear()
+            silent_project_ids = set(project.mapLayers())
+            silent_started = time.monotonic()
+            silent_window.run_model()
+            QTimer.singleShot(
+                100, silent_window.cancel_run_action.trigger
+            )
+            silent_deadline = silent_started + 4.0
+            while (
+                silent_window._is_executing
+                and time.monotonic() < silent_deadline
+            ):
+                QApplication.processEvents()
+                time.sleep(0.01)
+            silent_elapsed = time.monotonic() - silent_started
+            if (
+                silent_window._is_executing
+                or silent_elapsed >= 3.0
+                or not SILENT_CANCEL_OBSERVATIONS
+                or SILENT_CANCEL_OBSERVATIONS[-1][0] != "canceled"
+                or len(silent_reports) != 1
+                or silent_reports[0].status != ExecutionStatus.CANCELED
+                or silent_reports[0].added_layer_ids
+                or set(project.mapLayers()) != silent_project_ids
+            ):
+                raise RuntimeError(
+                    "A progressless Processing task was not canceled "
+                    "responsively and atomically."
+                )
+            silent_window.document_history.reset(
+                Model3Serializer.export_to_json(silent_window.graph),
+                mark_clean=True,
+            )
+            silent_window.close()
+
             configured_model = QgsProcessingModelAlgorithm(
                 "Configured schema", "SmartModeler GIS", "configured_schema"
             )
@@ -2559,6 +3133,42 @@ class ConfiguredSchemaAlgorithm(QgsProcessingAlgorithm):
         return {"NUMBER_OUTPUT": parameters.get("NUMBER", 0)}
 
 
+class SilentCancelableAlgorithm(QgsProcessingAlgorithm):
+    """Long-running fixture which deliberately emits no progress updates."""
+
+    def name(self) -> str:
+        return "silent_cancel"
+
+    def displayName(self) -> str:
+        return "Progressless cancellation fixture"
+
+    def group(self) -> str:
+        return "Tests"
+
+    def groupId(self) -> str:
+        return "tests"
+
+    def createInstance(self):
+        return SilentCancelableAlgorithm()
+
+    def initAlgorithm(self, _configuration=None) -> None:
+        self.addOutput(QgsProcessingOutputNumber("RESULT", "Result"))
+
+    def processAlgorithm(self, _parameters, _context, feedback):
+        started = time.monotonic()
+        for iteration in range(500):
+            if feedback.isCanceled():
+                SILENT_CANCEL_OBSERVATIONS.append(
+                    ("canceled", time.monotonic() - started, iteration)
+                )
+                return {"RESULT": -1}
+            time.sleep(0.01)
+        SILENT_CANCEL_OBSERVATIONS.append(
+            ("completed", time.monotonic() - started, 500)
+        )
+        return {"RESULT": 1}
+
+
 class ConfiguredSchemaProvider(QgsProcessingProvider):
     """Temporary provider used only by the real-QGIS smoke suite."""
 
@@ -2570,6 +3180,7 @@ class ConfiguredSchemaProvider(QgsProcessingProvider):
 
     def loadAlgorithms(self) -> None:
         self.addAlgorithm(ConfiguredSchemaAlgorithm())
+        self.addAlgorithm(SilentCancelableAlgorithm())
 
 
 def main() -> int:
@@ -2589,6 +3200,21 @@ def main() -> int:
         print(run_checks())
         return 0
     finally:
+        task_deadline = time.monotonic() + 10.0
+        while (
+            QgsApplication.taskManager().countActiveTasks()
+            and time.monotonic() < task_deadline
+        ):
+            QApplication.processEvents()
+            time.sleep(0.01)
+        for widget in QApplication.topLevelWidgets():
+            widget.close()
+            widget.deleteLater()
+        QApplication.sendPostedEvents(
+            None, QEvent.Type.DeferredDelete
+        )
+        QApplication.processEvents()
+        QgsProject.instance().clear()
         application.exitQgis()
 
 

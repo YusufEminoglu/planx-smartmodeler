@@ -111,11 +111,13 @@ class AgentWorkspaceDock(QDockWidget):
         model_provider: ModelProvider,
         parent: Optional[QWidget] = None,
         model_apply: Any = None,
+        external_run_active=None,
     ) -> None:
         super().__init__("Agent Workspace", parent)
         self.setObjectName("SmartModelerAgentWorkspaceDock")
         self.iface = iface
         self._model_provider = model_provider
+        self._external_run_active = external_run_active or (lambda: False)
         # One shared per-dock context-token service issues the freshness tokens
         # for model.describe/layer.style and verifies them at the proposal
         # boundary. New chat rotates its secret, invalidating every open token.
@@ -573,7 +575,7 @@ class AgentWorkspaceDock(QDockWidget):
     def _on_send_clicked(self) -> None:
         if self.run_loop.is_active():
             return
-        if self.run_coordinator.is_running():
+        if self.run_coordinator.is_running() or self._external_run_active():
             self._append_line("A run is in progress. Wait for it to finish or cancel it.")
             return
         text = self.prompt_input.toPlainText().strip()
@@ -994,9 +996,11 @@ class AgentWorkspaceDock(QDockWidget):
         pending = self._pending_action
         if pending is None:
             return
-        if self.run_coordinator.is_running():
+        if self.run_coordinator.is_running() or self._external_run_active():
             # One running action maximum; the pending one stays for later.
-            self._append_line("[action] A run is already in progress.")
+            self._append_line(
+                "[action] Another SmartModeler run is already in progress."
+            )
             return
         # One-shot: consume the nonce; a double-click/late signal finds it used.
         if not pending.approval.consume(pending.action_id, pending.approval.nonce):
@@ -1184,6 +1188,12 @@ class AgentWorkspaceDock(QDockWidget):
         self._clear_approval_card()
 
     def _on_undo_clicked(self) -> None:
+        if self.run_coordinator.is_running() or self._external_run_active():
+            self._append_line(
+                "[undo] Undo is unavailable while a workflow action is running."
+            )
+            self._refresh_undo_button()
+            return
         applied = self._last_applied
         if applied is None:
             return
@@ -1262,7 +1272,11 @@ class AgentWorkspaceDock(QDockWidget):
 
     def _refresh_undo_button(self) -> None:
         with contextlib.suppress(Exception):
-            self.undo_button.setEnabled(self._apply_coordinator.can_undo(self._last_applied))
+            self.undo_button.setEnabled(
+                not self.run_coordinator.is_running()
+                and not self._external_run_active()
+                and self._apply_coordinator.can_undo(self._last_applied)
+            )
 
     def _clear_all_action_state(self) -> None:
         """Clear pending action, running action, last-applied, card and ledger."""

@@ -33,8 +33,10 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from qgis.PyQt.QtCore import QCoreApplication, QObject, pyqtSignal
 from qgis.core import (
+    Qgis,
     QgsApplication,
     QgsMapLayer,
+    QgsMessageLog,
     QgsProcessingContext,
     QgsProcessingFeedback,
     QgsProcessingUtils,
@@ -188,6 +190,9 @@ class RunCoordinator(QObject):
         parameters: Dict[str, Any],
         destinations: Tuple[str, ...],
     ) -> None:
+        if not destinations or len(destinations) > MAX_RESULT_LAYERS:
+            self._fail(ticket, "The run declares an invalid result-layer count.")
+            return
         registry = QgsApplication.processingRegistry()
         algorithm = registry.createAlgorithmById(algorithm_id) if registry is not None else None
         if algorithm is None:
@@ -221,17 +226,18 @@ class RunCoordinator(QObject):
             self._finish_canceled(ticket)
             return
         owned = self._take_result_layers(results, destinations, context)
-        if not owned:
-            self._fail(ticket, "The run produced no layer that could be added.")
-            return
         self._finish_with_layers(ticket, PROPOSAL_KIND_PROCESSING_RUN, display_name, owned)
 
     def _take_result_layers(
         self, results: Dict[str, Any], destinations: Tuple[str, ...], context: Any
     ) -> List[Tuple[str, Any]]:
         """Take each destination's result as an application-owned layer."""
-        owned: List[Tuple[str, Any]] = []
-        for name in destinations[:MAX_RESULT_LAYERS]:
+        resolved: List[Tuple[str, Any]] = []
+        owned_ids = set()
+        project = QgsProject.instance()
+        for name in destinations:
+            if name not in results:
+                raise RuntimeError(f"The algorithm omitted result {name}.")
             value = results.get(name)
             layer = None
             if isinstance(value, QgsMapLayer):
@@ -243,7 +249,17 @@ class RunCoordinator(QObject):
                     with contextlib.suppress(Exception):
                         layer = QgsProcessingUtils.mapLayerFromString(value, context, True)
             if layer is None:
-                continue
+                raise RuntimeError(f"Result {name} is not a map layer.")
+            if project is not None and project.mapLayer(layer.id()) is not None:
+                raise RuntimeError(
+                    f"Result {name} aliases an existing project layer."
+                )
+            if layer.id() in owned_ids:
+                raise RuntimeError("Two declared results reference the same layer.")
+            owned_ids.add(layer.id())
+            resolved.append((name, layer))
+        owned: List[Tuple[str, Any]] = []
+        for name, layer in resolved:
             with contextlib.suppress(Exception):
                 taken = context.takeResultLayer(layer.id())
                 if taken is not None:
@@ -254,14 +270,16 @@ class RunCoordinator(QObject):
     # -- model_run ---------------------------------------------------------
 
     def _execute_model(self, ticket: RunTicket, display_name: str) -> None:
-        from ..execution_engine import GraphExecutionEngine
+        from ..execution_engine import (
+            ExecutionStatus,
+            GraphExecutionEngine,
+        )
 
         graph = self._model_provider()
         if graph is None or not graph.nodes:
             self._fail(ticket, "There is no current workflow to run.")
             return
         project = QgsProject.instance()
-        before = set(project.mapLayers()) if project is not None else set()
         engine = GraphExecutionEngine(self)
         self._engine = engine
         with contextlib.suppress(Exception):
@@ -270,44 +288,83 @@ class RunCoordinator(QObject):
             )
         self._emit_progress(0, f"Running {display_name}")
         try:
-            engine.execute(graph)
-        except Exception as error:  # noqa: BLE001 - roll the added layers back
-            self._remove_layers(self._new_layer_ids(before))
-            # The engine reports a cancellation as an ordinary execution error;
-            # report it to the human as the cancellation it actually was.
+            report = engine.execute(graph)
+        except Exception as error:  # noqa: BLE001 - fail closed on engine faults
             if self._state.canceled:
                 self._finish_canceled(ticket)
             else:
                 self._fail(ticket, sanitize_run_message(error))
             return
-        added_ids = self._new_layer_ids(before)
-        if not self._state.accepts(ticket):
+        added_ids = list(report.added_layer_ids)
+        if (
+            report.status == ExecutionStatus.CANCELED
+            or not self._state.accepts(ticket)
+        ):
             # Cancelled or torn down mid-run: the project must look untouched.
-            self._remove_layers(added_ids)
-            self._finish_canceled(ticket)
+            remaining = self._remove_layers(added_ids)
+            if remaining:
+                self._fail(
+                    ticket,
+                    "Cancellation could not remove every result layer.",
+                )
+            else:
+                self._finish_canceled(ticket)
+            return
+        if report.status != ExecutionStatus.COMPLETED:
+            remaining = self._remove_layers(added_ids)
+            self._fail(
+                ticket,
+                (
+                    "The failed workflow could not remove every result layer."
+                    if remaining
+                    else report.message or "The workflow did not complete."
+                ),
+            )
+            return
+        if len(added_ids) > MAX_RESULT_LAYERS:
+            remaining = self._remove_layers(added_ids)
+            self._fail(
+                ticket,
+                (
+                    "The oversized workflow result could not be rolled back."
+                    if remaining
+                    else "The workflow produced too many result layers for one agent run."
+                ),
+            )
             return
         owned: List[Tuple[str, Any]] = []
-        for layer_id in added_ids[:MAX_RESULT_LAYERS]:
+        for layer_id in added_ids:
             layer = project.mapLayer(layer_id) if project is not None else None
             if layer is not None:
                 owned.append((layer_id, layer))
+        if len(owned) != len(added_ids):
+            remaining = self._remove_layers(added_ids)
+            self._fail(
+                ticket,
+                (
+                    "An incomplete workflow result could not be rolled back."
+                    if remaining
+                    else "A workflow result layer became unavailable."
+                ),
+            )
+            return
         self._finish_model(ticket, display_name, owned)
 
     @staticmethod
-    def _new_layer_ids(before: set) -> List[str]:
+    def _remove_layers(layer_ids: Sequence[str]) -> List[str]:
         project = QgsProject.instance()
         if project is None:
-            return []
-        return [layer_id for layer_id in project.mapLayers() if layer_id not in before]
-
-    @staticmethod
-    def _remove_layers(layer_ids: Sequence[str]) -> None:
-        project = QgsProject.instance()
-        if project is None:
-            return
+            return list(layer_ids)
+        remaining = []
         for layer_id in layer_ids:
             with contextlib.suppress(Exception):
                 project.removeMapLayer(layer_id)
+            try:
+                if project.mapLayer(layer_id) is not None:
+                    remaining.append(layer_id)
+            except Exception:
+                remaining.append(layer_id)
+        return remaining
 
     # -- terminal transitions ---------------------------------------------
 
@@ -325,15 +382,27 @@ class RunCoordinator(QObject):
             for name, layer in owned:
                 with contextlib.suppress(Exception):
                     layer.setName(f"{display_name} - {name}")
-                if project.addMapLayer(layer) is None:
+                added_layer = project.addMapLayer(layer)
+                registered = project.mapLayer(layer.id()) is not None
+                if registered:
+                    added_ids.append(layer.id())
+                    added_names.append(
+                        agent_context.bound_text(
+                            layer.name(), agent_context.MAX_DISPLAY_NAME
+                        )
+                    )
+                if added_layer is None or not registered:
                     raise RuntimeError("The result layer could not be added.")
-                added_ids.append(layer.id())
-                added_names.append(
-                    agent_context.bound_text(layer.name(), agent_context.MAX_DISPLAY_NAME)
-                )
         except Exception:  # noqa: BLE001 - all or nothing at the add boundary
-            self._remove_layers(added_ids)
-            self._fail(ticket, "The result could not be added to the project.")
+            remaining = self._remove_layers(added_ids)
+            self._fail(
+                ticket,
+                (
+                    "The result failed and its partial layers could not be removed."
+                    if remaining
+                    else "The result could not be added to the project."
+                ),
+            )
             return
         self._finish_success(ticket, kind, display_name, added_ids, added_names)
 
@@ -366,7 +435,24 @@ class RunCoordinator(QObject):
             layer_ids=tuple(layer_ids),
             lines=tuple(lines),
         )
+        if not self._state.accepts(ticket):
+            remaining = self._remove_layers(layer_ids)
+            if remaining:
+                self._fail(
+                    ticket,
+                    "Cancellation could not remove every result layer.",
+                )
+            else:
+                self._finish_canceled(ticket)
+            return
         if not self._state.finish(ticket, FINISHED):
+            remaining = self._remove_layers(layer_ids)
+            if remaining:
+                QgsMessageLog.logMessage(
+                    "A stale Agent run left result layers that QGIS refused to remove.",
+                    "SmartModeler GIS",
+                    Qgis.MessageLevel.Critical,
+                )
             return
         self._emit_progress(100, "Run complete")
         self.run_finished.emit(summary.to_dict())

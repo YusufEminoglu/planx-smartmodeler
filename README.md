@@ -15,11 +15,20 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   step's connected inputs come from, and every open input editable in place with
   the project's layers offered in a combo -- while safely auto-binding the sole
   compatible project layer when unambiguous.
-- Executes active nodes in topological order through the QGIS Processing
-  framework and prunes unselected conditional branches.
+- Executes an immutable workflow snapshot in a cancellable QGIS background
+  task, keeping the Studio responsive even when a provider emits no progress.
+  Every canvas/edit action is locked during the run except visible **Cancel**
+  (`Esc`); active nodes run in topological order and unselected conditional
+  branches are pruned. Algorithms marked `NoThreading` by QGIS are never sent
+  to a worker; Studio refuses the run and instructs you to export `.model3`
+  and run it manually in native QGIS Model Designer instead of risking a
+  cross-thread provider call.
 - Adds only explicitly published vector and raster model results to the current
   project; legacy Studio graphs without declarations retain terminal-output
-  behavior.
+  behavior. The entire output contract is validated first and committed on the
+  main QGIS thread as one set. Structured run reports distinguish completion,
+  cancellation, failure, and partial execution and retain exact result-layer
+  identities for safe cleanup.
 - Imports and exports bounded, versioned SmartModeler JSON and native QGIS
   `.model3` files, and exports the workflow as a runnable QGIS Python algorithm.
   V3 documents rebuild ports from the live Processing registry instead of
@@ -80,8 +89,12 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   must independently pass the same check. There is no "run any algorithm" path,
   and neither the AI nor your prompt can extend the list. Runs show progress, can
   be **cancelled**, and always write to **temporary layers**: no file, folder,
-  database, or network output can even be expressed. A failed or cancelled run
-  adds no layer and leaves the project unchanged.
+  database, or network output can even be expressed. Agent results are accepted
+  only from the exact engine/result ledger; missing, duplicate, scalar,
+  oversized, or already-present layers fail closed. A failed or cancelled run
+  verifies cleanup and never claims or removes an unrelated project layer.
+  Workflow Studio and Agent Workspace share one execution slot, so they cannot
+  run or apply competing changes to the same graph/project concurrently.
 - **Undo last agent action** reverts the most recent applied model or style
   change, or removes the result layers of the most recent run, but only while the
   live target still matches that action's post-state, so it never overwrites or
@@ -237,10 +250,11 @@ are exercised through the small stub convention at the top of
 property/fuzz suite over the untrusted-input boundaries — it uses only the
 standard library, and its fixed seed makes any failure reproducible.
 
-`tests/qgis_smoke.py` is the real-QGIS harness: catalog discovery, a native
-Buffer execution, Qt widget construction, `.model3` round-tripping, and the full
-agent proposal/approval/run/undo path. The distributed plugin requires QGIS 4;
-QGIS 3.44 LTR is retained as an additional compatibility/regression runtime.
+`tests/qgis_smoke.py` is the real-QGIS harness: catalog discovery, native
+Processing execution, progressless task cancellation, atomic result ownership,
+Qt widget construction, `.model3` round-tripping, and the full agent
+proposal/approval/run/undo path. The distributed plugin requires QGIS 4; QGIS
+3.44 LTR is retained as an additional compatibility/regression runtime.
 Run the harness under both, each with its own throwaway profile:
 
 ```powershell
@@ -264,7 +278,8 @@ core/graph_model.py  Pure-Python typed DAG and validation
 core/algorithm_catalog.py
                      Live QGIS Processing registry bridge
 core/execution_engine.py
-                     Sequential Processing execution and result loading
+                     Cancellable snapshot execution, structured reports, and
+                     main-thread atomic result loading
 core/model3_serializer.py
                      SmartModeler JSON and native QGIS model bridge
 core/document_codec.py

@@ -13,9 +13,12 @@ if not hasattr(core_module, "QgsSettings"):
     core_module.QgsSettings = type("QgsSettings", (), {})
 qgis_module.core = core_module
 
-from qgis.core import QgsApplication
+from qgis.core import QgsApplication  # noqa: E402
 
-from planx_smartmodeler.core.ai_settings import AiSettingsStore, PROVIDERS
+from planx_smartmodeler.core.ai_settings import (  # noqa: E402
+    AiSettingsStore,
+    PROVIDERS,
+)
 
 
 class FakeAuthManager:

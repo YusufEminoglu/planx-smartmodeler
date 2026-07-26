@@ -432,4 +432,3 @@ def scoped_ai_settings_isolation(shared_fake: Optional[FakeQgsSettings] = None):
                 target_settings.setValue(k, val)
             else:
                 target_settings.remove(k)
-

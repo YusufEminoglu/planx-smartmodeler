@@ -2,6 +2,48 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.9.0] - 2026-07-27
+
+### Cancellable workflow execution
+
+- Runs Workflow Studio models through the QGIS task manager so the window
+  remains responsive even when a Processing provider emits no progress events.
+- Honors QGIS `NoThreading` algorithm flags: such workflows are never sent to
+  a worker; Studio refuses the run and instructs the user to export `.model3`
+  and run it manually in native QGIS Model Designer.
+- Adds a visible Cancel action with `Esc`, disables every other Studio action
+  and canvas edit while a run is live, and forwards cancellation to both the
+  task and Processing feedback.
+- Executes against an immutable workflow snapshot. Closing or unloading during
+  a run cancels it, waits for terminal cleanup, suppresses stale UI callbacks,
+  and never commits prepared results.
+
+### Structured and atomic results
+
+- Replaced exception-only execution outcomes with structured prepared,
+  completed, failed, canceled, and partial reports containing bounded result
+  summaries, node counts, failure location, and exact added-layer identities.
+- Defers project output commit to the main QGIS thread and validates the full
+  public-output contract before mutation. A rejected multi-output commit rolls
+  back earlier additions and reports any layer QGIS refused to remove.
+- Uses the engine's exact result ledger for supervised Agent runs instead of a
+  whole-project before/after diff, so unrelated layers added concurrently are
+  never claimed or removed.
+- Rejects missing, scalar, duplicate, oversized, or existing-project Agent
+  results. A cancel arriving during the layer-add boundary is terminal; cleanup
+  is verified before cancellation or failure is reported.
+- Enforces one plugin-global execution slot across Workflow Studio and Agent
+  Workspace, including model/style apply boundaries, so the two surfaces
+  cannot race over one graph or project.
+
+### Verification
+
+- 695 pure-Python tests plus real-QGIS adversarial coverage for cancellation,
+  nested execution, immutable snapshots, partial failures, active unload,
+  atomic output rollback, rollback failure, exact ownership, and late cancel.
+- QGIS 4.2.0 and QGIS 3.44.12 LTR run a progressless five-second Processing
+  fixture and prove that Cancel terminates it early without project mutation.
+
 ## [0.8.0] - 2026-07-26
 
 ### Ranked contextual workflow proposals

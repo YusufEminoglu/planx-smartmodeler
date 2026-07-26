@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import QTimer, Qt
 from qgis.PyQt.QtGui import QAction, QIcon
 from qgis.core import QgsApplication
 
@@ -65,6 +65,7 @@ class SmartModelerPlugin:
             self._current_graph,
             self.iface.mainWindow(),
             model_apply=_ModelWindowApplyAdapter(self),
+            external_run_active=self._studio_run_active,
         )
         self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.agent_dock)
         self.agent_dock.hide()
@@ -98,14 +99,28 @@ class SmartModelerPlugin:
             self.agent_dock.deleteLater()
             self.agent_dock = None
         if self.window is not None:
-            self.window.prepare_for_shutdown()
-            self.window.close()
-            self.window.deleteLater()
+            retiring_window = self.window
             self.window = None
+            retiring_window.prepare_for_shutdown()
+            self._dispose_window_when_idle(retiring_window)
+
+    def _dispose_window_when_idle(self, window: SmartModelerWindow) -> None:
+        """Never delete a window while its synchronous run stack is unwinding."""
+        if window._is_executing:
+            QTimer.singleShot(
+                25, lambda: self._dispose_window_when_idle(window)
+            )
+            return
+        window.close()
+        window.deleteLater()
 
     def run(self) -> None:
         if self.window is None:
-            self.window = SmartModelerWindow(self.iface, self.iface.mainWindow())
+            self.window = SmartModelerWindow(
+                self.iface,
+                self.iface.mainWindow(),
+                external_run_active=self._agent_run_active,
+            )
         self.window.show()
         self.window.raise_()
         self.window.activateWindow()
@@ -132,3 +147,12 @@ class SmartModelerPlugin:
         if self.window is None or not self.window.isVisible():
             return None
         return self.window.graph
+
+    def _studio_run_active(self) -> bool:
+        return bool(self.window is not None and self.window._is_executing)
+
+    def _agent_run_active(self) -> bool:
+        return bool(
+            self.agent_dock is not None
+            and self.agent_dock.run_coordinator.is_running()
+        )

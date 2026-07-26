@@ -9,7 +9,6 @@ from pathlib import Path
 from qgis.PyQt.QtCore import QByteArray, QSize, QTimer, Qt
 from qgis.PyQt.QtGui import QAction, QKeySequence
 from qgis.PyQt.QtWidgets import (
-    QApplication,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -20,7 +19,15 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from qgis.core import QgsApplication, QgsSettings
+from qgis.core import (
+    Qgis,
+    QgsApplication,
+    QgsProcessingAlgorithm,
+    QgsProcessingContext,
+    QgsProcessingFeedback,
+    QgsProject,
+    QgsSettings,
+)
 
 from ..core.ai_client import AiNetworkClient
 from ..core.ai_mcp_bridge import AiMcpBridge, AiResponseError
@@ -28,7 +35,11 @@ from ..core.ai_settings import AiSettingsStore, PROVIDERS
 from ..core.algorithm_catalog import AlgorithmCatalog
 from ..core.auto_layout import AutoLayoutEngine
 from ..core.document_state import DocumentHistory
-from ..core.execution_engine import ExecutionError, GraphExecutionEngine
+from ..core.execution_engine import (
+    ExecutionReport,
+    ExecutionStatus,
+    GraphExecutionEngine,
+)
 from ..core.graph_model import GraphIssue, GraphModel, NodeDefinition
 from ..core.model3_serializer import Model3Serializer
 from ..core.prompt_context import PromptContextLoader
@@ -51,9 +62,10 @@ class SmartModelerWindow(QMainWindow):
     RECOVERY_PREFIX = "SmartModelerGIS/Recovery/"
     AUTOSAVE_INTERVAL_MS = 30_000
 
-    def __init__(self, iface, parent=None) -> None:
+    def __init__(self, iface, parent=None, external_run_active=None) -> None:
         super().__init__(parent)
         self.iface = iface
+        self._external_run_active = external_run_active or (lambda: False)
         self.settings = QgsSettings()
         self.setWindowTitle("SmartModeler GIS - QGIS 4 Workflow Studio")
         self.setMinimumSize(1040, 680)
@@ -71,12 +83,19 @@ class SmartModelerWindow(QMainWindow):
         self._last_ai_applied_snapshot: str | None = None
         self._ai_busy = False
         self._is_executing = False
+        self._execution_graph = None
+        self._execution_context = None
+        self._execution_project = None
+        self._execution_feedback = None
+        self._execution_layer_lookup = None
+        self._execution_algorithms = None
         initial_snapshot = Model3Serializer.export_to_json(self.graph)
         self.document_history = DocumentHistory(initial_snapshot)
         self._current_path: Path | None = None
         self._current_filter = ""
         self._history_suspended = False
         self._force_close = False
+        self._execution_action_states = {}
 
         self._build_ui()
         self._connect_permanent_signals()
@@ -149,6 +168,13 @@ class SmartModelerWindow(QMainWindow):
         self.run_action.setShortcut(QKeySequence("Ctrl+R"))
         self.run_action.triggered.connect(self.run_model)
         toolbar.addAction(self.run_action)
+        self.cancel_run_action = QAction(
+            self._theme_icon("/mActionCancel.svg"), "Cancel", self
+        )
+        self.cancel_run_action.setShortcut(QKeySequence("Esc"))
+        self.cancel_run_action.setEnabled(False)
+        self.cancel_run_action.triggered.connect(self.cancel_model)
+        toolbar.addAction(self.cancel_run_action)
 
         setup_action = QAction(
             self._theme_icon("/mActionEditTable.svg"), "Run setup", self
@@ -792,37 +818,160 @@ class SmartModelerWindow(QMainWindow):
                                     "The graph is acyclic and all required inputs are configured.")
 
     def run_model(self) -> None:
-        if self._is_executing or self._ai_busy:
+        if (
+            self._is_executing
+            or self._ai_busy
+            or self._external_run_active()
+        ):
+            if self._external_run_active():
+                self.status_label.setText(
+                    "Agent Workspace is already running an action."
+                )
             return
         if not self._ensure_workflow_ready():
             return
+        execution_graph = Model3Serializer.import_from_json(
+            Model3Serializer.export_to_json(self.graph)
+        )
+        if execution_graph is None:
+            QMessageBox.critical(
+                self,
+                "Workflow failed",
+                "The workflow could not be prepared for execution.",
+            )
+            return
+        no_threading = self._no_threading_algorithms(execution_graph)
+        if no_threading:
+            QMessageBox.warning(
+                self,
+                "Background execution unavailable",
+                "This workflow contains Processing algorithms that QGIS requires "
+                "to run on the main application thread:\n\n"
+                + "\n".join(f"- {name}" for name in no_threading[:20])
+                + "\n\nFor safety, SmartModeler will not send them to a "
+                "background worker. Export the workflow as a native .model3 "
+                "and run it with QGIS Model Designer.",
+            )
+            return
+        registry = QgsApplication.processingRegistry()
+        execution_algorithms = {}
+        for node in execution_graph.nodes.values():
+            if node.algorithm_id.startswith("smart:"):
+                continue
+            algorithm = registry.createAlgorithmById(
+                node.algorithm_id, node.algorithm_configuration
+            )
+            if algorithm is None:
+                QMessageBox.critical(
+                    self,
+                    "Workflow failed",
+                    f"Processing algorithm is no longer available: "
+                    f"{node.algorithm_id}",
+                )
+                return
+            execution_algorithms[node.node_id] = algorithm
+        project = QgsProject.instance()
+        context = QgsProcessingContext()
+        context.setProject(project)
+        context.setTransformContext(project.transformContext())
+        feedback = QgsProcessingFeedback()
+        context.setFeedback(feedback)
+        self._execution_graph = execution_graph
+        self._execution_context = context
+        self._execution_project = project
+        self._execution_feedback = feedback
+        self._execution_layer_lookup = {
+            key: layer
+            for layer_id, layer in project.mapLayers().items()
+            for key in (layer_id, layer.name())
+        }
+        self._execution_algorithms = execution_algorithms
         self._is_executing = True
-        self.run_action.setEnabled(False)
-        self.ai_prompt_bar.setEnabled(False)
+        self._set_execution_ui(True)
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.show()
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            report = self.execution_engine.execute(self.graph)
-        except ExecutionError as error:
-            QMessageBox.critical(self, "Workflow failed", str(error))
-            self.status_label.setText("Workflow failed")
+        self.execution_engine.start_async(
+            self._execution_graph,
+            self._execution_finished,
+            display_graph=self.graph,
+            context=self._execution_context,
+            project=self._execution_project,
+            feedback=self._execution_feedback,
+            layer_lookup=self._execution_layer_lookup,
+            algorithm_lookup=self._execution_algorithms,
+        )
+
+    def _execution_finished(self, report) -> None:
+        if not isinstance(report, ExecutionReport):
+            report = ExecutionReport(
+                ExecutionStatus.FAILED,
+                len(self.graph.nodes),
+                message="The workflow task returned no execution report.",
+            )
+        execution_graph = self._execution_graph
+        if self._force_close or report.status == ExecutionStatus.CANCELED:
+            self.execution_engine.discard_pending_outputs()
+            report.status = ExecutionStatus.CANCELED
+            report.added_layers = []
+            report.added_layer_ids = []
+            report.message = "Workflow execution was canceled."
+        else:
+            report = self.execution_engine.commit_pending_outputs(report)
+        if execution_graph is not None:
+            for node_id, executed_node in execution_graph.nodes.items():
+                display_node = self.graph.nodes.get(node_id)
+                if display_node is None:
+                    continue
+                display_node.execution_state = executed_node.execution_state
+                display_node.execution_message = executed_node.execution_message
+                display_node.is_dirty = executed_node.is_dirty
+                display_node.cached_results = dict(executed_node.cached_results)
+        self._execution_graph = None
+        self._execution_context = None
+        self._execution_project = None
+        self._execution_feedback = None
+        self._execution_layer_lookup = None
+        self._execution_algorithms = None
+        self._is_executing = False
+        self._set_execution_ui(False)
+        if not self._force_close:
+            self.progress.hide()
+        if self._force_close:
             return
-        except Exception as error:
+        self._show_execution_report(report)
+
+    def _show_execution_report(self, report: ExecutionReport) -> None:
+        if report.status == ExecutionStatus.CANCELED:
+            self.status_label.setText("Workflow canceled")
+            QMessageBox.information(
+                self,
+                "Workflow canceled",
+                f"Canceled after {report.executed_nodes} completed node(s). "
+                "No result layers were added.",
+            )
+            return
+        if report.status in (ExecutionStatus.FAILED, ExecutionStatus.PARTIAL):
+            title = (
+                "Workflow partially completed"
+                if report.status == ExecutionStatus.PARTIAL
+                else "Workflow failed"
+            )
+            self.status_label.setText(title)
+            cleanup = (
+                f"{len(report.added_layer_ids)} result layer(s) remain because "
+                "QGIS rejected cleanup."
+                if report.added_layer_ids
+                else "No result layers were added."
+            )
             QMessageBox.critical(
                 self,
-                "Unexpected workflow error",
-                f"QGIS could not complete the workflow:\n{error}",
+                title,
+                report.message
+                + f"\n\nCompleted nodes: {report.executed_nodes}. "
+                + cleanup,
             )
-            self.status_label.setText("Workflow failed")
             return
-        finally:
-            self._is_executing = False
-            self.run_action.setEnabled(not self._ai_busy)
-            self.ai_prompt_bar.setEnabled(not self._ai_busy)
-            QApplication.restoreOverrideCursor()
-            self.progress.hide()
         layers = "\n".join(
             f"- {name}" for name in report.added_layers) or "No map layers were produced."
         QMessageBox.information(
@@ -831,17 +980,70 @@ class SmartModelerWindow(QMainWindow):
             f"Executed {report.executed_nodes} nodes.\n\nAdded to project:\n{layers}",
         )
 
+    def cancel_model(self) -> None:
+        if not self._is_executing and not self.execution_engine.is_running():
+            return
+        self.cancel_run_action.setEnabled(False)
+        self.status_label.setText("Canceling workflow...")
+        self.execution_engine.cancel()
+
+    def _set_execution_ui(self, running: bool) -> None:
+        if running:
+            self._execution_action_states = {
+                action: action.isEnabled()
+                for action in self.findChildren(QAction)
+            }
+            for action in self._execution_action_states:
+                action.setEnabled(False)
+            self.centralWidget().setEnabled(False)
+            self.cancel_run_action.setEnabled(True)
+            return
+        if self._force_close:
+            return
+        self.centralWidget().setEnabled(True)
+        for action, enabled in self._execution_action_states.items():
+            action.setEnabled(enabled)
+        self._execution_action_states = {}
+        self.run_action.setEnabled(not self._ai_busy)
+        self.cancel_run_action.setEnabled(False)
+        self.ai_prompt_bar.setEnabled(not self._ai_busy)
+
     def _node_state_changed(self, node_id: str, _state: str, _message: str) -> None:
+        node = self.graph.nodes.get(node_id)
+        if node is not None:
+            node.execution_state = _state
+            node.execution_message = _message
         item = self.scene.node_items.get(node_id)
         if item is not None:
             item.refresh()
         if self.inspector_widget.node is self.graph.nodes.get(node_id):
             self.inspector_widget.inspect_node(self.graph.nodes[node_id])
 
+    @staticmethod
+    def _no_threading_algorithms(graph: GraphModel) -> list[str]:
+        flag = None
+        flag_enum = getattr(Qgis, "ProcessingAlgorithmFlag", None)
+        if flag_enum is not None:
+            flag = getattr(flag_enum, "NoThreading", None)
+        if flag is None:
+            flag = getattr(QgsProcessingAlgorithm, "FlagNoThreading", None)
+        if flag is None:
+            return []
+        registry = QgsApplication.processingRegistry()
+        blocked = []
+        for node in graph.nodes.values():
+            if node.algorithm_id.startswith("smart:"):
+                continue
+            algorithm = registry.createAlgorithmById(
+                node.algorithm_id, node.algorithm_configuration
+            )
+            if algorithm is not None and bool(algorithm.flags() & flag):
+                blocked.append(node.title)
+        return blocked
+
     def _execution_progress(self, value: int, message: str) -> None:
         self.progress.setValue(value)
         self.status_label.setText(message)
-        QApplication.processEvents()
 
     def save_document(self, _checked: bool = False) -> bool:
         if self._current_path is None:
@@ -1146,6 +1348,10 @@ class SmartModelerWindow(QMainWindow):
             self.splitter.restoreState(splitter)
 
     def closeEvent(self, event) -> None:
+        if self._is_executing and not self._force_close:
+            self.cancel_model()
+            event.ignore()
+            return
         if not self._force_close and not self._maybe_save_changes(
             "close the Workflow Studio"
         ):
@@ -1178,6 +1384,8 @@ class SmartModelerWindow(QMainWindow):
 
     def prepare_for_shutdown(self) -> None:
         """Preserve dirty work when QGIS unload cannot honor a canceled close."""
+        if self._is_executing:
+            self.execution_engine.cancel()
         if self.document_history.is_dirty:
             self._write_recovery_snapshot()
         self._force_close = True

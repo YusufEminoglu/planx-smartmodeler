@@ -125,6 +125,20 @@ class GraphModelTests(unittest.TestCase):
         self.assertEqual(target.dependencies, [])
         self.assertEqual(graph.outputs, {})
 
+    def test_one_processing_output_cannot_have_two_public_aliases(self) -> None:
+        graph = GraphModel()
+        source = node("source", None, SocketType.VECTOR)
+        graph.add_node(source)
+        graph.outputs = {
+            "FIRST": {"node_id": "source", "output_name": "OUTPUT"},
+            "SECOND": {"node_id": "source", "output_name": "OUTPUT"},
+        }
+        issues = graph.validate()
+        self.assertEqual(
+            [issue.code for issue in issues],
+            ["duplicate_output"],
+        )
+
     def test_parallel_edges_do_not_create_a_false_cycle(self) -> None:
         graph = GraphModel()
         source = node("source", None, None)

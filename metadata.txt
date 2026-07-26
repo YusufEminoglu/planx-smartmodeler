@@ -2,7 +2,7 @@
 name=SmartModeler GIS
 qgisMinimumVersion=4.0
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.8.0
+version=0.9.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -22,6 +22,7 @@ hasProcessingProvider=no
 license=GPL-3
 
 changelog=
+    0.9.0 - Add cancellable flag-aware QGIS task-manager execution, immutable run snapshots, one plugin-global run slot, structured terminal reports, main-thread atomic output commit, exact Agent result ownership, and verified rollback/late-cancel cleanup.
     0.8.0 - Add ranked explainable auto-connect proposals, five versioned schema-driven micro-package workflows, and Model Properties controls for metadata and explicit zero/subset/intermediate Processing layer outputs with mandatory-result enforcement.
     0.7.1 - Rebuild configuration-dependent Processing nodes from their configured live signatures across native import, JSON reload, export, and Studio execution.
     0.7.0 - Add bounded V3 SmartModeler JSON with validated V2 migration and live-registry port reconstruction; preserve typed parameters, ordered sources, inactive/configured children, edited defaults, conditional execution, and declared output behavior across Studio and .model3.

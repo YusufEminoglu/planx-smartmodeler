@@ -465,6 +465,7 @@ class GraphModel:
                             "missing_input",
                         )
                     )
+        published_sources = set()
         for contract in self.outputs.values():
             if not isinstance(contract, dict):
                 issues.append(
@@ -477,6 +478,18 @@ class GraphModel:
                 continue
             node_id = str(contract.get("node_id", ""))
             output_name = str(contract.get("output_name", ""))
+            source = (node_id, output_name)
+            if source in published_sources:
+                issues.append(
+                    GraphIssue(
+                        "error",
+                        "A Processing output can be published only once.",
+                        node_id,
+                        "duplicate_output",
+                    )
+                )
+                continue
+            published_sources.add(source)
             node = self.nodes.get(node_id)
             if node is None or not self.output_is_publishable(node, output_name):
                 issues.append(
