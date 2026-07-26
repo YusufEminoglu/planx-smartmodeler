@@ -83,7 +83,7 @@ class GraphDocumentCodec:
     def decode(
         cls,
         text: str,
-        node_factory: Callable[[str, str, str], NodeDefinition],
+        node_factory: Callable[..., NodeDefinition],
     ) -> GraphModel:
         if not isinstance(text, str) or len(text.encode("utf-8")) > cls.MAX_BYTES:
             raise DocumentCodecError("The SmartModeler document exceeds 4 MiB.")
@@ -217,7 +217,7 @@ class GraphDocumentCodec:
         cls,
         graph: GraphModel,
         item: Any,
-        node_factory: Callable[[str, str, str], NodeDefinition],
+        node_factory: Callable[..., NodeDefinition],
         legacy: bool,
     ) -> None:
         if not isinstance(item, dict):
@@ -246,6 +246,12 @@ class GraphDocumentCodec:
         raw_parameters = item.get("parameters", {})
         if not isinstance(raw_parameters, dict):
             raise DocumentCodecError("Node parameters must be an object.")
+        configuration = item.get("algorithm_configuration", {})
+        decoded_configuration = (
+            cls._decode_mapping(configuration, "algorithm configuration")
+            if not legacy
+            else {}
+        )
         try:
             node_id = cls._identifier(item["id"], "node id")
             algorithm_id = cls._identifier(
@@ -254,7 +260,12 @@ class GraphDocumentCodec:
                 "algorithm id",
             )
             title = cls._text(item.get("title", algorithm_id), "node title", 300)
-            node = node_factory(algorithm_id, node_id, title)
+            node = node_factory(
+                algorithm_id,
+                node_id,
+                title,
+                decoded_configuration,
+            )
         except (KeyError, TypeError, ValueError) as error:
             raise DocumentCodecError("A document node is invalid or unavailable.") from error
         node.title = title
@@ -289,12 +300,7 @@ class GraphDocumentCodec:
         node.is_active = cls._boolean(
             item.get("active", True), "node active flag"
         )
-        configuration = item.get("algorithm_configuration", {})
-        node.algorithm_configuration = (
-            cls._decode_mapping(configuration, "algorithm configuration")
-            if not legacy
-            else {}
-        )
+        node.algorithm_configuration = decoded_configuration
         source_order = item.get("parameter_source_order", {})
         node.parameter_source_order = (
             cls._decode_source_order(source_order)

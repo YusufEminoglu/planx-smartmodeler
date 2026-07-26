@@ -2,6 +2,18 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.7.1] - 2026-07-26
+
+### Fixed
+
+- Reconstructs Processing nodes from their stored algorithm configuration
+  before validating ports, connections, parameters, or outputs.
+- Uses the same configured algorithm schema for native import, SmartModeler
+  JSON reload, native export, and Studio execution.
+- Adds a real-QGIS configuration-sensitive provider fixture whose input and
+  output signature changes in `initAlgorithm(configuration)`, preventing a
+  regression to the provider's unconfigured base schema.
+
 ## [0.7.0] - 2026-07-26
 
 ### SmartModeler documents are versioned, bounded, and registry-validated

@@ -222,6 +222,7 @@ class AlgorithmCatalog:
         algorithm_id: str,
         node_id: Optional[str] = None,
         title: Optional[str] = None,
+        configuration: Optional[Dict[str, Any]] = None,
     ) -> NodeDefinition:
         if algorithm_id in cls.SMART_ALGORITHMS:
             default_title, category, socket_type = cls.SMART_ALGORITHMS[algorithm_id]
@@ -251,7 +252,11 @@ class AlgorithmCatalog:
             return node
 
         registry = QgsApplication.processingRegistry()
-        algorithm = registry.algorithmById(algorithm_id) if registry is not None else None
+        algorithm = (
+            registry.createAlgorithmById(algorithm_id, configuration or {})
+            if registry is not None
+            else None
+        )
         if algorithm is None:
             raise ValueError(f"Processing algorithm is not available: {algorithm_id}")
 
@@ -262,6 +267,7 @@ class AlgorithmCatalog:
             algorithm_id=algorithm_id,
             description=algorithm.shortDescription() or "",
         )
+        node.algorithm_configuration = dict(configuration or {})
         for definition in algorithm.parameterDefinitions():
             if definition.flags() & Qgis.ProcessingParameterFlag.Hidden:
                 continue

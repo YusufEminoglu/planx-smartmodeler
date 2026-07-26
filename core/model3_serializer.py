@@ -112,7 +112,9 @@ class Model3Serializer:
         registry = QgsApplication.processingRegistry()
         for node_id, child in child_nodes.items():
             node = graph.nodes[node_id]
-            algorithm = registry.algorithmById(node.algorithm_id)
+            algorithm = registry.createAlgorithmById(
+                node.algorithm_id, node.algorithm_configuration
+            )
             for input_name, port in node.inputs.items():
                 incoming = [
                     edge
@@ -376,16 +378,20 @@ class Model3Serializer:
 
         pending_edges = []
         for child_id, child in model.childAlgorithms().items():
+            configuration = dict(child.configuration())
             try:
                 node = AlgorithmCatalog.create_node(
-                    child.algorithmId(), child_id, child.description()
+                    child.algorithmId(),
+                    child_id,
+                    child.description(),
+                    configuration,
                 )
             except ValueError as error:
                 return None, str(error)
             node.x = child.position().x()
             node.y = child.position().y()
             node.is_active = bool(child.isActive())
-            node.algorithm_configuration = dict(child.configuration())
+            node.algorithm_configuration = configuration
             node.dependencies = [
                 str(cls._member_value(dependency, "childId"))
                 for dependency in child.dependencies()

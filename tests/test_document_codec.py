@@ -12,8 +12,14 @@ from planx_smartmodeler.core.graph_model import (
 )
 
 
-def node_factory(algorithm_id: str, node_id: str, title: str) -> NodeDefinition:
+def node_factory(
+    algorithm_id: str,
+    node_id: str,
+    title: str,
+    configuration=None,
+) -> NodeDefinition:
     node = NodeDefinition(node_id, title, algorithm_id=algorithm_id)
+    node.algorithm_configuration = dict(configuration or {})
     if algorithm_id == "smart:number":
         node.parameters["VALUE"] = 0.0
         node.add_output("OUTPUT", "Output", SocketType.NUMBER)

@@ -21,6 +21,7 @@ from qgis.core import (
     QgsProcessingModelChildParameterSource,
     QgsProcessingModelOutput,
     QgsProcessingModelParameter,
+    QgsProcessingOutputNumber,
     QgsProcessingOutputString,
     QgsProcessingParameterBoolean,
     QgsProcessingParameterCrs,
@@ -31,6 +32,7 @@ from qgis.core import (
     QgsProcessingParameterNumber,
     QgsProcessingParameterString,
     QgsProcessingParameterVectorLayer,
+    QgsProcessingProvider,
     QgsProject,
     QgsVectorLayer,
     Qgis,
@@ -1853,6 +1855,13 @@ def run_checks() -> str:
             model_path.unlink(missing_ok=True)
 
         # -- V0.7: typed model parameters and semantic source round-trip ----
+        fixture_provider = ConfiguredSchemaProvider()
+        if not QgsApplication.processingRegistry().addProvider(fixture_provider):
+            raise RuntimeError("Could not register the configured-schema fixture.")
+        configured_path = Path(__file__).with_name("_smoke_configured.model3")
+        configured_roundtrip_path = Path(__file__).with_name(
+            "_smoke_configured_roundtrip.model3"
+        )
         typed_path = Path(__file__).with_name("_smoke_typed.model3")
         typed_roundtrip_path = Path(__file__).with_name(
             "_smoke_typed_roundtrip.model3"
@@ -1862,6 +1871,80 @@ def run_checks() -> str:
             "_smoke_mixed_roundtrip.model3"
         )
         try:
+            configured_model = QgsProcessingModelAlgorithm(
+                "Configured schema", "SmartModeler GIS", "configured_schema"
+            )
+            configured_child = QgsProcessingModelChildAlgorithm(
+                "smartmodeler_fixture:configured_schema"
+            )
+            configured_child.setChildId("configured")
+            configured_child.setDescription("Configured child")
+            configured_child.setConfiguration({"mode": "text"})
+            configured_child.addParameterSources(
+                "TEXT",
+                [
+                    QgsProcessingModelChildParameterSource.fromStaticValue(
+                        "preserved"
+                    )
+                ],
+            )
+            configured_model.addChildAlgorithm(configured_child)
+            if not configured_model.toFile(str(configured_path)):
+                raise RuntimeError("Could not write the configured-schema fixture.")
+            configured_graph, error = Model3Serializer.import_from_model3(
+                str(configured_path)
+            )
+            if configured_graph is None:
+                raise RuntimeError(error or "Configured-schema import failed.")
+            configured_node = configured_graph.nodes["configured"]
+            if (
+                set(configured_node.inputs) != {"TEXT"}
+                or set(configured_node.outputs) != {"TEXT_OUTPUT"}
+                or configured_node.algorithm_configuration != {"mode": "text"}
+            ):
+                raise RuntimeError(
+                    "Configured algorithm did not use its live port schema."
+                )
+            configured_json = Model3Serializer.export_to_json(configured_graph)
+            configured_json_graph = Model3Serializer.import_from_json(
+                configured_json
+            )
+            if (
+                configured_json_graph is None
+                or set(configured_json_graph.nodes["configured"].inputs)
+                != {"TEXT"}
+            ):
+                raise RuntimeError(
+                    "Configured algorithm schema changed in JSON round-trip."
+                )
+            ok, error = Model3Serializer.export_to_model3(
+                configured_json_graph,
+                str(configured_roundtrip_path),
+                allow_invalid=True,
+            )
+            if not ok:
+                raise RuntimeError(error)
+            configured_reopened = QgsProcessingModelAlgorithm()
+            if not configured_reopened.fromFile(str(configured_roundtrip_path)):
+                raise RuntimeError("Configured-schema round-trip could not reopen.")
+            reopened_configured_child = configured_reopened.childAlgorithms()[
+                "configured"
+            ]
+            reopened_configured_algorithm = reopened_configured_child.algorithm()
+            if (
+                dict(reopened_configured_child.configuration())
+                != {"mode": "text"}
+                or reopened_configured_algorithm.parameterDefinition("TEXT")
+                is None
+                or reopened_configured_algorithm.parameterDefinition("NUMBER")
+                is not None
+                or reopened_configured_algorithm.outputDefinition("TEXT_OUTPUT")
+                is None
+            ):
+                raise RuntimeError(
+                    "Configured algorithm schema changed in native round-trip."
+                )
+
             typed_model = QgsProcessingModelAlgorithm(
                 "Typed inputs", "SmartModeler GIS", "typed_inputs"
             )
@@ -2131,12 +2214,15 @@ def run_checks() -> str:
             ):
                 raise RuntimeError("Native model output metadata changed in round-trip.")
         finally:
+            configured_path.unlink(missing_ok=True)
+            configured_roundtrip_path.unlink(missing_ok=True)
             typed_path.unlink(missing_ok=True)
             typed_roundtrip_path.unlink(missing_ok=True)
             mixed_path.unlink(missing_ok=True)
             mixed_roundtrip_path.unlink(missing_ok=True)
             for layer_id in set(project.mapLayers()) - original_layer_ids:
                 project.removeMapLayer(layer_id)
+            QgsApplication.processingRegistry().removeProvider(fixture_provider)
 
         # -- Owner-QA follow-up: an unfinished workflow must still save -------
         # The reported failure: a workflow whose inputs were not bound yet
@@ -2231,6 +2317,53 @@ class SmartModelerSmokeAlgorithm(QgsProcessingAlgorithm):
 
     def processAlgorithm(self, _parameters, _context, _feedback):
         return {"RESULT": run_checks()}
+
+
+class ConfiguredSchemaAlgorithm(QgsProcessingAlgorithm):
+    """Changes its live signature from the supplied configuration map."""
+
+    def name(self) -> str:
+        return "configured_schema"
+
+    def displayName(self) -> str:
+        return "Configured schema fixture"
+
+    def group(self) -> str:
+        return "Tests"
+
+    def groupId(self) -> str:
+        return "tests"
+
+    def createInstance(self):
+        return ConfiguredSchemaAlgorithm()
+
+    def initAlgorithm(self, configuration=None) -> None:
+        if dict(configuration or {}).get("mode") == "text":
+            self.addParameter(QgsProcessingParameterString("TEXT", "Text"))
+            self.addOutput(QgsProcessingOutputString("TEXT_OUTPUT", "Text output"))
+        else:
+            self.addParameter(QgsProcessingParameterNumber("NUMBER", "Number"))
+            self.addOutput(
+                QgsProcessingOutputNumber("NUMBER_OUTPUT", "Number output")
+            )
+
+    def processAlgorithm(self, parameters, _context, _feedback):
+        if self.parameterDefinition("TEXT") is not None:
+            return {"TEXT_OUTPUT": parameters.get("TEXT", "")}
+        return {"NUMBER_OUTPUT": parameters.get("NUMBER", 0)}
+
+
+class ConfiguredSchemaProvider(QgsProcessingProvider):
+    """Temporary provider used only by the real-QGIS smoke suite."""
+
+    def id(self) -> str:
+        return "smartmodeler_fixture"
+
+    def name(self) -> str:
+        return "SmartModeler fixture"
+
+    def loadAlgorithms(self) -> None:
+        self.addAlgorithm(ConfiguredSchemaAlgorithm())
 
 
 def main() -> int:

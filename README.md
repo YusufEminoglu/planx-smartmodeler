@@ -31,7 +31,8 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   vector/raster, and multi-layer model parameters; ordered mixed static/model/
   child sources; inactive/configured children; conditional child dependencies;
   edited input defaults; and explicitly published model outputs with their
-  public metadata.
+  public metadata. Configuration-dependent algorithms rebuild their live port
+  schema from the stored configuration before validation or execution.
 - Tracks the complete editable document with general Undo/Redo, dirty-state
   indication, guarded New/Open/Close, atomic Save/Save As, and crash recovery.
 - Offers contextual next-step proposals and executable starter workflows.
