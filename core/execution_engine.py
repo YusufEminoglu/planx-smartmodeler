@@ -278,18 +278,30 @@ class GraphExecutionEngine(QObject):
                     public_name,
                     str(contract.get("node_id", "")),
                     str(contract.get("output_name", "")),
+                    bool(contract.get("mandatory", False)),
                 )
                 for public_name, contract in graph.outputs.items()
             ]
         else:
             output_contracts = [
-                (output_name, node_id, output_name)
+                (output_name, node_id, output_name, False)
                 for node_id, node in graph.nodes.items()
                 if not any(True for _edge in graph.outgoing_edges(node_id))
                 for output_name in all_results.get(node_id, {})
+                if graph.output_is_publishable(node, output_name)
             ]
-        for public_name, node_id, output_name in output_contracts:
-            node = graph.nodes[node_id]
+        resolved_outputs = []
+        for public_name, node_id, output_name, mandatory in output_contracts:
+            node = graph.nodes.get(node_id)
+            if (
+                node is None
+                or not graph.output_is_publishable(node, output_name)
+            ):
+                if mandatory:
+                    raise ExecutionError(
+                        f"Mandatory workflow output is unavailable: {public_name}"
+                    )
+                continue
             value = all_results.get(node_id, {}).get(output_name)
             layer: QgsMapLayer | None
             if isinstance(value, QgsMapLayer):
@@ -300,7 +312,17 @@ class GraphExecutionEngine(QObject):
                     layer = QgsProcessingUtils.mapLayerFromString(value, context, True)
             else:
                 layer = None
-            if layer is None or project.mapLayer(layer.id()) is not None:
+            if layer is None:
+                if mandatory:
+                    raise ExecutionError(
+                        f"Mandatory workflow output is unavailable: {public_name}"
+                    )
+                continue
+            resolved_outputs.append((public_name, output_name, node, layer))
+
+        # Validate the entire declared contract before mutating the project.
+        for public_name, output_name, node, layer in resolved_outputs:
+            if project.mapLayer(layer.id()) is not None:
                 continue
             owned = context.takeResultLayer(layer.id())
             if owned is not None:

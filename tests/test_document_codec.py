@@ -27,7 +27,7 @@ def node_factory(
     if algorithm_id == "native:test":
         node.add_input("INPUT", "Input", SocketType.NUMBER, required=True)
         node.add_input("OPTIONS", "Options", SocketType.ANY)
-        node.add_output("OUTPUT", "Output", SocketType.NUMBER)
+        node.add_output("OUTPUT", "Output", SocketType.VECTOR)
         return node
     raise ValueError("Unavailable algorithm")
 
@@ -272,6 +272,24 @@ class GraphDocumentCodecTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(DocumentCodecError, "graph limits"):
             GraphDocumentCodec.encode(oversized)
+
+    def test_scalar_and_smart_outputs_cannot_be_published(self):
+        graph = GraphModel("Invalid result")
+        source = node_factory("smart:number", "source", "Source")
+        graph.add_node(source)
+        graph.outputs_declared = True
+        graph.outputs["RESULT"] = {
+            "node_id": "source",
+            "output_name": "OUTPUT",
+            "description": "",
+        }
+        with self.assertRaisesRegex(DocumentCodecError, "publishable"):
+            GraphDocumentCodec.encode(graph)
+
+        payload = json.loads(GraphDocumentCodec.encode(self.graph()))
+        payload["outputs"][0]["node_id"] = "source"
+        with self.assertRaisesRegex(DocumentCodecError, "publishable"):
+            GraphDocumentCodec.decode(json.dumps(payload), node_factory)
 
     def test_legacy_malformed_parameter_container_returns_a_codec_error(self):
         payload = {

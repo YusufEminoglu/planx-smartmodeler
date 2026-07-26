@@ -32,11 +32,13 @@ from ..core.execution_engine import ExecutionError, GraphExecutionEngine
 from ..core.graph_model import GraphIssue, GraphModel, NodeDefinition
 from ..core.model3_serializer import Model3Serializer
 from ..core.prompt_context import PromptContextLoader
+from ..core.proposal_engine import ProposalRecommendation
 from .ai_prompt_widget import AiPromptWidget
 from .canvas_scene import CanvasScene
 from .canvas_view import CanvasView
 from .node_parameter_dialog import NodeParameterDialog
 from .node_palette_widget import NodePaletteWidget
+from .model_properties_dialog import ModelPropertiesDialog
 from .smart_proposal_bar import SmartProposalBar
 from .theme import STUDIO_STYLE
 from .wire_inspector_widget import WireInspectorWidget
@@ -162,6 +164,11 @@ class SmartModelerWindow(QMainWindow):
         validate_action = QAction(self._theme_icon("/mIconSuccess.svg"), "Validate", self)
         validate_action.triggered.connect(self.validate_model)
         toolbar.addAction(validate_action)
+        properties_action = QAction(
+            self._theme_icon("/mActionOptions.svg"), "Model properties", self
+        )
+        properties_action.triggered.connect(self.open_model_properties)
+        toolbar.addAction(properties_action)
         toolbar.addSeparator()
 
         new_action = QAction(self._theme_icon("/mActionFileNew.svg"), "New", self)
@@ -213,7 +220,8 @@ class SmartModelerWindow(QMainWindow):
         self.ai_prompt_bar.prompt_submitted.connect(self.generate_ai_graph)
         self.palette_widget.node_requested.connect(self.add_node_by_alg)
         self.palette_widget.package_requested.connect(self.load_preset_package)
-        self.proposal_bar.proposal_selected.connect(self.add_node_by_alg)
+        self.proposal_bar.algorithm_selected.connect(self.add_node_by_alg)
+        self.proposal_bar.proposal_selected.connect(self.apply_smart_proposal)
         self.inspector_widget.configure_requested.connect(self.configure_node)
         self.execution_engine.node_state_changed.connect(self._node_state_changed)
         self.execution_engine.progress_changed.connect(self._execution_progress)
@@ -321,6 +329,23 @@ class SmartModelerWindow(QMainWindow):
         dialog.setStyleSheet(STUDIO_STYLE)
         dialog.exec()
         self._refresh_ai_profile()
+
+    def open_model_properties(self) -> None:
+        dialog = ModelPropertiesDialog(self.graph, self)
+        dialog.setStyleSheet(STUDIO_STYLE)
+        if not dialog.exec():
+            return
+        self.graph.name = dialog.result_name
+        self.graph.description = dialog.result_description
+        self.graph.outputs_declared = dialog.result_outputs_declared
+        self.graph.outputs = dialog.result_outputs
+        self._record_document_change()
+        self._update_document_ui()
+        count = len(self.graph.outputs)
+        self.status_label.setText(
+            f"Model properties updated; {count} public output"
+            f"{'' if count == 1 else 's'}"
+        )
 
     def _refresh_ai_profile(self) -> None:
         profile = AiSettingsStore().active_profile()
@@ -563,20 +588,63 @@ class SmartModelerWindow(QMainWindow):
         else:
             self.status_label.setText(f"Added {node.title}; ready")
 
+    def apply_smart_proposal(
+        self, proposal: ProposalRecommendation
+    ) -> None:
+        """Apply one ranked recommendation as an atomic add-and-connect edit."""
+        source = self.graph.nodes.get(proposal.source_node_id)
+        if source is None or proposal.source_port_id not in source.outputs:
+            self.status_label.setText("Proposal expired; select the source node again")
+            return
+        try:
+            node = AlgorithmCatalog.create_node(
+                proposal.alg_id, title=proposal.title
+            )
+        except ValueError as error:
+            QMessageBox.warning(self, "Algorithm unavailable", str(error))
+            return
+        if proposal.target_port_id not in node.inputs:
+            self.status_label.setText("Proposal expired; target signature changed")
+            return
+        node.x = source.x + 350.0
+        node.y = source.y + (
+            len(list(self.graph.outgoing_edges(source.node_id))) * 95.0
+        )
+        item = self.scene.add_node_to_scene(node)
+        edge = self.graph.add_edge(
+            source.node_id,
+            proposal.source_port_id,
+            node.node_id,
+            proposal.target_port_id,
+        )
+        if edge is None:
+            self.graph.remove_node(node.node_id)
+            self.scene.node_items.pop(node.node_id, None)
+            self.scene.removeItem(item)
+            self.status_label.setText(
+                f"Proposal could not connect: {self.graph.last_error}"
+            )
+            return
+        self.scene.add_connection_to_scene(edge)
+        AlgorithmCatalog.autobind_unique_project_layers(self.graph)
+        self._record_document_change()
+        self.scene.clearSelection()
+        item.setSelected(True)
+        self.status_label.setText(proposal.preview)
+
     def load_preset_package(self, template_id: str) -> None:
         if not self._confirm_replace("load a starter workflow"):
             return
-        prompts = {
-            "tpl_buffer": "Buffer a project vector layer",
-            "tpl_filter_buffer": "Filter a vector layer by expression and then buffer it",
-            "tpl_terrain": "Calculate slope from a DEM raster",
-        }
-        prompt = prompts.get(template_id)
-        if prompt:
-            result = AiMcpBridge.generate_offline(prompt)
-            self._set_graph(result.graph)
-            self._record_document_change()
-            self.status_label.setText(f"Loaded starter: {result.graph.name}")
+        from ..core.micro_packages import MicroPackageCatalog, MicroPackageError
+
+        try:
+            graph = MicroPackageCatalog.instantiate(template_id)
+        except MicroPackageError as error:
+            QMessageBox.warning(self, "Starter unavailable", str(error))
+            return
+        self._set_graph(graph)
+        self._record_document_change()
+        self.status_label.setText(f"Loaded starter: {graph.name}")
 
     def on_node_selected(self, node: NodeDefinition | None) -> None:
         self.proposal_bar.update_for_node(node)

@@ -47,9 +47,14 @@ class GraphDocumentCodec:
             node = graph.nodes.get(value.get("node_id"))
             if (
                 node is None
-                or value.get("output_name") not in node.outputs
+                or not graph.output_is_publishable(
+                    node, str(value.get("output_name", ""))
+                )
             ):
-                raise DocumentCodecError("A declared workflow output is invalid.")
+                raise DocumentCodecError(
+                    "A declared workflow output is not a publishable "
+                    "Processing layer output."
+                )
         payload = {
             "format": cls.FORMAT,
             "version": cls.VERSION,
@@ -356,8 +361,15 @@ class GraphDocumentCodec:
                 item.get("output_name"), "child output name"
             )
             node = graph.nodes.get(node_id)
-            if node is None or output_name not in node.outputs or name in graph.outputs:
-                raise DocumentCodecError("A declared workflow output is invalid.")
+            if (
+                node is None
+                or not graph.output_is_publishable(node, output_name)
+                or name in graph.outputs
+            ):
+                raise DocumentCodecError(
+                    "A declared workflow output is not a publishable "
+                    "Processing layer output."
+                )
             graph.outputs[name] = {
                 "node_id": node_id,
                 "output_name": output_name,

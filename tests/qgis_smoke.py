@@ -69,9 +69,14 @@ def run_checks() -> str:
         AiSettingsStore,
         scoped_ai_settings_isolation,
     )
-    from planx_smartmodeler.core.execution_engine import GraphExecutionEngine
+    from planx_smartmodeler.core.execution_engine import (
+        ExecutionError,
+        GraphExecutionEngine,
+    )
     from planx_smartmodeler.core.graph_model import GraphModel
     from planx_smartmodeler.core.model3_serializer import Model3Serializer
+    from planx_smartmodeler.core.micro_packages import MicroPackageCatalog
+    from planx_smartmodeler.core.proposal_engine import SmartProposalEngine
     from planx_smartmodeler.gui.agent_dock import AgentWorkspaceDock
     from planx_smartmodeler.gui.ai_prompt_widget import AiPromptWidget
     from planx_smartmodeler.gui.ai_settings_dialog import AiSettingsDialog
@@ -79,6 +84,9 @@ def run_checks() -> str:
     from planx_smartmodeler.gui.canvas_view import CanvasView
     from planx_smartmodeler.gui.node_parameter_dialog import NodeParameterDialog
     from planx_smartmodeler.gui.node_palette_widget import NodePaletteWidget
+    from planx_smartmodeler.gui.model_properties_dialog import (
+        ModelPropertiesDialog,
+    )
     from planx_smartmodeler.gui.run_setup_dialog import RunSetupDialog
     from planx_smartmodeler.main_plugin import SmartModelerPlugin
 
@@ -203,19 +211,44 @@ def run_checks() -> str:
         ):
             raise RuntimeError("A false conditional branch was executed.")
 
-        declared_graph = GraphModel("Declared outputs")
-        declared_source = AlgorithmCatalog.create_node(
-            "smart:input_layer", "declared_source", "Declared source"
+        properties_graph = GraphModel("Declared outputs")
+        properties_source = AlgorithmCatalog.create_node(
+            "smart:input_layer", "properties_source", "Model input"
         )
-        declared_target = AlgorithmCatalog.create_node(
-            "native:buffer", "declared_target", "Undeclared terminal"
+        properties_buffer = AlgorithmCatalog.create_node(
+            "native:buffer", "properties_buffer", "Intermediate buffer"
         )
-        declared_graph.add_node(declared_source)
-        declared_graph.add_node(declared_target)
-        declared_graph.add_edge(
-            "declared_source", "OUTPUT", "declared_target", "INPUT"
+        properties_centroids = AlgorithmCatalog.create_node(
+            "native:centroids", "properties_centroids", "Undeclared terminal"
         )
-        declared_graph.outputs_declared = True
+        properties_number = AlgorithmCatalog.create_node(
+            "smart:number", "properties_number", "Scalar input"
+        )
+        for properties_node in (
+            properties_source,
+            properties_buffer,
+            properties_centroids,
+            properties_number,
+        ):
+            properties_graph.add_node(properties_node)
+        if (
+            properties_graph.add_edge(
+                "properties_source",
+                "OUTPUT",
+                "properties_buffer",
+                "INPUT",
+            )
+            is None
+            or properties_graph.add_edge(
+                "properties_buffer",
+                "OUTPUT",
+                "properties_centroids",
+                "INPUT",
+            )
+            is None
+        ):
+            raise RuntimeError("Model properties fixture could not be connected.")
+        properties_graph.outputs_declared = True
         declared_context = QgsProcessingContext()
         declared_context.setProject(project)
         hidden_layer = QgsVectorLayer(
@@ -225,27 +258,27 @@ def run_checks() -> str:
             "Point?crs=EPSG:3857", "public_intermediate", "memory"
         )
         if GraphExecutionEngine._load_terminal_outputs(
-            declared_graph,
+            properties_graph,
             {
-                "declared_source": {"OUTPUT": public_layer},
-                "declared_target": {"OUTPUT": hidden_layer},
+                "properties_buffer": {"OUTPUT": public_layer},
+                "properties_centroids": {"OUTPUT": hidden_layer},
             },
             declared_context,
             project,
         ):
             raise RuntimeError("A zero-output declaration loaded a terminal layer.")
-        declared_graph.outputs["PUBLIC_RESULT"] = {
-            "node_id": "declared_source",
+        properties_graph.outputs["PUBLIC_RESULT"] = {
+            "node_id": "properties_buffer",
             "output_name": "OUTPUT",
             "description": "",
             "mandatory": False,
             "default": None,
         }
         added_declared = GraphExecutionEngine._load_terminal_outputs(
-            declared_graph,
+            properties_graph,
             {
-                "declared_source": {"OUTPUT": public_layer},
-                "declared_target": {"OUTPUT": hidden_layer},
+                "properties_buffer": {"OUTPUT": public_layer},
+                "properties_centroids": {"OUTPUT": hidden_layer},
             },
             declared_context,
             project,
@@ -256,6 +289,157 @@ def run_checks() -> str:
             or project.mapLayer(hidden_layer.id()) is not None
         ):
             raise RuntimeError("Declared output loading ignored the public contract.")
+        properties_graph.outputs["PUBLIC_RESULT"]["mandatory"] = True
+        try:
+            GraphExecutionEngine._load_terminal_outputs(
+                properties_graph,
+                {},
+                declared_context,
+                project,
+            )
+        except ExecutionError:
+            pass
+        else:
+            raise RuntimeError("A missing mandatory output did not fail the run.")
+
+        atomic_layer = QgsVectorLayer(
+            "Point?crs=EPSG:3857", "atomic_original", "memory"
+        )
+        properties_graph.outputs["MISSING_RESULT"] = {
+            "node_id": "properties_centroids",
+            "output_name": "OUTPUT",
+            "description": "",
+            "mandatory": True,
+            "default": None,
+        }
+        project_ids_before_atomic_check = set(project.mapLayers())
+        try:
+            GraphExecutionEngine._load_terminal_outputs(
+                properties_graph,
+                {"properties_buffer": {"OUTPUT": atomic_layer}},
+                declared_context,
+                project,
+            )
+        except ExecutionError:
+            pass
+        else:
+            raise RuntimeError("A partial mandatory output contract was accepted.")
+        if (
+            set(project.mapLayers()) != project_ids_before_atomic_check
+            or project.mapLayer(atomic_layer.id()) is not None
+            or atomic_layer.name() != "atomic_original"
+        ):
+            raise RuntimeError(
+                "A failed mandatory output contract partially mutated the project."
+            )
+        properties_graph.outputs.pop("MISSING_RESULT")
+
+        invalid_output_graph = GraphModel("Invalid output")
+        invalid_number = AlgorithmCatalog.create_node(
+            "smart:number", "invalid_number", "Invalid number"
+        )
+        invalid_output_graph.add_node(invalid_number)
+        invalid_output_graph.outputs_declared = True
+        invalid_output_graph.outputs["INVALID"] = {
+            "node_id": "invalid_number",
+            "output_name": "OUTPUT",
+            "description": "",
+            "mandatory": True,
+            "default": None,
+        }
+        invalid_model, invalid_fatal, _invalid_issues = (
+            Model3Serializer.build_native_model(invalid_output_graph)
+        )
+        if invalid_model is not None or "Processing layer" not in invalid_fatal:
+            raise RuntimeError("Native export accepted a scalar public output.")
+
+        packages = MicroPackageCatalog.available()
+        if len(packages) != 5:
+            raise RuntimeError("The shipped micro-package catalog is incomplete.")
+        for package in packages:
+            package_graph = MicroPackageCatalog.instantiate(
+                package.package_id
+            )
+            if (
+                len(package_graph.nodes) != package.node_count
+                or not package_graph.outputs_declared
+                or not package_graph.outputs
+            ):
+                raise RuntimeError(
+                    f"Micro-package did not build its contract: {package.package_id}"
+                )
+            package_model, fatal, issues = Model3Serializer.build_native_model(
+                package_graph
+            )
+            if package_model is None or fatal or issues:
+                raise RuntimeError(
+                    f"Micro-package is not a valid native model: "
+                    f"{package.package_id}: {fatal or issues}"
+                )
+
+        properties = ModelPropertiesDialog(properties_graph)
+        properties.name_edit.setText("Published smoke workflow")
+        properties.explicit_outputs.setChecked(True)
+        intermediate_row = None
+        visible_sources = set()
+        for row in range(properties.output_table.rowCount()):
+            output_source = properties.output_table.item(row, 0).data(
+                Qt.ItemDataRole.UserRole
+            )
+            visible_sources.add(output_source)
+            if output_source == ("properties_buffer", "OUTPUT"):
+                intermediate_row = row
+        if (
+            intermediate_row is None
+            or ("properties_source", "OUTPUT") in visible_sources
+            or ("properties_number", "OUTPUT") in visible_sources
+        ):
+            raise RuntimeError(
+                "Model properties violated the Processing-layer output contract."
+            )
+        properties.output_table.item(intermediate_row, 0).setCheckState(
+            Qt.CheckState.Checked
+        )
+        properties.output_table.item(intermediate_row, 1).setText(
+            "PUBLIC_INTERMEDIATE"
+        )
+        properties.accept()
+        if (
+            properties.result_name != "Published smoke workflow"
+            or not properties.result_outputs_declared
+            or properties.result_outputs["PUBLIC_INTERMEDIATE"]["node_id"]
+            != "properties_buffer"
+        ):
+            raise RuntimeError("Model properties did not collect output metadata.")
+        properties_graph.name = properties.result_name
+        properties_graph.description = properties.result_description
+        properties_graph.outputs_declared = properties.result_outputs_declared
+        properties_graph.outputs = properties.result_outputs
+        properties_model, properties_fatal, properties_issues = (
+            Model3Serializer.build_native_model(properties_graph)
+        )
+        if properties_model is None or properties_fatal or properties_issues:
+            raise RuntimeError(
+                "An intermediate public layer did not build as a native model."
+            )
+        child_outputs = properties_model.childAlgorithms()[
+            "properties_buffer"
+        ].modelOutputs()
+        if "PUBLIC_INTERMEDIATE" not in child_outputs:
+            raise RuntimeError("Native model omitted the intermediate output.")
+
+        zero_properties = ModelPropertiesDialog(properties_graph)
+        zero_properties.explicit_outputs.setChecked(True)
+        for row in range(zero_properties.output_table.rowCount()):
+            zero_properties.output_table.item(row, 0).setCheckState(
+                Qt.CheckState.Unchecked
+            )
+        zero_properties.accept()
+        if (
+            not zero_properties.result_outputs_declared
+            or zero_properties.result_outputs
+        ):
+            raise RuntimeError("Model properties could not declare zero outputs.")
 
         scene = CanvasScene(graph)
         for node in graph.nodes.values():
@@ -296,6 +480,28 @@ def run_checks() -> str:
         document_window.redo_document()
         if len(document_window.graph.nodes) != 1:
             raise RuntimeError("Document Redo did not restore the added node.")
+        number_node = next(iter(document_window.graph.nodes.values()))
+        number_output = number_node.outputs["OUTPUT"]
+        recommendations = SmartProposalEngine.get_proposals_for_port(
+            number_output, number_node
+        )
+        if (
+            not recommendations
+            or recommendations[0].alg_id != "native:buffer"
+            or recommendations[0].target_port_id != "DISTANCE"
+        ):
+            raise RuntimeError("Ranked proposal did not resolve the live target port.")
+        document_window.apply_smart_proposal(recommendations[0])
+        if (
+            len(document_window.graph.nodes) != 2
+            or len(document_window.graph.edges) != 1
+            or next(iter(document_window.graph.edges.values())).end_port_id
+            != "DISTANCE"
+        ):
+            raise RuntimeError("Smart proposal did not add and auto-connect its node.")
+        document_window.undo_document()
+        if len(document_window.graph.nodes) != 1:
+            raise RuntimeError("Smart proposal was not one undoable document edit.")
         with _document_tempfile.TemporaryDirectory() as document_tmp:
             document_path = Path(document_tmp) / "atomic.smartmodeler.json"
             if not document_window._save_to_path(

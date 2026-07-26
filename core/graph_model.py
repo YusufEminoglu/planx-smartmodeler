@@ -163,6 +163,10 @@ class GraphEdge:
 class GraphModel:
     """DAG representation with strict, typed connection validation."""
 
+    PUBLISHABLE_OUTPUT_TYPES = frozenset(
+        (SocketType.VECTOR, SocketType.RASTER, SocketType.TABLE)
+    )
+
     def __init__(self, name: str = "Untitled workflow") -> None:
         self.name = name
         self.description = ""
@@ -209,6 +213,18 @@ class GraphModel:
     @staticmethod
     def socket_types_compatible(start_type: str, end_type: str) -> bool:
         return start_type == end_type or SocketType.ANY in (start_type, end_type)
+
+    @classmethod
+    def output_is_publishable(
+        cls, node: NodeDefinition, output_name: str
+    ) -> bool:
+        """Return whether Studio can expose and load this result as a layer."""
+        port = node.outputs.get(output_name)
+        return (
+            port is not None
+            and not node.algorithm_id.startswith("smart:")
+            and port.socket_type in cls.PUBLISHABLE_OUTPUT_TYPES
+        )
 
     def validate_connection(
         self,
@@ -449,4 +465,26 @@ class GraphModel:
                             "missing_input",
                         )
                     )
+        for contract in self.outputs.values():
+            if not isinstance(contract, dict):
+                issues.append(
+                    GraphIssue(
+                        "error",
+                        "Published result contract is invalid.",
+                        code="invalid_output",
+                    )
+                )
+                continue
+            node_id = str(contract.get("node_id", ""))
+            output_name = str(contract.get("output_name", ""))
+            node = self.nodes.get(node_id)
+            if node is None or not self.output_is_publishable(node, output_name):
+                issues.append(
+                    GraphIssue(
+                        "error",
+                        "Published results must reference a Processing layer output.",
+                        node_id,
+                        "invalid_output",
+                    )
+                )
         return issues

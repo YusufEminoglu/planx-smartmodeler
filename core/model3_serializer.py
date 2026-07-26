@@ -76,6 +76,15 @@ class Model3Serializer:
         exported half-configured workflow useful: opening it in QGIS asks for
         the layer instead of refusing to run.
         """
+        for contract in graph.outputs.values():
+            node = graph.nodes.get(str(contract.get("node_id", "")))
+            output_name = str(contract.get("output_name", ""))
+            if node is None or not graph.output_is_publishable(node, output_name):
+                return (
+                    None,
+                    "Published results must reference a Processing layer output.",
+                    [],
+                )
         model = QgsProcessingModelAlgorithm(graph.name, "SmartModeler GIS", "smartmodeler")
         model.setHelpContent({"ALG_DESC": graph.description})
         child_nodes: Dict[str, QgsProcessingModelChildAlgorithm] = {}
@@ -244,6 +253,8 @@ class Model3Serializer:
             elif not any(True for _edge in graph.outgoing_edges(node_id)):
                 outputs = {}
                 for output_name, port in node.outputs.items():
+                    if not graph.output_is_publishable(node, output_name):
+                        continue
                     model_output = QgsProcessingModelOutput(output_name, port.name)
                     model_output.setChildId(node_id)
                     model_output.setChildOutputName(output_name)
@@ -468,6 +479,12 @@ class Model3Serializer:
                 node = graph.nodes.get(child_id)
                 if node is None or output_name not in node.outputs:
                     return None, "A QGIS model output references an unavailable child output."
+                if not graph.output_is_publishable(node, output_name):
+                    return (
+                        None,
+                        "A QGIS model output is not a publishable Processing "
+                        "layer output.",
+                    )
                 if public_name in graph.outputs:
                     return None, f"Duplicate QGIS model output: {public_name}"
                 graph.outputs[public_name] = {

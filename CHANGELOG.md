@@ -2,6 +2,43 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.8.0] - 2026-07-26
+
+### Ranked contextual workflow proposals
+
+- Ranks installed next-step algorithms against the selected live output socket
+  and a compatible target input instead of showing type-only shortcuts.
+- Shows the proposed connection, target port, reason, and rank before apply.
+- Applies a recommendation as one add-and-connect document edit; stale source
+  or target signatures fail closed, and one Undo restores the prior graph.
+
+### Schema-driven micro-packages
+
+- Replaced prompt-key starter workflows with five shipped, versioned workflow
+  schemas covering buffer, filter-buffer, slope, centroids, and overlay clip.
+- Validates package fields, bounds, algorithm availability, live parameters,
+  connections, and declared outputs before a graph reaches the canvas.
+- Builds packages deterministically without an AI profile or network request;
+  unavailable packages are omitted from the palette.
+
+### Model contract controls
+
+- Added Model Properties for workflow name, description, explicit output mode,
+  public output names/descriptions, and mandatory flags.
+- Allows a model to publish zero results, a selected subset, or an intermediate
+  Processing layer output. Smart inputs and scalar/file outputs are excluded
+  consistently from the dialog, JSON, native `.model3`, and Studio runtime.
+  Missing mandatory layer results fail before any result mutates the project
+  instead of disappearing or leaving a partial result set. The controls
+  participate in document Undo and dirty state.
+
+### Verification
+
+- 694 pure-Python tests, including shipped package schema, graph fixtures, and
+  fail-closed public-output contract coverage.
+- QGIS 4.2.0 and QGIS 3.44.12 LTR smoke coverage for all five packages,
+  ranked auto-connect with Undo, and non-terminal public output editing.
+
 ## [0.7.1] - 2026-07-26
 
 ### Fixed

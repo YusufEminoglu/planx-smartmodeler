@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "id": "vector_buffer",
+      "name": "Proximity buffer",
+      "description": "A project vector input and a reusable distance feed a native buffer.",
+      "tags": ["vector", "proximity"],
+      "nodes": [
+        {"id": "features", "algorithm_id": "smart:input_layer", "title": "Features", "parameters": {}},
+        {"id": "distance", "algorithm_id": "smart:number", "title": "Distance", "parameters": {"VALUE": 100.0}},
+        {"id": "buffer", "algorithm_id": "native:buffer", "title": "Buffer", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "features", "from_port": "OUTPUT", "to_node": "buffer", "to_port": "INPUT"},
+        {"from_node": "distance", "from_port": "OUTPUT", "to_node": "buffer", "to_port": "DISTANCE"}
+      ],
+      "outputs": [
+        {"name": "BUFFERED", "node_id": "buffer", "output_name": "OUTPUT", "description": "Buffered features", "mandatory": true, "default": null}
+      ]
+    },
+    {
+      "id": "filter_buffer",
+      "name": "Filter then buffer",
+      "description": "Filter project features with an expression before buffering the result.",
+      "tags": ["vector", "filter", "proximity"],
+      "nodes": [
+        {"id": "features", "algorithm_id": "smart:input_layer", "title": "Features", "parameters": {}},
+        {"id": "filter", "algorithm_id": "native:extractbyexpression", "title": "Filter", "parameters": {"EXPRESSION": "TRUE"}},
+        {"id": "buffer", "algorithm_id": "native:buffer", "title": "Buffer", "parameters": {"DISTANCE": 100.0}}
+      ],
+      "connections": [
+        {"from_node": "features", "from_port": "OUTPUT", "to_node": "filter", "to_port": "INPUT"},
+        {"from_node": "filter", "from_port": "OUTPUT", "to_node": "buffer", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "RESULT", "node_id": "buffer", "output_name": "OUTPUT", "description": "Filtered buffers", "mandatory": true, "default": null}
+      ]
+    },
+    {
+      "id": "terrain_slope",
+      "name": "Terrain slope",
+      "description": "Calculate slope from a project elevation raster.",
+      "tags": ["raster", "terrain"],
+      "nodes": [
+        {"id": "elevation", "algorithm_id": "smart:raster_layer", "title": "Elevation", "parameters": {}},
+        {"id": "slope", "algorithm_id": "native:slope", "title": "Slope", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "elevation", "from_port": "OUTPUT", "to_node": "slope", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "SLOPE", "node_id": "slope", "output_name": "OUTPUT", "description": "Slope raster", "mandatory": true, "default": null}
+      ]
+    },
+    {
+      "id": "feature_centroids",
+      "name": "Feature centroids",
+      "description": "Create centroid points from project vector features.",
+      "tags": ["vector", "geometry"],
+      "nodes": [
+        {"id": "features", "algorithm_id": "smart:input_layer", "title": "Features", "parameters": {}},
+        {"id": "centroids", "algorithm_id": "native:centroids", "title": "Centroids", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "features", "from_port": "OUTPUT", "to_node": "centroids", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "CENTROIDS", "node_id": "centroids", "output_name": "OUTPUT", "description": "Centroid points", "mandatory": true, "default": null}
+      ]
+    },
+    {
+      "id": "overlay_clip",
+      "name": "Overlay clip",
+      "description": "Clip one project vector layer with a second project vector layer.",
+      "tags": ["vector", "overlay"],
+      "nodes": [
+        {"id": "features", "algorithm_id": "smart:input_layer", "title": "Features", "parameters": {}},
+        {"id": "overlay", "algorithm_id": "smart:input_layer", "title": "Overlay", "parameters": {}},
+        {"id": "clip", "algorithm_id": "native:clip", "title": "Clip", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "features", "from_port": "OUTPUT", "to_node": "clip", "to_port": "INPUT"},
+        {"from_node": "overlay", "from_port": "OUTPUT", "to_node": "clip", "to_port": "OVERLAY"}
+      ],
+      "outputs": [
+        {"name": "CLIPPED", "node_id": "clip", "output_name": "OUTPUT", "description": "Clipped features", "mandatory": true, "default": null}
+      ]
+    }
+  ]
+}

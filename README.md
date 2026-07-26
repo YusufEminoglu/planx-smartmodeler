@@ -35,7 +35,16 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   schema from the stored configuration before validation or execution.
 - Tracks the complete editable document with general Undo/Redo, dirty-state
   indication, guarded New/Open/Close, atomic Save/Save As, and crash recovery.
-- Offers contextual next-step proposals and executable starter workflows.
+- Ranks contextual next steps against the selected live output and compatible
+  target inputs. Each proposal explains and previews its target connection,
+  then adds and auto-connects the node as one undoable edit.
+- Ships five versioned, schema-validated micro-package workflows. They build
+  deterministic graphs directly, without an AI profile or network request,
+  and are hidden when a required Processing algorithm is unavailable.
+- Edits workflow name, description, and the exact public output contract in
+  Model Properties, including explicit zero outputs, selected subsets, and
+  published intermediate Processing layer results. Smart/scalar/file outputs
+  cannot be published, and unavailable mandatory results fail the run.
 - Generates workflows through offline rules or a configured AI provider.
 - Improves the current canvas over repeated AI turns while preserving unrelated
   nodes and parameters, previews the proposed graph changes, and provides one-step
@@ -247,7 +256,8 @@ launchers.
 ## Architecture
 
 ```text
-gui/                 Qt 6 window, canvas, palette, inspector and dialogs
+gui/                 Qt 6 window, canvas, palette, inspector, model properties
+                     and dialogs
 gui/agent_dock.py    Agent Workspace panel: the only place a human click
                      turns a proposal into an action
 core/graph_model.py  Pure-Python typed DAG and validation
@@ -259,6 +269,10 @@ core/model3_serializer.py
                      SmartModeler JSON and native QGIS model bridge
 core/document_codec.py
                      Bounded V3 JSON schema, typed values and V2 migration
+core/proposal_engine.py
+                     Ranked live-port next-step recommendations
+core/micro_packages.py
+                     Versioned workflow package schema and graph builder
 core/ai_*.py         Provider profiles, network client and graph validator
 core/agent/          Agent Workspace core, split by trust:
                        pure, QGIS-free, unit-tested security logic
@@ -270,6 +284,7 @@ core/agent/          Agent Workspace core, split by trust:
                        runtime_proposals, runtime_apply, run_coordinator)
 agent_context/       Auditable Markdown context and guardrails for the agent
 ai_context/          Auditable Markdown context and guardrails for the planner
+resources/           Shipped micro-package workflow schemas
 tests/               Pure unit tests, seeded fuzz suite, real-QGIS smoke harness
 docs/                Versioned delivery, release, and architecture decisions
 ```
