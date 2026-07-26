@@ -2,6 +2,51 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.6.0] - 2026-07-26
+
+### Security boundaries now match the product's privacy claims
+
+- Removed `layer.field_values`; Agent Workspace now has twelve strictly
+  metadata-only inspection tools and never reads feature attributes.
+- Redacts every existing workflow parameter before a connected AI request.
+  Providers see only a retention token; matching local values are restored
+  after response validation, while token use on a new or replaced node is
+  rejected.
+- Replaced the planner's side-effect blacklist with the application-owned,
+  deny-by-default reviewed algorithm policy. File upload/download, directory,
+  project-variable, layer-loading, styling, SQL, command, and other unreviewed
+  algorithms cannot enter a provider-generated graph.
+- Validates every bindable live Processing parameter against its reviewed
+  signature, including the vector/raster type of multiple-layer inputs.
+
+### Documents are recoverable and ordinary edits are reversible
+
+- Added bounded general Undo/Redo for node creation, removal, configuration,
+  connection changes, movement, auto-layout, setup edits, AI changes, and Agent
+  model patches.
+- Added current-path and dirty-state tracking, Save and Save As, guarded
+  New/Open/Close flows, and periodic recovery of unsaved work.
+- Writes SmartModeler JSON, `.model3`, and Python exports through same-directory
+  temporary siblings followed by atomic replacement.
+- Preserves dirty work on plugin unload and restores crash-recovery snapshots on
+  the next Studio launch.
+
+### Agent Undo fails closed after any later target edit
+
+- Fingerprints the complete local QML style rather than the privacy-reduced AI
+  summary.
+- Watches layer style, attribute, geometry, feature, CRS, name, and edit signals.
+  Undo is disabled if a result or styled layer changed after the agent action,
+  even when feature count, extent, and other coarse identity fields stayed the
+  same.
+
+### Verification
+
+- 673 pure-Python tests.
+- QGIS 4.2.0 smoke with 775 installed algorithms.
+- QGIS 3.44.12 LTR smoke with 443 installed algorithms.
+- 51/51 adversarial probes on both QGIS runtimes.
+
 ## [0.5.3] - 2026-07-24
 
 ### The agent can run three more everyday GIS requests

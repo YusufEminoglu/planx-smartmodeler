@@ -165,8 +165,8 @@ class DefaultRegistryTests(unittest.TestCase):
     the stricter shape validator, and serialization-safe results).
 
     The set grew from eight (Phase 01) to eleven (Phase 03) to twelve
-    (Phase 06's ``plugin.capabilities``) to thirteen (``layer.field_values``,
-    added so the agent can count a field's values instead of guessing them).
+    (Phase 06's ``plugin.capabilities``). Attribute-value inspection is
+    deliberately absent because provider tool results are metadata-only.
     It is asserted as an exact set, so an accidental extra tool fails here."""
 
     EXPECTED_TOOL_NAMES = frozenset(
@@ -174,7 +174,6 @@ class DefaultRegistryTests(unittest.TestCase):
             "project.summary",
             "layer.list",
             "layer.describe",
-            "layer.field_values",
             "processing.search",
             "processing.describe",
             "model.summary",

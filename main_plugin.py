@@ -98,6 +98,7 @@ class SmartModelerPlugin:
             self.agent_dock.deleteLater()
             self.agent_dock = None
         if self.window is not None:
+            self.window.prepare_for_shutdown()
             self.window.close()
             self.window.deleteLater()
             self.window = None

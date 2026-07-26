@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -27,6 +28,7 @@ from qgis.core import (
 )
 
 from .graph_model import GraphModel, NodeDefinition, SocketType
+from .agent.safe_algorithm_policy import default_policy
 
 
 @dataclass(frozen=True)
@@ -40,14 +42,6 @@ class AlgorithmRecord:
 
 class AlgorithmCatalog:
     """Discovers algorithms and creates correctly typed graph nodes."""
-
-    AI_BLOCKED_ID_TERMS = (
-        "command",
-        "download",
-        "executesql",
-        "execute_sql",
-        "shell",
-    )
 
     SMART_ALGORITHMS = {
         "smart:input_layer": ("Vector layer input", "Inputs", SocketType.VECTOR),
@@ -89,9 +83,73 @@ class AlgorithmCatalog:
 
     @classmethod
     def ai_algorithm_allowed(cls, algorithm_id: str) -> bool:
-        """Exclude Processing actions which can bypass the planner trust boundary."""
-        normalized = algorithm_id.lower().replace("-", "_")
-        return not any(term in normalized for term in cls.AI_BLOCKED_ID_TERMS)
+        """Allow only application-owned inputs and reviewed Processing steps."""
+        if algorithm_id in cls.SMART_ALGORITHMS:
+            return True
+        return default_policy().record_for(algorithm_id) is not None
+
+    @classmethod
+    def ai_parameter_value_allowed(
+        cls, node: NodeDefinition, name: str, value: Any
+    ) -> bool:
+        """Validate provider-supplied literals without accepting paths or URIs."""
+        if name not in node.inputs:
+            if node.algorithm_id in ("smart:input_layer", "smart:raster_layer"):
+                expected = (
+                    SocketType.RASTER
+                    if node.algorithm_id == "smart:raster_layer"
+                    else SocketType.VECTOR
+                )
+                return (
+                    name == "LAYER"
+                    and isinstance(value, str)
+                    and (not value or value in cls.layer_choices(expected))
+                )
+            if node.algorithm_id in ("smart:number", "smart:slider"):
+                return (
+                    name == "VALUE"
+                    and isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(float(value))
+                )
+            return False
+        port = node.inputs[name]
+        socket_type = port.socket_type
+        if socket_type in (SocketType.VECTOR, SocketType.RASTER):
+            expected = cls.layer_choices(socket_type)
+            values = value if isinstance(value, list) else [value]
+            if not values and port.allows_multiple:
+                return True
+            return all(isinstance(item, str) and item in expected for item in values)
+        if socket_type == SocketType.FILE:
+            return False
+        if socket_type == SocketType.NUMBER:
+            return (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(float(value))
+            )
+        if socket_type == SocketType.BOOLEAN:
+            return isinstance(value, bool)
+        if socket_type in (SocketType.FIELD, SocketType.STRING):
+            return isinstance(value, str) and cls._safe_ai_text(value)
+        if value is None or isinstance(value, bool):
+            return True
+        if isinstance(value, (int, float)):
+            return not isinstance(value, float) or math.isfinite(value)
+        return isinstance(value, str) and cls._safe_ai_text(value)
+
+    @staticmethod
+    def _safe_ai_text(value: str) -> bool:
+        text = value.strip()
+        if len(text) > 2000 or "\x00" in text:
+            return False
+        lowered = text.lower()
+        if "://" in lowered or lowered.startswith(("file:", "dbname=", "host=")):
+            return False
+        if re.match(r"^[a-zA-Z]:[\\/]", text) or text.startswith(("/", "\\\\")):
+            return False
+        return "\\" not in text and "../" not in text and "..\\" not in text
 
     @classmethod
     def create_node(
@@ -306,9 +364,12 @@ class AlgorithmCatalog:
                 selected.append(record)
                 seen.add(record.algorithm_id)
         for record in cls.relevant_records(prompt, limit):
-            if record.algorithm_id not in seen:
-                selected.append(record)
-                seen.add(record.algorithm_id)
+            allowed = records_by_id.get(record.algorithm_id)
+            if allowed is None:
+                continue
+            if allowed.algorithm_id not in seen:
+                selected.append(allowed)
+                seen.add(allowed.algorithm_id)
             if len(selected) >= max(limit, len(seen)):
                 break
         for record in selected:

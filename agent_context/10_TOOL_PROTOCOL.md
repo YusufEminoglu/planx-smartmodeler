@@ -92,7 +92,7 @@ run. `target_layer_id` is that layer's id from `layer.list`/`layer.style`.
   `palette` exactly one colour.
 - `categorized`, `graduated` — vector only: `field` a real attribute name,
   `class_count` between 2 and 12, and `palette` **exactly `class_count`**
-  colours. Use `layer.field_values` first so the classes match the data.
+  colours. Attribute values stay local; do not invent or request them.
 - `raster_gray` — raster only: `field` `""`, `class_count` `0`, `palette` `[]`.
 - `raster_pseudocolor` — raster only: `field` `""`, `class_count` 2..12,
   `palette` of that same length.
@@ -172,8 +172,8 @@ Each binding is exactly one tagged form:
 (the option **index** from `processing.describe`), `{"enum_string": "..."}`,
 `{"string": "..."}`, `{"crs": "EPSG:3857"}`. For `native:extractbyattribute`,
 `OPERATOR` index `0` is `=`; read the option labels from `processing.describe`.
-Use `layer.field_values` first so `VALUE` matches the data exactly
-(`bus_stop`, not `Bus Stop`).
+Set `VALUE` only to a value the user explicitly supplied. Attribute values are
+not exposed through tools; ask the user rather than guessing or extracting one.
 
 ### `model_run`
 

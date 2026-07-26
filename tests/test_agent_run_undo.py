@@ -30,11 +30,25 @@ class FakeCrs:
         return self._authid
 
 
+class FakeSignal:
+    def __init__(self):
+        self.callbacks = []
+
+    def connect(self, callback):
+        self.callbacks.append(callback)
+
+    def emit(self, *args):
+        for callback in list(self.callbacks):
+            callback(*args)
+
+
 class FakeLayer:
     def __init__(self, layer_id, name, features=3):
         self._id = layer_id
         self._name = name
         self.features = features
+        self.attributeValueChanged = FakeSignal()
+        self.geometryChanged = FakeSignal()
 
     def id(self):
         return self._id
@@ -93,7 +107,7 @@ class RunResultUndoTests(unittest.TestCase):
     def test_a_finished_run_records_its_result_layers(self):
         applied = self.record()
         self.assertIsNotNone(applied)
-        self.assertEqual([lid for lid, _fp in applied.result_layers], ["L_out"])
+        self.assertEqual([lid for lid, _fp, _rev in applied.result_layers], ["L_out"])
         self.assertTrue(applied.is_destructive)
 
     def test_a_model_run_records_its_result_layers_too(self):
@@ -121,6 +135,16 @@ class RunResultUndoTests(unittest.TestCase):
     def test_an_edited_result_blocks_the_destructive_undo(self):
         applied = self.record()
         self.result.features = 99
+        self.assertFalse(self.apply.can_undo(applied))
+
+    def test_same_feature_count_attribute_edit_blocks_undo_by_signal(self):
+        applied = self.record()
+        self.result.attributeValueChanged.emit(1, 0, "changed")
+        self.assertFalse(self.apply.can_undo(applied))
+
+    def test_same_feature_count_geometry_edit_blocks_undo_by_signal(self):
+        applied = self.record()
+        self.result.geometryChanged.emit(1, object())
         self.assertFalse(self.apply.can_undo(applied))
 
     def test_a_removed_result_blocks_the_destructive_undo(self):

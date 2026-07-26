@@ -25,10 +25,6 @@ MAX_LIST_ITEMS = 100
 MAX_SYMBOL_LAYERS = 12
 MAX_ABOUT_TEXT = 1200
 
-# Bounds for attribute-value aggregation (``layer.field_values``).
-MAX_FIELD_VALUES = 60
-MAX_SCAN_FEATURES = 200000
-
 _EXHAUSTED = object()
 
 _HEX_COLOR_PATTERN = re.compile(r"^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
@@ -269,47 +265,6 @@ def build_layer_description(
     if feature_count is not None and feature_count >= 0:
         result["feature_count"] = int(feature_count)
     return result
-
-
-def build_field_values(
-    layer_id: str,
-    field_name: str,
-    values: Iterable[Tuple[Any, int]],
-    feature_count: int,
-    scanned: int,
-    complete: bool,
-    limit: int = MAX_FIELD_VALUES,
-) -> Dict[str, Any]:
-    """Bounded distinct values of one attribute, with how often each occurs.
-
-    This is the one place the agent sees attribute content, and it is
-    deliberately an *aggregate*: distinct values and their counts, never a
-    feature, an id, or a geometry. Without it the agent cannot answer "how many
-    of these are bus stops" or propose a categorized style whose categories
-    match the data -- it would have to invent the class values.
-
-    ``complete`` states honestly whether the whole layer was counted; a scan
-    stopped by the feature cap reports ``False`` so a caller never presents a
-    partial tally as a total.
-    """
-    ordered = sorted(values, key=lambda item: (-item[1], bound_text(item[0], MAX_SHORT_TEXT)))
-    bounded, truncated = bound_list(
-        (
-            {"value": bound_text(value, MAX_SHORT_TEXT), "count": int(count)}
-            for value, count in ordered
-        ),
-        min(limit, MAX_FIELD_VALUES),
-    )
-    return {
-        "layer_id": bound_text(layer_id, MAX_DISPLAY_NAME),
-        "field": bound_text(field_name, MAX_DISPLAY_NAME),
-        "values": bounded,
-        "distinct_shown": len(bounded),
-        "values_truncated": truncated,
-        "feature_count": int(feature_count),
-        "features_scanned": int(scanned),
-        "count_is_complete": bool(complete),
-    }
 
 
 def build_plugin_list(

@@ -15,3 +15,9 @@ contract.
    if it were newly created.
 7. A request to simplify or remove a step may intentionally delete nodes, but
    unrelated branches must remain intact.
+8. Existing parameter values are replaced by
+   `__SMARTMODELER_RETAIN_LOCAL_VALUE__` before the workflow leaves QGIS. Return
+   that token unchanged for every value that should be preserved. It is resolved
+   locally after validation and is invalid on new or replaced nodes.
+9. Omitting an existing parameter also preserves its local value. Use an explicit
+   non-token value only when the requested edit requires changing that parameter.

@@ -21,15 +21,19 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   exports the workflow as a runnable QGIS Python algorithm. A workflow whose
   inputs are not bound yet still saves: each unbound required input becomes a
   model input, so the `.model3` opens in the QGIS Model Designer and asks for it.
+- Tracks the complete editable document with general Undo/Redo, dirty-state
+  indication, guarded New/Open/Close, atomic Save/Save As, and crash recovery.
 - Offers contextual next-step proposals and executable starter workflows.
 - Generates workflows through offline rules or a configured AI provider.
 - Improves the current canvas over repeated AI turns while preserving unrelated
   nodes and parameters, previews the proposed graph changes, and provides one-step
-  **Undo AI** recovery.
+  **Undo AI** recovery. Existing parameter values are replaced with a local-only
+  retention token before connected-provider requests and restored only after the
+  response passes application validation.
 - Offers a separate **Agent Workspace** dock with bounded, read-only project,
   layer, symbology/labeling, Processing, model, and plugin inspections through
   a fail-closed policy engine, plus a bounded, provider-neutral **Agent Chat**
-  conversation over **thirteen** read-only tools using any configured non-offline
+  conversation over **twelve** read-only tools using any configured non-offline
   AI connection (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible,
   Azure OpenAI). Every provider turn is a strict, locally re-validated
   structured envelope; mode, scope, and every tool call's execution stay under
@@ -214,8 +218,9 @@ standard library, and its fixed seed makes any failure reproducible.
 
 `tests/qgis_smoke.py` is the real-QGIS harness: catalog discovery, a native
 Buffer execution, Qt widget construction, `.model3` round-tripping, and the full
-agent proposal/approval/run/undo path. Run it under **both** supported runtimes,
-each with its own throwaway profile:
+agent proposal/approval/run/undo path. The distributed plugin requires QGIS 4;
+QGIS 3.44 LTR is retained as an additional compatibility/regression runtime.
+Run the harness under both, each with its own throwaway profile:
 
 ```powershell
 $env:QT_QPA_PLATFORM = "offscreen"
@@ -252,6 +257,7 @@ core/agent/          Agent Workspace core, split by trust:
 agent_context/       Auditable Markdown context and guardrails for the agent
 ai_context/          Auditable Markdown context and guardrails for the planner
 tests/               Pure unit tests, seeded fuzz suite, real-QGIS smoke harness
+docs/                Versioned delivery, release, and architecture decisions
 ```
 
 The split above is the design, not a filing convention: every security decision

@@ -29,6 +29,7 @@ class AiMcpBridge:
     MAX_NODES = 80
     MAX_EDGES = 240
     ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
+    LOCAL_PARAMETER_MARKER = "__SMARTMODELER_RETAIN_LOCAL_VALUE__"
 
     @classmethod
     def response_schema(cls) -> Dict[str, Any]:
@@ -106,9 +107,9 @@ class AiMcpBridge:
                     "parameters": [
                         {
                             "name": name,
-                            "value": cls._contract_value(value),
+                            "value": cls.LOCAL_PARAMETER_MARKER,
                         }
-                        for name, value in sorted(node.parameters.items())
+                        for name in sorted(node.parameters)
                     ],
                 }
                 for node in graph.nodes.values()
@@ -399,7 +400,11 @@ class AiMcpBridge:
         return False
 
     @classmethod
-    def parse_response(cls, response_text: str) -> AiGraphResult:
+    def parse_response(
+        cls,
+        response_text: str,
+        base_graph: GraphModel | None = None,
+    ) -> AiGraphResult:
         data = cls._decode_json(response_text)
         if not isinstance(data, dict):
             raise AiResponseError("AI response must be one JSON object.")
@@ -451,12 +456,38 @@ class AiMcpBridge:
                 node_id=node_id,
                 title=cls._bounded_text(item.get("title"), "node title", 160),
             )
+            baseline_node = base_graph.nodes.get(node_id) if base_graph else None
+            if (
+                baseline_node is not None
+                and baseline_node.algorithm_id != algorithm_id
+            ):
+                baseline_node = None
+            supplied_parameters = set()
             for key, value in cls._parameter_pairs(item.get("parameters", [])):
+                supplied_parameters.add(key)
                 if key not in node.inputs and key not in ("LAYER", "VALUE"):
                     raise AiResponseError(
                         f"Parameter '{key}' does not exist on {algorithm_id}."
                     )
+                if value == cls.LOCAL_PARAMETER_MARKER:
+                    if baseline_node is None or key not in baseline_node.parameters:
+                        raise AiResponseError(
+                            "AI used the local-value token without a matching "
+                            "existing parameter."
+                        )
+                    node.parameters[key] = baseline_node.parameters[key]
+                    continue
+                if not AlgorithmCatalog.ai_parameter_value_allowed(
+                    node, key, value
+                ):
+                    raise AiResponseError(
+                        "AI proposed a restricted or incompatible parameter value."
+                    )
                 node.parameters[key] = value
+            if baseline_node is not None:
+                for key, value in baseline_node.parameters.items():
+                    if key not in supplied_parameters:
+                        node.parameters[key] = value
             if algorithm_id in ("smart:input_layer", "smart:raster_layer"):
                 layer_id = str(node.parameters.get("LAYER", "") or "").strip()
                 if layer_id:

@@ -1,6 +1,9 @@
 """Main SmartModeler GIS studio window for QGIS 4."""
 from __future__ import annotations
 
+import os
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from qgis.PyQt.QtCore import QByteArray, QSize, QTimer, Qt
@@ -24,6 +27,7 @@ from ..core.ai_mcp_bridge import AiMcpBridge, AiResponseError
 from ..core.ai_settings import AiSettingsStore, PROVIDERS
 from ..core.algorithm_catalog import AlgorithmCatalog
 from ..core.auto_layout import AutoLayoutEngine
+from ..core.document_state import DocumentHistory
 from ..core.execution_engine import ExecutionError, GraphExecutionEngine
 from ..core.graph_model import GraphIssue, GraphModel, NodeDefinition
 from ..core.model3_serializer import Model3Serializer
@@ -42,6 +46,8 @@ class SmartModelerWindow(QMainWindow):
     """Visual QGIS Processing model designer with validated AI planning."""
 
     SETTINGS_PREFIX = "SmartModelerGIS/Window/"
+    RECOVERY_PREFIX = "SmartModelerGIS/Recovery/"
+    AUTOSAVE_INTERVAL_MS = 30_000
 
     def __init__(self, iface, parent=None) -> None:
         super().__init__(parent)
@@ -63,12 +69,24 @@ class SmartModelerWindow(QMainWindow):
         self._last_ai_applied_snapshot: str | None = None
         self._ai_busy = False
         self._is_executing = False
+        initial_snapshot = Model3Serializer.export_to_json(self.graph)
+        self.document_history = DocumentHistory(initial_snapshot)
+        self._current_path: Path | None = None
+        self._current_filter = ""
+        self._history_suspended = False
+        self._force_close = False
 
         self._build_ui()
         self._connect_permanent_signals()
         self._connect_scene_signals()
         self._restore_window_state()
         self._refresh_ai_profile()
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(self.AUTOSAVE_INTERVAL_MS)
+        self._autosave_timer.timeout.connect(self._write_recovery_snapshot)
+        self._autosave_timer.start()
+        self._update_document_ui()
+        QTimer.singleShot(0, self._offer_recovery)
 
     def _build_ui(self) -> None:
         central = QWidget(self)
@@ -111,6 +129,20 @@ class SmartModelerWindow(QMainWindow):
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
+        self.undo_action = QAction(
+            self._theme_icon("/mActionUndo.svg"), "Undo", self
+        )
+        self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self.undo_action.triggered.connect(self.undo_document)
+        toolbar.addAction(self.undo_action)
+        self.redo_action = QAction(
+            self._theme_icon("/mActionRedo.svg"), "Redo", self
+        )
+        self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        self.redo_action.triggered.connect(self.redo_document)
+        toolbar.addAction(self.redo_action)
+        toolbar.addSeparator()
+
         self.run_action = QAction(self._theme_icon("/mActionStart.svg"), "Run", self)
         self.run_action.setShortcut(QKeySequence("Ctrl+R"))
         self.run_action.triggered.connect(self.run_model)
@@ -132,14 +164,26 @@ class SmartModelerWindow(QMainWindow):
         toolbar.addAction(validate_action)
         toolbar.addSeparator()
 
+        new_action = QAction(self._theme_icon("/mActionFileNew.svg"), "New", self)
+        new_action.setShortcut(QKeySequence.StandardKey.New)
+        new_action.triggered.connect(self.new_document)
+        toolbar.addAction(new_action)
         open_action = QAction(self._theme_icon("/mActionFileOpen.svg"), "Open", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
         open_action.triggered.connect(self.import_model)
         toolbar.addAction(open_action)
-        save_action = QAction(self._theme_icon("/mActionFileSave.svg"), "Save", self)
-        save_action.setShortcut(QKeySequence.StandardKey.Save)
-        save_action.triggered.connect(self.export_model)
-        toolbar.addAction(save_action)
+        self.save_action = QAction(
+            self._theme_icon("/mActionFileSave.svg"), "Save", self
+        )
+        self.save_action.setShortcut(QKeySequence.StandardKey.Save)
+        self.save_action.triggered.connect(self.save_document)
+        toolbar.addAction(self.save_action)
+        self.save_as_action = QAction(
+            self._theme_icon("/mActionFileSaveAs.svg"), "Save As", self
+        )
+        self.save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self.save_as_action.triggered.connect(self.save_document_as)
+        toolbar.addAction(self.save_as_action)
         toolbar.addSeparator()
 
         layout_action = QAction(self._theme_icon(
@@ -180,7 +224,7 @@ class SmartModelerWindow(QMainWindow):
     def _connect_scene_signals(self) -> None:
         self.scene.node_selected.connect(self.on_node_selected)
         self.scene.node_activated.connect(self.configure_node)
-        self.scene.graph_changed.connect(self._sync_ai_workflow_state)
+        self.scene.graph_changed.connect(self._on_scene_graph_changed)
         self.scene.connection_rejected.connect(self._connection_rejected)
 
     def apply_agent_graph(self, graph: GraphModel) -> None:
@@ -188,7 +232,10 @@ class SmartModelerWindow(QMainWindow):
         install an already-validated replacement graph and refresh the scene once
         through the same path the AI graph-planner uses. The coordinator captures
         the pre-state and rolls back by calling this again on failure."""
+        snapshot = Model3Serializer.export_to_json(graph)
         self._set_graph(graph, fit=True)
+        self.document_history.rollback_current(snapshot)
+        self._update_document_ui()
 
     def _set_graph(self, graph: GraphModel, fit: bool = True) -> None:
         old_scene = self.scene
@@ -209,6 +256,60 @@ class SmartModelerWindow(QMainWindow):
 
     def _sync_ai_workflow_state(self) -> None:
         self.ai_prompt_bar.set_workflow_available(bool(self.graph.nodes))
+
+    def _on_scene_graph_changed(self) -> None:
+        self._sync_ai_workflow_state()
+        self._record_document_change()
+
+    def _record_document_change(self) -> bool:
+        if self._history_suspended:
+            return False
+        changed = self.document_history.record(
+            Model3Serializer.export_to_json(self.graph)
+        )
+        if changed:
+            self._update_document_ui()
+        return changed
+
+    def _restore_document_snapshot(self, snapshot: str) -> bool:
+        graph = Model3Serializer.import_from_json(snapshot)
+        if graph is None:
+            QMessageBox.critical(
+                self,
+                "Document history error",
+                "The selected workflow revision is invalid.",
+            )
+            return False
+        self._history_suspended = True
+        try:
+            self._set_graph(graph)
+        finally:
+            self._history_suspended = False
+        self._update_document_ui()
+        return True
+
+    def undo_document(self) -> None:
+        snapshot = self.document_history.undo()
+        if snapshot is not None:
+            self._restore_document_snapshot(snapshot)
+
+    def redo_document(self) -> None:
+        snapshot = self.document_history.redo()
+        if snapshot is not None:
+            self._restore_document_snapshot(snapshot)
+
+    def _update_document_ui(self) -> None:
+        if not hasattr(self, "undo_action"):
+            return
+        self.undo_action.setEnabled(self.document_history.can_undo)
+        self.redo_action.setEnabled(self.document_history.can_redo)
+        name = self._current_path.name if self._current_path else (
+            self.graph.name or "Untitled workflow"
+        )
+        marker = "*" if self.document_history.is_dirty else ""
+        self.setWindowTitle(
+            f"{marker}{name} - SmartModeler GIS Workflow Studio"
+        )
 
     def open_ai_settings(self) -> None:
         from .ai_settings_dialog import AiSettingsDialog
@@ -290,7 +391,13 @@ class SmartModelerWindow(QMainWindow):
 
     def _ai_succeeded(self, response: str) -> None:
         try:
-            result = AiMcpBridge.parse_response(response)
+            baseline = (
+                Model3Serializer.import_from_json(self._ai_canvas_snapshot)
+                if self._ai_request_mode == "improve"
+                and self._ai_canvas_snapshot is not None
+                else None
+            )
+            result = AiMcpBridge.parse_response(response, base_graph=baseline)
         except AiResponseError as error:
             self._ai_canvas_snapshot = None
             self._ai_request_mode = "new"
@@ -347,6 +454,7 @@ class SmartModelerWindow(QMainWindow):
                 return
         self._last_ai_undo_snapshot = current_snapshot
         self._set_graph(result.graph)
+        self._record_document_change()
         self._last_ai_applied_snapshot = Model3Serializer.export_to_json(self.graph)
         self.undo_ai_action.setEnabled(True)
         self._show_ai_result(result.summary, result.warnings)
@@ -379,6 +487,7 @@ class SmartModelerWindow(QMainWindow):
             )
             return
         self._set_graph(graph)
+        self._record_document_change()
         self._last_ai_undo_snapshot = None
         self._last_ai_applied_snapshot = None
         self.undo_ai_action.setEnabled(False)
@@ -436,6 +545,7 @@ class SmartModelerWindow(QMainWindow):
         item = self.scene.add_node_to_scene(node)
         self._sync_ai_workflow_state()
         AlgorithmCatalog.autobind_unique_project_layers(self.graph)
+        self._record_document_change()
         self.scene.clearSelection()
         item.setSelected(True)
         all_issues = self._workflow_issues()
@@ -462,6 +572,7 @@ class SmartModelerWindow(QMainWindow):
         if prompt:
             result = AiMcpBridge.generate_offline(prompt)
             self._set_graph(result.graph)
+            self._record_document_change()
             self.status_label.setText(f"Loaded starter: {result.graph.name}")
 
     def on_node_selected(self, node: NodeDefinition | None) -> None:
@@ -481,6 +592,7 @@ class SmartModelerWindow(QMainWindow):
             if item is not None:
                 item.refresh()
             self.inspector_widget.inspect_node(node)
+            self._record_document_change()
             return True
         return False
 
@@ -559,6 +671,7 @@ class SmartModelerWindow(QMainWindow):
         if not accepted:
             self.status_label.setText("Workflow setup canceled")
             return False
+        self._record_document_change()
         if remaining:
             QMessageBox.warning(
                 self,
@@ -581,6 +694,7 @@ class SmartModelerWindow(QMainWindow):
             QMessageBox.warning(self, "Workflow is empty", "Add at least one node first.")
             return False
         AlgorithmCatalog.autobind_unique_project_layers(self.graph)
+        self._record_document_change()
         issues = self._workflow_issues()
         self._mark_workflow_issues(issues)
         if not issues:
@@ -658,37 +772,90 @@ class SmartModelerWindow(QMainWindow):
         self.status_label.setText(message)
         QApplication.processEvents()
 
+    def save_document(self, _checked: bool = False) -> bool:
+        if self._current_path is None:
+            return self.save_document_as()
+        return self._save_to_path(self._current_path, self._current_filter)
+
     def export_model(self) -> None:
+        """Compatibility alias retained for existing integrations."""
+        self.save_document_as()
+
+    def save_document_as(self, _checked: bool = False) -> bool:
         path, selected_filter = QFileDialog.getSaveFileName(
             self,
             "Save workflow",
-            self.graph.name.replace(" ", "_") + ".model3",
-            "QGIS Processing model (*.model3)"
-            ";;QGIS Python algorithm (*.py)"
-            ";;SmartModeler project (*.smartmodeler.json)",
+            self.graph.name.replace(" ", "_") + ".smartmodeler.json",
+            "SmartModeler project (*.smartmodeler.json)"
+            ";;QGIS Processing model (*.model3)"
+            ";;QGIS Python algorithm (*.py)",
         )
         if not path:
-            return
-        lowered = path.lower()
+            return False
+        return self._save_to_path(Path(path), selected_filter)
+
+    def _save_to_path(self, path: Path, selected_filter: str = "") -> bool:
+        path_text = str(path)
+        lowered = path_text.lower()
+        editable = True
         if "Python" in selected_filter or lowered.endswith(".py"):
             if not lowered.endswith(".py"):
-                path += ".py"
-            if not self._export_python(path):
-                return
-        elif "SmartModeler" in selected_filter or lowered.endswith(".json"):
+                path = Path(path_text + ".py")
+            if not self._export_python(str(path)):
+                return False
+            editable = False
+        elif "QGIS Processing" in selected_filter or lowered.endswith(".model3"):
+            if not lowered.endswith(".model3"):
+                path = Path(path_text + ".model3")
+            if not self._export_model3(str(path)):
+                return False
+        else:
             if not lowered.endswith(".json"):
-                path += ".smartmodeler.json"
+                path = Path(path_text + ".smartmodeler.json")
             try:
-                Path(path).write_text(Model3Serializer.export_to_json(self.graph), encoding="utf-8")
+                self._atomic_write_text(
+                    path, Model3Serializer.export_to_json(self.graph)
+                )
             except OSError as error:
                 QMessageBox.critical(self, "Save failed", str(error))
-                return
+                return False
+        if editable:
+            self._current_path = path
+            self._current_filter = selected_filter
+            self.document_history.mark_clean()
+            self._clear_recovery_snapshot()
+            self._update_document_ui()
+            self.status_label.setText(f"Saved {path}")
         else:
-            if not lowered.endswith(".model3"):
-                path += ".model3"
-            if not self._export_model3(path):
-                return
-        self.status_label.setText(f"Saved {path}")
+            self.status_label.setText(f"Exported {path}")
+        return True
+
+    @staticmethod
+    def _temporary_sibling(path: Path) -> Path:
+        return path.with_name(
+            f".{path.stem}.{uuid.uuid4().hex}.tmp{path.suffix}"
+        )
+
+    @classmethod
+    def _atomic_write_text(cls, path: Path, text: str) -> None:
+        temporary = cls._temporary_sibling(path)
+        try:
+            temporary.write_text(text, encoding="utf-8")
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @classmethod
+    def _atomic_export(cls, path: Path, writer) -> tuple[bool, str]:
+        temporary = cls._temporary_sibling(path)
+        try:
+            ok, error = writer(str(temporary))
+            if not ok:
+                return False, error
+            os.replace(temporary, path)
+            return True, ""
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _export_model3(self, path: str) -> bool:
         """Save a .model3, treating QGIS' validation issues as advisory.
@@ -699,7 +866,12 @@ class SmartModelerWindow(QMainWindow):
         not bound yet.
         """
         try:
-            ok, error = Model3Serializer.export_to_model3(self.graph, path)
+            ok, error = self._atomic_export(
+                Path(path),
+                lambda temporary: Model3Serializer.export_to_model3(
+                    self.graph, temporary
+                ),
+            )
         except Exception as export_error:
             ok, error = False, str(export_error)
         if ok:
@@ -715,8 +887,11 @@ class SmartModelerWindow(QMainWindow):
             self.status_label.setText("Save canceled")
             return False
         try:
-            ok, error = Model3Serializer.export_to_model3(
-                self.graph, path, allow_invalid=True
+            ok, error = self._atomic_export(
+                Path(path),
+                lambda temporary: Model3Serializer.export_to_model3(
+                    self.graph, temporary, allow_invalid=True
+                ),
             )
         except Exception as export_error:
             ok, error = False, str(export_error)
@@ -728,7 +903,12 @@ class SmartModelerWindow(QMainWindow):
 
     def _export_python(self, path: str) -> bool:
         try:
-            ok, error = Model3Serializer.export_to_python(self.graph, path)
+            ok, error = self._atomic_export(
+                Path(path),
+                lambda temporary: Model3Serializer.export_to_python(
+                    self.graph, temporary
+                ),
+            )
         except Exception as export_error:
             ok, error = False, str(export_error)
         if not ok:
@@ -762,6 +942,17 @@ class SmartModelerWindow(QMainWindow):
         if not self._confirm_replace("open this workflow"):
             return
         self._set_graph(graph)
+        self._current_path = Path(path)
+        self._current_filter = (
+            "QGIS Processing model (*.model3)"
+            if path.lower().endswith(".model3")
+            else "SmartModeler project (*.smartmodeler.json)"
+        )
+        self.document_history.reset(
+            Model3Serializer.export_to_json(self.graph), mark_clean=True
+        )
+        self._clear_recovery_snapshot()
+        self._update_document_ui()
         self.status_label.setText(f"Opened {path}")
 
     def auto_layout(self) -> None:
@@ -770,6 +961,7 @@ class SmartModelerWindow(QMainWindow):
             item = self.scene.node_items.get(node_id)
             if item is not None:
                 item.setPos(node.x, node.y)
+        self._record_document_change()
         self.fit_graph()
 
     def fit_graph(self) -> None:
@@ -777,25 +969,95 @@ class SmartModelerWindow(QMainWindow):
         if not rect.isEmpty():
             self.view.fitInView(rect.adjusted(-80, -80, 80, 80), Qt.AspectRatioMode.KeepAspectRatio)
 
-    def clear_canvas(self) -> None:
-        if self.graph.nodes and QMessageBox.question(
-            self, "Clear workflow", "Remove every node and connection from the canvas?"
-        ) != QMessageBox.StandardButton.Yes:
+    def new_document(self, _checked: bool = False) -> None:
+        if not self._maybe_save_changes("create a new workflow"):
             return
         self._set_graph(GraphModel(), fit=False)
+        self._current_path = None
+        self._current_filter = ""
+        self.document_history.reset(
+            Model3Serializer.export_to_json(self.graph), mark_clean=True
+        )
+        self._clear_recovery_snapshot()
+        self._update_document_ui()
         self.status_label.setText("New empty workflow")
+
+    def clear_canvas(self) -> None:
+        self.new_document()
 
     def _connection_rejected(self, message: str) -> None:
         self.status_label.setText(f"Connection rejected: {message}")
 
     def _confirm_replace(self, action: str) -> bool:
-        if not self.graph.nodes:
+        return self._maybe_save_changes(action)
+
+    def _maybe_save_changes(self, action: str) -> bool:
+        if not self.document_history.is_dirty:
             return True
-        return QMessageBox.question(
+        choice = QMessageBox.warning(
             self,
-            "Replace current workflow?",
-            f"{action.capitalize()} will replace the current canvas. Continue?",
-        ) == QMessageBox.StandardButton.Yes
+            "Unsaved workflow changes",
+            f"Save changes before you {action}?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if choice == QMessageBox.StandardButton.Save:
+            return self.save_document()
+        if choice == QMessageBox.StandardButton.Discard:
+            self._clear_recovery_snapshot()
+            return True
+        return False
+
+    def _write_recovery_snapshot(self) -> None:
+        if not self.document_history.is_dirty:
+            return
+        self.settings.setValue(
+            self.RECOVERY_PREFIX + "snapshot",
+            Model3Serializer.export_to_json(self.graph),
+        )
+        self.settings.setValue(
+            self.RECOVERY_PREFIX + "path",
+            str(self._current_path) if self._current_path else "",
+        )
+        self.settings.setValue(
+            self.RECOVERY_PREFIX + "timestamp",
+            datetime.now(timezone.utc).isoformat(),
+        )
+        self.settings.sync()
+
+    def _clear_recovery_snapshot(self) -> None:
+        self.settings.remove(self.RECOVERY_PREFIX)
+        self.settings.sync()
+
+    def _offer_recovery(self) -> None:
+        snapshot = self.settings.value(
+            self.RECOVERY_PREFIX + "snapshot", "", type=str
+        )
+        if not snapshot:
+            return
+        graph = Model3Serializer.import_from_json(snapshot)
+        if graph is None:
+            self._clear_recovery_snapshot()
+            return
+        if QMessageBox.question(
+            self,
+            "Recover unsaved workflow?",
+            "SmartModeler found an autosaved workflow from an earlier session. "
+            "Restore it now?",
+        ) != QMessageBox.StandardButton.Yes:
+            self._clear_recovery_snapshot()
+            return
+        self._set_graph(graph)
+        recovered_path = self.settings.value(
+            self.RECOVERY_PREFIX + "path", "", type=str
+        )
+        self._current_path = Path(recovered_path) if recovered_path else None
+        self._current_filter = ""
+        self.document_history.reset(snapshot, mark_clean=False)
+        self._update_document_ui()
+        self.status_label.setText("Recovered unsaved workflow")
 
     def _restore_window_state(self) -> None:
         geometry = self.settings.value(self.SETTINGS_PREFIX + "geometry")
@@ -809,9 +1071,38 @@ class SmartModelerWindow(QMainWindow):
             self.splitter.restoreState(splitter)
 
     def closeEvent(self, event) -> None:
+        if not self._force_close and not self._maybe_save_changes(
+            "close the Workflow Studio"
+        ):
+            event.ignore()
+            return
+        if not self._force_close and self.document_history.is_dirty:
+            clean = self.document_history.clean_snapshot
+            graph = (
+                Model3Serializer.import_from_json(clean)
+                if clean is not None
+                else GraphModel()
+            )
+            if graph is not None:
+                self._set_graph(graph, fit=False)
+                snapshot = Model3Serializer.export_to_json(graph)
+                self.document_history.reset(snapshot, mark_clean=True)
+                self._update_document_ui()
         if self.ai_client.is_busy():
             self.ai_client.cancel()
+        self._autosave_timer.stop()
         self.settings.setValue(self.SETTINGS_PREFIX + "geometry", self.saveGeometry())
         self.settings.setValue(self.SETTINGS_PREFIX + "state", self.saveState())
         self.settings.setValue(self.SETTINGS_PREFIX + "splitter", self.splitter.saveState())
         super().closeEvent(event)
+
+    def showEvent(self, event) -> None:
+        if hasattr(self, "_autosave_timer") and not self._autosave_timer.isActive():
+            self._autosave_timer.start()
+        super().showEvent(event)
+
+    def prepare_for_shutdown(self) -> None:
+        """Preserve dirty work when QGIS unload cannot honor a canceled close."""
+        if self.document_history.is_dirty:
+            self._write_recovery_snapshot()
+        self._force_close = True

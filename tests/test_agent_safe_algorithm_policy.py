@@ -122,7 +122,14 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # LAYERS is pinned as MULTI_VECTOR: the same QGIS class as a multi-raster
         # input, distinguished only by the vector layer-type the planner demands.
         params = (
-            ParamSpec("LAYERS", False, frozenset({"QgsProcessingParameterMultipleLayers"}), False, False),
+            ParamSpec(
+                "LAYERS",
+                False,
+                frozenset({"QgsProcessingParameterMultipleLayers"}),
+                False,
+                False,
+                source_type="vector",
+            ),
             ParamSpec("CRS", False, frozenset({"QgsProcessingParameterCrs"}), True, False),
             ParamSpec("ADD_SOURCE_FIELDS", False, frozenset({"QgsProcessingParameterBoolean"}), False, True),
             ParamSpec("OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), False, False),
@@ -132,6 +139,36 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         record = decision.record
         self.assertIsNotNone(record)
         self.assertEqual(self.policy.expected_kind(record, "LAYERS"), MULTI_VECTOR)
+
+    def test_merge_vector_layers_rejects_a_raster_multi_input_signature(self) -> None:
+        params = (
+            ParamSpec(
+                "LAYERS",
+                False,
+                frozenset({"QgsProcessingParameterMultipleLayers"}),
+                False,
+                False,
+                source_type="raster",
+            ),
+            ParamSpec("CRS", False, frozenset({"QgsProcessingParameterCrs"}), True, False),
+            ParamSpec(
+                "ADD_SOURCE_FIELDS",
+                False,
+                frozenset({"QgsProcessingParameterBoolean"}),
+                False,
+                True,
+            ),
+            ParamSpec(
+                "OUTPUT",
+                True,
+                frozenset({"QgsProcessingParameterFeatureSink"}),
+                False,
+                False,
+            ),
+        )
+        decision = self.policy.is_runnable("native:mergevectorlayers", params)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason_code, ProposalReason.SIGNATURE_MISMATCH)
 
     def test_the_policy_cannot_enumerate_its_allowlist(self) -> None:
         for accessor in ("allowed_ids", "allowlist", "algorithms", "ids"):

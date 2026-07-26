@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from qgis.PyQt.QtCore import QEvent, QMetaType, Qt
-from qgis.PyQt.QtGui import QIcon, QKeyEvent
+from qgis.PyQt.QtGui import QColor, QIcon, QKeyEvent
 from qgis.core import (
     QgsApplication,
     QgsFeature,
@@ -45,7 +45,7 @@ def run_checks() -> str:
     from planx_smartmodeler.core.agent.runtime_tools import build_default_registry
     from planx_smartmodeler.core.algorithm_catalog import AlgorithmCatalog
     from planx_smartmodeler.core.ai_client import AiNetworkClient
-    from planx_smartmodeler.core.ai_mcp_bridge import AiMcpBridge
+    from planx_smartmodeler.core.ai_mcp_bridge import AiMcpBridge, AiResponseError
     from planx_smartmodeler.core.ai_settings import (
         AiProfile,
         AiSettingsStore,
@@ -75,6 +75,35 @@ def run_checks() -> str:
         )
         if "native:buffer" not in preserved_catalog:
             raise RuntimeError("Existing workflow algorithms were omitted from AI context.")
+        unsafe_catalog = AlgorithmCatalog.compact_ai_catalog(
+            "use native:fileuploader to send a local file", 50
+        )
+        if "native:fileuploader" in unsafe_catalog:
+            raise RuntimeError("A side-effecting algorithm reached the AI catalog.")
+        if AlgorithmCatalog.ai_algorithm_allowed("native:fileuploader"):
+            raise RuntimeError("The AI graph policy allowed native:fileuploader.")
+        import json as _json
+
+        unsafe_graph = {
+            "title": "Unsafe",
+            "summary": "Must be rejected",
+            "nodes": [
+                {
+                    "id": "upload",
+                    "algorithm_id": "native:fileuploader",
+                    "title": "Upload",
+                    "parameters": [],
+                }
+            ],
+            "edges": [],
+            "warnings": [],
+        }
+        try:
+            AiMcpBridge.parse_response(_json.dumps(unsafe_graph))
+        except AiResponseError:
+            pass
+        else:
+            raise RuntimeError("A side-effecting provider graph passed local validation.")
 
         gemini_profile = AiProfile.create("gemini", "Gemini smoke")
         _endpoint, _headers, gemini_payload = AiNetworkClient.build_request(
@@ -156,6 +185,43 @@ def run_checks() -> str:
             raise RuntimeError("Qt widgets did not initialize.")
         settings_dialog.close()
 
+        from planx_smartmodeler.gui.modeler_window import SmartModelerWindow
+        import tempfile as _document_tempfile
+
+        document_window = SmartModelerWindow(None)
+        if document_window.document_history.is_dirty:
+            raise RuntimeError("A new Workflow Studio document started dirty.")
+        document_window.add_node_by_alg("smart:number")
+        if not document_window.document_history.is_dirty or not document_window.undo_action.isEnabled():
+            raise RuntimeError("Adding a node did not mark the document dirty and undoable.")
+        document_window.undo_document()
+        if document_window.graph.nodes or not document_window.redo_action.isEnabled():
+            raise RuntimeError("Document Undo did not restore the empty graph.")
+        document_window.redo_document()
+        if len(document_window.graph.nodes) != 1:
+            raise RuntimeError("Document Redo did not restore the added node.")
+        with _document_tempfile.TemporaryDirectory() as document_tmp:
+            document_path = Path(document_tmp) / "atomic.smartmodeler.json"
+            if not document_window._save_to_path(
+                document_path, "SmartModeler project (*.smartmodeler.json)"
+            ):
+                raise RuntimeError("Atomic SmartModeler document save failed.")
+            if document_window.document_history.is_dirty or not document_path.is_file():
+                raise RuntimeError("A successful save did not mark the document clean.")
+            reopened = Model3Serializer.import_from_json(
+                document_path.read_text(encoding="utf-8")
+            )
+            if reopened is None or len(reopened.nodes) != 1:
+                raise RuntimeError("The atomically saved document could not be reopened.")
+        document_window.add_node_by_alg("smart:number")
+        document_window.prepare_for_shutdown()
+        if not document_window.settings.value(
+            document_window.RECOVERY_PREFIX + "snapshot", "", type=str
+        ):
+            raise RuntimeError("Forced plugin shutdown did not preserve dirty recovery state.")
+        document_window._clear_recovery_snapshot()
+        document_window.close()
+
         class _FakeIface:
             def mainWindow(self):
                 return None
@@ -216,7 +282,6 @@ def run_checks() -> str:
             "project.summary",
             "layer.list",
             "layer.describe",
-            "layer.field_values",
             "processing.search",
             "processing.describe",
             "model.summary",
@@ -330,10 +395,9 @@ def run_checks() -> str:
         if layer_describe_result.data.get("feature_count") != 1:
             raise RuntimeError("layer.describe did not report the layer's feature count.")
 
-        # -- Owner-QA follow-up: "how many of these are bus stops?" -----------
-        # Without an aggregate over one attribute the agent had to answer that
-        # it could not know, and had to invent the classes of a categorized
-        # style. layer.field_values returns counts only -- never a feature.
+        # Attribute values must never become provider-visible tool results.
+        # Keep a layer with sensitive-looking values in the project and prove
+        # that the registry exposes no value-inspection tool for it.
         tagged_layer = QgsVectorLayer("Point?crs=EPSG:3857", "smoke_highways", "memory")
         tagged_layer.dataProvider().addAttributes(
             [QgsField("highway", QMetaType.Type.QString)]
@@ -348,45 +412,8 @@ def run_checks() -> str:
         tagged_layer.dataProvider().addFeatures(tagged_features)
         tagged_layer.updateExtents()
         project.addMapLayer(tagged_layer)
-
-        field_values_result = live_controller.execute(
-            AgentToolCall(
-                call_id="smoke_field_values",
-                tool_name="layer.field_values",
-                arguments={"layer_id": tagged_layer.id(), "field": "highway"},
-            ),
-            AgentMode.ASK,
-            AgentScope.PROJECT,
-        )
-        if field_values_result.status != AgentResultStatus.SUCCESS:
-            raise RuntimeError("layer.field_values failed against the smoke layer.")
-        value_counts = {
-            item["value"]: item["count"] for item in field_values_result.data["values"]
-        }
-        if value_counts.get("bus_stop") != 3 or value_counts.get("crossing") != 1:
-            raise RuntimeError(f"layer.field_values miscounted: {value_counts}")
-        if value_counts.get("") != 1:
-            raise RuntimeError("layer.field_values did not normalize NULL on this runtime.")
-        if field_values_result.data.get("count_is_complete") is not True:
-            raise RuntimeError("A fully scanned layer was reported as incomplete.")
-        field_values_text = str(field_values_result.data)
-        if "memory?" in field_values_text or "POINT(" in field_values_text.upper():
-            raise RuntimeError("layer.field_values leaked a source URI or a geometry.")
-
-        unknown_field_result = live_controller.execute(
-            AgentToolCall(
-                call_id="smoke_field_values_unknown",
-                tool_name="layer.field_values",
-                arguments={"layer_id": tagged_layer.id(), "field": "no_such_field"},
-            ),
-            AgentMode.ASK,
-            AgentScope.PROJECT,
-        )
-        if (
-            unknown_field_result.status != AgentResultStatus.SUCCESS
-            or unknown_field_result.data.get("available") is not False
-        ):
-            raise RuntimeError("layer.field_values invented a result for an unknown field.")
+        if "layer.field_values" in registry_tool_names:
+            raise RuntimeError("Attribute-value inspection reached the provider tool registry.")
 
         missing_layer_id_result = live_controller.execute(
             AgentToolCall(call_id="smoke_layer_describe_missing", tool_name="layer.describe"),
@@ -868,6 +895,12 @@ def run_checks() -> str:
             raise RuntimeError("Apply did not install the single-symbol renderer.")
         if not apply_dock.undo_button.isEnabled():
             raise RuntimeError("Undo was not enabled after a style apply.")
+        symbol = style_layer.renderer().symbol()
+        original_color = symbol.color()
+        symbol.setColor(QColor("#AA3311"))
+        if apply_dock._apply_coordinator.can_undo(apply_dock._last_applied):
+            raise RuntimeError("A later symbol edit did not invalidate style Undo.")
+        symbol.setColor(original_color)
         apply_dock._on_undo_clicked()
         if style_layer.renderer().type() != renderer_type_before:
             raise RuntimeError("Undo did not restore the prior renderer.")
@@ -1262,10 +1295,10 @@ def run_checks() -> str:
                 raise RuntimeError(f"plugin.capabilities failed for {package_name}.")
             return outcome.data
 
-        # The V1 registry is exactly thirteen read-only tools.
+        # The V1 registry is exactly twelve metadata-only tools.
         tool_names = {d["name"] for d in caps_dock.registry.public_tool_descriptions()}
-        if len(tool_names) != 13 or "plugin.capabilities" not in tool_names:
-            raise RuntimeError(f"Expected the thirteen-tool V1 registry, got {len(tool_names)}.")
+        if len(tool_names) != 12 or "plugin.capabilities" not in tool_names:
+            raise RuntimeError(f"Expected the twelve-tool V1 registry, got {len(tool_names)}.")
 
         # An unknown package is reported honestly, never invented.
         unknown = _capabilities("definitely_not_a_real_plugin_xyz")
@@ -1669,6 +1702,25 @@ def run_checks() -> str:
         workflow_context = AiMcpBridge.workflow_context(graph)
         if '"id":"source"' not in workflow_context or '"id":"buffer"' not in workflow_context:
             raise RuntimeError("The current workflow was not serialized for iterative AI.")
+        if input_layer.id() in workflow_context or "10.0" in workflow_context:
+            raise RuntimeError("A local workflow parameter leaked into iterative AI context.")
+        restored_ai_graph = AiMcpBridge.parse_response(
+            workflow_context,
+            base_graph=graph,
+        ).graph
+        if (
+            restored_ai_graph.nodes["source"].parameters.get("LAYER")
+            != input_layer.id()
+            or restored_ai_graph.nodes["buffer"].parameters.get("DISTANCE")
+            != 10.0
+        ):
+            raise RuntimeError("Redacted AI parameters were not restored locally.")
+        try:
+            AiMcpBridge.parse_response(workflow_context)
+        except AiResponseError:
+            pass
+        else:
+            raise RuntimeError("A local-value token was accepted without a baseline.")
 
         suitability_id = "planx_suitability_lab:data_harmonizer"
         if AlgorithmCatalog.algorithm_exists(suitability_id):

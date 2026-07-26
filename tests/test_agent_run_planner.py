@@ -55,6 +55,7 @@ def spec(
     options=(),
     minimum=None,
     maximum=None,
+    source_type="",
 ):
     type_names = {class_name}
     if class_name == DISTANCE_PARAM:
@@ -68,6 +69,7 @@ def spec(
         options=tuple(options),
         minimum=minimum,
         maximum=maximum,
+        source_type=source_type,
     )
 
 
@@ -100,7 +102,7 @@ COUNT_PARAMS = [
     spec("OUTPUT", SINK, destination=True),
 ]
 CELLSTATS_PARAMS = [
-    spec("INPUT", MULTI),
+    spec("INPUT", MULTI, source_type="raster"),
     spec("REFERENCE_LAYER", RASTER_PARAM),
     spec("STATISTIC", ENUM_PARAM, default=True, options=("Sum", "Mean")),
     spec("IGNORE_NODATA", BOOL_PARAM, default=True),
@@ -128,7 +130,7 @@ JOIN_PARAMS = [
     spec("NON_MATCHING", SINK, destination=True, optional=True),
 ]
 MERGE_PARAMS = [
-    spec("LAYERS", MULTI),
+    spec("LAYERS", MULTI, source_type="vector"),
     spec("CRS", CRS_PARAM, optional=True),
     spec("OUTPUT", SINK, destination=True),
     spec("ADD_SOURCE_FIELDS", BOOL_PARAM, default=True),

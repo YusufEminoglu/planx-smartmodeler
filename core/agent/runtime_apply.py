@@ -85,15 +85,15 @@ def _hash_text(text: str) -> str:
 
 
 def _style_fingerprint(layer: Any) -> str:
-    """A deterministic hash of the layer's bounded safe style state."""
-    import json
+    """Hash the complete local QML style, never the privacy-reduced AI view."""
+    from qgis.core import QgsMapLayerStyle
 
-    from .runtime_tools import extract_layer_style_state
-
-    state = extract_layer_style_state(layer, STYLE_STATE_LIMIT)
-    state.pop("context_token", None)  # never present here, but be explicit
-    canonical = json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return _hash_text(canonical)
+    style = QgsMapLayerStyle()
+    style.readFromLayer(layer)
+    xml = style.xmlData()
+    if not isinstance(xml, str) or not xml:
+        raise ValueError("The layer style could not be fingerprinted.")
+    return _hash_text(xml)
 
 
 def result_layer_fingerprint(layer: Any) -> str:
@@ -133,12 +133,13 @@ class AppliedAction:
     title: str
     is_destructive: bool
     post_fingerprint: str
+    post_revision: int = 0
     model_pre_json: Optional[str] = None
     style_pre: Optional[Dict[str, Any]] = field(default=None)
     # For a run: the (layer id, identity fingerprint) of every layer THIS run
     # added. Undo removes exactly these and nothing else -- never an input,
     # never a layer the run did not create.
-    result_layers: Tuple[Tuple[str, str], ...] = field(default_factory=tuple)
+    result_layers: Tuple[Tuple[str, str, int], ...] = field(default_factory=tuple)
 
 
 @dataclass
@@ -180,6 +181,8 @@ class RuntimeApplyCoordinator:
         # Injectable only so the run/undo bookkeeping is testable without a QGIS
         # runtime; production always resolves the live QgsProject singleton.
         self._project_provider = project_provider
+        self._layer_change_versions: Dict[str, int] = {}
+        self._watched_layers: Dict[str, Any] = {}
 
     def _project(self) -> Any:
         if self._project_provider is not None:
@@ -213,6 +216,43 @@ class RuntimeApplyCoordinator:
         from .runtime_proposals import _serializer_clone
 
         return _serializer_clone
+
+    def _watch_layer(self, layer: Any) -> int:
+        """Increment a local generation whenever QGIS reports a user-visible edit."""
+        layer_id = str(layer.id())
+        if self._watched_layers.get(layer_id) is layer:
+            return self._layer_change_versions.get(layer_id, 0)
+        self._watched_layers[layer_id] = layer
+        self._layer_change_versions[layer_id] = 0
+
+        def changed(*_args, watched_id=layer_id) -> None:
+            self._layer_change_versions[watched_id] = (
+                self._layer_change_versions.get(watched_id, 0) + 1
+            )
+
+        signal_names = (
+            "nameChanged",
+            "crsChanged",
+            "styleChanged",
+            "opacityChanged",
+            "dataChanged",
+            "layerModified",
+            "attributeValueChanged",
+            "geometryChanged",
+            "featureAdded",
+            "featureDeleted",
+            "editingStarted",
+            "committedAttributeValuesChanges",
+            "committedGeometriesChanges",
+            "committedFeaturesAdded",
+            "committedFeaturesRemoved",
+            "destroyed",
+        )
+        for name in signal_names:
+            signal = getattr(layer, name, None)
+            if signal is not None and hasattr(signal, "connect"):
+                signal.connect(changed)
+        return 0
 
     # -- apply -------------------------------------------------------------
 
@@ -344,6 +384,7 @@ class RuntimeApplyCoordinator:
             return ApplyResult(False, ProposalReason.VALIDATION_FAILED, "Not a raster layer.")
 
         # Capture the exact pre-state before touching the layer.
+        self._watch_layer(layer)
         style_pre = self._capture_style_state(layer, project)
         try:
             self._install_style(layer, proposal, is_vector)
@@ -371,6 +412,7 @@ class RuntimeApplyCoordinator:
             title=agent_context.bound_text(proposal.title, 160),
             is_destructive=False,
             post_fingerprint=post_fingerprint,
+            post_revision=self._layer_change_versions.get(layer.id(), 0),
             style_pre=style_pre,
         )
         return ApplyResult(True, applied_action=applied)
@@ -568,7 +610,14 @@ class RuntimeApplyCoordinator:
             if layer is None:
                 return None
             try:
-                recorded.append((layer.id(), result_layer_fingerprint(layer)))
+                self._watch_layer(layer)
+                recorded.append(
+                    (
+                        layer.id(),
+                        result_layer_fingerprint(layer),
+                        self._layer_change_versions.get(layer.id(), 0),
+                    )
+                )
             except Exception:  # noqa: BLE001 - an unfingerprintable result blocks Undo
                 return None
         if not recorded:
@@ -589,9 +638,11 @@ class RuntimeApplyCoordinator:
         """Whether every recorded result layer still exists with its identity."""
         if not applied.result_layers:
             return False
-        for layer_id, fingerprint in applied.result_layers:
+        for layer_id, fingerprint, revision in applied.result_layers:
             layer = self._resolve_layer(layer_id)
             if layer is None:
+                return False
+            if self._layer_change_versions.get(layer_id, 0) != revision:
                 return False
             try:
                 if result_layer_fingerprint(layer) != fingerprint:
@@ -604,7 +655,7 @@ class RuntimeApplyCoordinator:
         project = self._project()
         if project is None:
             return UndoResult(False, ApplyReason.TARGET_MISSING, "The project is not available.")
-        for layer_id, _fingerprint in applied.result_layers:
+        for layer_id, _fingerprint, _revision in applied.result_layers:
             project.removeMapLayer(layer_id)
         return UndoResult(True)
 
@@ -627,6 +678,11 @@ class RuntimeApplyCoordinator:
         if applied.kind == PROPOSAL_KIND_LAYER_STYLE:
             layer = self._resolve_layer(applied.target_identity)
             if layer is None:
+                return False
+            if (
+                self._layer_change_versions.get(applied.target_identity, 0)
+                != applied.post_revision
+            ):
                 return False
             try:
                 return _style_fingerprint(layer) == applied.post_fingerprint

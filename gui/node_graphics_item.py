@@ -38,6 +38,7 @@ class NodeGraphicsItem(QGraphicsItem):
         self.setToolTip(f"{node.algorithm_id}\nDouble-click to configure")
         self.input_ports: dict[str, PortGraphicsItem] = {}
         self.output_ports: dict[str, PortGraphicsItem] = {}
+        self._drag_origin = self.pos()
         self.build_ports()
 
     def calculate_height(self) -> float:
@@ -123,6 +124,16 @@ class NodeGraphicsItem(QGraphicsItem):
             if self.scene():
                 self.scene().update_node_connections(self.node.node_id)
         return super().itemChange(change, value)
+
+    def mousePressEvent(self, event):
+        self._drag_origin = self.pos()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        scene = self.scene()
+        if self.pos() != self._drag_origin and scene is not None:
+            scene.graph_changed.emit()
 
     def refresh(self):
         self.setToolTip(

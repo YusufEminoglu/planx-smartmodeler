@@ -77,6 +77,7 @@ class ParamSpec:
     options: Tuple[str, ...] = ()
     minimum: Optional[float] = None
     maximum: Optional[float] = None
+    source_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -111,7 +112,13 @@ def kind_matches(kind: str, param: ParamSpec) -> bool:
     accepted = _KIND_CLASS_NAMES.get(kind)
     if not accepted:
         return False
-    return bool(accepted & param.type_names)
+    if not accepted & param.type_names:
+        return False
+    if kind == MULTI_RASTER:
+        return param.source_type == "raster"
+    if kind == MULTI_VECTOR:
+        return param.source_type == "vector"
+    return True
 
 
 def _id_has_blocked_term(algorithm_id: str) -> bool:
@@ -153,6 +160,18 @@ class SafeAlgorithmPolicy:
             return _deny(ProposalReason.ALGORITHM_NOT_ALLOWED)
 
         by_name = {param.name: param for param in params}
+
+        # Every bindable parameter is part of the reviewed signature, not just
+        # the required layer inputs. Retyping an enum/string/number must fail
+        # closed before a provider can bind a value under the old contract.
+        for pname, kind in record.bindable.items():
+            param = by_name.get(pname)
+            if (
+                param is None
+                or param.is_destination
+                or not kind_matches(kind, param)
+            ):
+                return _deny(ProposalReason.SIGNATURE_MISMATCH)
 
         # Required inputs must exist, be non-destinations, and match their kind.
         for pname in record.required_layer_params:
