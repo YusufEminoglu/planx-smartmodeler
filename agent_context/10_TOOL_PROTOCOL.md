@@ -208,6 +208,11 @@ at "I am read-only". Prefer the proposal that gets closest:
   `"layer_param": "INPUT_2"`).
 - "Merge / combine these layers into one" → a `processing_run` of
   `native:mergevectorlayers` (bind `LAYERS` to the list of vector layer ids).
+- "Randomly choose/take N features and create/save them as a new layer" → a
+  `processing_run` of `native:randomextract`; bind `INPUT`, set `METHOD` to the
+  live enum option for **Number of features** (normally index 0), and bind
+  `NUMBER` to N. Never use `native:randomselection` for this request: it only
+  changes the input layer's selection state and creates no result layer.
 - A multi-step transformation, or an algorithm that is not runnable → a
   `model_patch` that builds the workflow, which the user runs from the Workflow
   Studio.

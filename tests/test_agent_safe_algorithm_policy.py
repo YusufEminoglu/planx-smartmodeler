@@ -63,14 +63,30 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 16)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 17)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
         self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))
         self.assertIsNotNone(self.policy.record_for("native:extractbylocation"))
         self.assertIsNotNone(self.policy.record_for("native:joinattributestable"))
         self.assertIsNotNone(self.policy.record_for("native:mergevectorlayers"))
+        self.assertIsNotNone(self.policy.record_for("native:randomextract"))
         self.assertIsNone(self.policy.record_for("native:refactorfields"))
+
+    def test_random_extract_run_signature(self) -> None:
+        # Live signature probed identical on 3.44.12 LTR and 4.2.0. Unlike
+        # randomselection, this has a sink and therefore creates a new layer.
+        params = (
+            ParamSpec("INPUT", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
+            ParamSpec("METHOD", False, frozenset({"QgsProcessingParameterEnum"}), False, True),
+            ParamSpec("NUMBER", False, frozenset({"QgsProcessingParameterNumber"}), False, True),
+            ParamSpec("OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), False, False),
+        )
+        decision = self.policy.is_runnable("native:randomextract", params)
+        self.assertTrue(decision.allowed)
+        record = decision.record
+        self.assertIsNotNone(record)
+        self.assertEqual(record.destinations, ("OUTPUT",))
 
     def test_extract_by_attribute_run_signature(self) -> None:
         params = (

@@ -84,7 +84,7 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   commits one atomic change (rolling back on any failure), and records the
   outcome in a bounded in-session action ledger.
 - An approved **run** executes either one algorithm from a shipped, hardcoded
-  list of sixteen reviewed native algorithms -- and only while its live signature
+  list of seventeen reviewed native algorithms -- and only while its live signature
   still matches the reviewed one -- or your current workflow, whose every step
   must independently pass the same check. There is no "run any algorithm" path,
   and neither the AI nor your prompt can extend the list. Runs show progress, can

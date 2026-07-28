@@ -205,7 +205,7 @@ class SafeAlgorithmPolicy:
 
 
 # -- the shipped, reviewed initial allowlist (owner decision 2026-07-23) -----
-# Focused core of sixteen native algorithms; signatures probed live on QGIS
+# Focused core of seventeen native algorithms; signatures probed live on QGIS
 # 4.2.0 and 3.44.12 LTR. Bindable holds only the safe, cross-version inputs a
 # proposal may set; every destination is forced to a temporary output.
 
@@ -295,6 +295,16 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         "native:mergevectorlayers",
         {"LAYERS": MULTI_VECTOR, "CRS": CRS, "ADD_SOURCE_FIELDS": BOOL},
         ("LAYERS",),
+    ),
+    # "Randomly take N features and create a new layer." This is deliberately
+    # randomextract, not randomselection: the latter mutates the input layer's
+    # selection state and has no output sink. METHOD is pinned as a live enum
+    # and NUMBER as a bounded numeric value; OUTPUT is always temporary.
+    # Signatures verified identical on QGIS 3.44.12 LTR and 4.2.0.
+    "native:randomextract": _alg(
+        "native:randomextract",
+        {"INPUT": VECTOR_LAYER, "METHOD": ENUM, "NUMBER": NUMBER},
+        ("INPUT",),
     ),
     "native:difference": _alg(
         "native:difference",

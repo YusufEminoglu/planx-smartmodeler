@@ -2,6 +2,18 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.10.2] - 2026-07-29
+
+### Agent random extraction
+
+- Agent Chat now treats "randomly choose N features as a new layer" as
+  `native:randomextract`, exposes that reviewed temporary-output algorithm to
+  one-step run proposals, and explicitly distinguishes it from the
+  selection-state-only `native:randomselection`.
+- Adds a headless acceptance harness and verifies the full describe, proposal
+  validation, approved execution, result ownership, and source-state
+  preservation path on QGIS 4.2 and QGIS 3.44 LTR.
+
 ## [0.10.1] - 2026-07-29
 
 ### Real-world AI workflow planning

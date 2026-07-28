@@ -87,7 +87,8 @@ class AiContractTests(unittest.TestCase):
         self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("planx:preparenetwork"))
         self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("planx:serviceareas"))
         self.assertFalse(AlgorithmCatalog.ai_algorithm_allowed("thirdparty:unreviewed"))
-        self.assertIsNone(default_policy().record_for("native:randomextract"))
+        self.assertIsNotNone(default_policy().record_for("native:randomextract"))
+        self.assertIsNone(default_policy().record_for("planx:preparenetwork"))
         self.assertIsNone(default_policy().record_for("planx:serviceareas"))
 
     def test_ai_parameter_literals_reject_paths_uris_and_wrong_types(self) -> None:

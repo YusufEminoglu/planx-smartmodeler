@@ -1961,6 +1961,70 @@ def run_checks() -> str:
         if set(project.mapLayers()) != extract_before:
             raise RuntimeError("Undo did not remove the extract-by-attribute outputs.")
 
+        # -- Owner-QA follow-up: random N as a new layer --------------------
+        # The owner asked Agent Chat to take 3 of an existing point layer's
+        # features randomly and create a new layer. randomselection only changes
+        # input selection state; randomextract is the reviewed one-output
+        # operation that faithfully satisfies the request.
+        random_desc = run_dock.controller.execute(
+            AgentToolCall(
+                call_id="p5_random_extract",
+                tool_name="processing.describe",
+                arguments={"algorithm_id": "native:randomextract"},
+            ),
+            AgentMode.PLAN,
+            AgentScope.PROJECT,
+        )
+        if (
+            random_desc.status != AgentResultStatus.SUCCESS
+            or not random_desc.data.get("agent_runnable")
+        ):
+            raise RuntimeError("native:randomextract was not advertised as agent-runnable.")
+        random_bindings = {
+            p["name"]: p["proposal_binding"] for p in random_desc.data["parameters"]
+        }
+        if random_bindings != {
+            "INPUT": "layer",
+            "METHOD": "enum",
+            "NUMBER": "number",
+            "OUTPUT": "",
+        }:
+            raise RuntimeError(
+                f"randomextract advertised unexpected bindings: {random_bindings!r}"
+            )
+
+        random_before = set(project.mapLayers())
+        random_run = _run_json(
+            random_desc.data["context_token"],
+            "native:randomextract",
+            {
+                "INPUT": {"layer": tagged_layer.id()},
+                "METHOD": {"enum": 0},
+                "NUMBER": {"number": 3},
+            },
+            title="Randomly extract 3 points",
+        )
+        _feed_act(run_dock, AgentScope.PROJECT, "processing_run", random_run)
+        if run_dock._pending_action is None:
+            raise RuntimeError("randomextract produced no pending run action.")
+        run_dock._on_apply_clicked()
+        random_added = set(project.mapLayers()) - random_before
+        if len(random_added) != 1:
+            raise RuntimeError(
+                f"A randomextract run added {len(random_added)} layers instead of one."
+            )
+        random_layer = project.mapLayer(next(iter(random_added)))
+        if not isinstance(random_layer, QgsVectorLayer) or random_layer.featureCount() != 3:
+            raise RuntimeError("randomextract did not create a 3-feature vector layer.")
+        if tagged_layer.selectedFeatureCount() != 0:
+            raise RuntimeError("randomextract unexpectedly changed the input selection state.")
+        run_dock._on_undo_clicked()
+        if set(project.mapLayers()) != random_before:
+            raise RuntimeError("Undo did not remove the randomextract output.")
+        # This QA run is undone; neutralize its one-action cost so the rest of
+        # Phase 05 keeps its careful per-session budget calibration.
+        run_dock._session_action_count -= 1
+
         # -- Owner-QA follow-up: spatial extract (extract by location) -------
         # native:extractbylocation joined the allowlist so "keep the features of
         # X that intersect Y" runs as a reviewed processing_run. PREDICATE is
