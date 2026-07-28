@@ -16,6 +16,7 @@ class SmartProposalBar(QFrame):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("proposalBar")
+        self.setAccessibleName("Suggested next workflow steps")
         self.layout = QHBoxLayout(self)
         self.layout.setContentsMargins(14, 6, 14, 6)
         self.layout.setSpacing(8)
@@ -37,7 +38,10 @@ class SmartProposalBar(QFrame):
         if not AlgorithmCatalog.algorithm_exists(algorithm_id):
             return
         button = QPushButton(title)
-        button.setToolTip(description or f"Add {title} to the canvas")
+        explanation = description or f"Add {title} to the canvas"
+        button.setToolTip(explanation)
+        button.setAccessibleName(f"Add {title}")
+        button.setAccessibleDescription(explanation)
         button.clicked.connect(
             lambda _checked=False, value=algorithm_id: self.algorithm_selected.emit(value)
         )
@@ -45,10 +49,13 @@ class SmartProposalBar(QFrame):
 
     def _add_recommendation(self, proposal: ProposalRecommendation) -> None:
         button = QPushButton(f"{proposal.title}  ->")
-        button.setToolTip(
+        explanation = (
             f"{proposal.preview}\n\nWhy: {proposal.reason}\n"
             f"Target: {proposal.target_port_id} | Rank: {proposal.score}"
         )
+        button.setToolTip(explanation)
+        button.setAccessibleName(f"Add and connect {proposal.title}")
+        button.setAccessibleDescription(explanation)
         button.clicked.connect(
             lambda _checked=False, value=proposal: self.proposal_selected.emit(
                 value

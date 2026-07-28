@@ -8,6 +8,7 @@ is editable in place.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Dict, List, Tuple
 
 from qgis.PyQt.QtWidgets import (
@@ -38,8 +39,15 @@ class RunSetupDialog(QDialog):
         self._forms: List[Tuple[NodeDefinition, NodeParameterForm]] = []
         # Taken before any editor exists so Cancel is a true rollback even
         # after the "show every parameter" toggle has rebuilt the sheet.
-        self._original_parameters: Dict[str, dict] = {
-            node_id: dict(node.parameters) for node_id, node in graph.nodes.items()
+        self._original_node_state = {
+            node_id: {
+                "parameters": deepcopy(node.parameters),
+                "parameter_source_order": deepcopy(
+                    node.parameter_source_order
+                ),
+                "is_dirty": node.is_dirty,
+            }
+            for node_id, node in graph.nodes.items()
         }
         self.setWindowTitle("Run setup - review the whole workflow")
         self.resize(760, 720)
@@ -137,7 +145,7 @@ class RunSetupDialog(QDialog):
         form = QFormLayout(panel)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         added = form_object.populate(form, only_unconfigured=not show_all)
-        if added:
+        if added or not form_object.algorithm_available:
             outer.addWidget(panel)
         else:
             panel.deleteLater()
@@ -171,6 +179,18 @@ class RunSetupDialog(QDialog):
         collected = self._collect_all()
         missing = self._missing_by_node(collected)
         steps = len(self._forms)
+        unavailable = [
+            node.title
+            for node, form in self._forms
+            if not form.algorithm_available
+        ]
+        self.run_button.setEnabled(not unavailable)
+        if unavailable:
+            self.summary_label.setText(
+                f"{steps} step(s) in run order. Run is unavailable because "
+                f"{len(unavailable)} Processing algorithm(s) are missing."
+            )
+            return
         if missing:
             total = sum(len(names) for names in missing.values())
             self.summary_label.setText(
@@ -201,8 +221,12 @@ class RunSetupDialog(QDialog):
         self.accept()
 
     def reject(self) -> None:
-        for node_id, parameters in self._original_parameters.items():
+        for node_id, state in self._original_node_state.items():
             node = self.graph.nodes.get(node_id)
             if node is not None:
-                node.parameters = dict(parameters)
+                node.parameters = deepcopy(state["parameters"])
+                node.parameter_source_order = deepcopy(
+                    state["parameter_source_order"]
+                )
+                node.is_dirty = state["is_dirty"]
         super().reject()

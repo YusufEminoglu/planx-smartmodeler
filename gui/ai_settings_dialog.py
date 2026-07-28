@@ -62,8 +62,8 @@ class AiSettingsDialog(QDialog):
         root.addWidget(heading)
         root.addWidget(blurb)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        root.addWidget(splitter, 1)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        root.addWidget(self.splitter, 1)
 
         left = QWidget()
         left_layout = QVBoxLayout(left)
@@ -72,17 +72,17 @@ class AiSettingsDialog(QDialog):
         self.profile_list.currentItemChanged.connect(self._profile_selected)
         left_layout.addWidget(self.profile_list, 1)
         row = QHBoxLayout()
-        add = QPushButton("New")
-        add.clicked.connect(self._add_profile)
-        duplicate = QPushButton("Duplicate")
-        duplicate.clicked.connect(self._duplicate_profile)
-        delete = QPushButton("Delete")
-        delete.clicked.connect(self._delete_profile)
-        row.addWidget(add)
-        row.addWidget(duplicate)
-        row.addWidget(delete)
+        self.add_button = QPushButton("New")
+        self.add_button.clicked.connect(self._add_profile)
+        self.duplicate_button = QPushButton("Duplicate")
+        self.duplicate_button.clicked.connect(self._duplicate_profile)
+        self.delete_button = QPushButton("Delete")
+        self.delete_button.clicked.connect(self._delete_profile)
+        row.addWidget(self.add_button)
+        row.addWidget(self.duplicate_button)
+        row.addWidget(self.delete_button)
         left_layout.addLayout(row)
-        splitter.addWidget(left)
+        self.splitter.addWidget(left)
 
         right = QWidget()
         form = QFormLayout(right)
@@ -123,15 +123,11 @@ class AiSettingsDialog(QDialog):
         self.key_edit = QLineEdit()
         self.key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.key_edit.setPlaceholderText("Never written to plaintext plugin settings")
-        reveal = QPushButton("Show")
-        reveal.setCheckable(True)
-        reveal.toggled.connect(
-            lambda shown: self.key_edit.setEchoMode(
-                QLineEdit.EchoMode.Normal if shown else QLineEdit.EchoMode.Password
-            )
-        )
+        self.reveal_button = QPushButton("Show")
+        self.reveal_button.setCheckable(True)
+        self.reveal_button.toggled.connect(self._toggle_key_visibility)
         key_row.addWidget(self.key_edit, 1)
-        key_row.addWidget(reveal)
+        key_row.addWidget(self.reveal_button)
         form.addRow("API key", key_row)
 
         storage_row = QHBoxLayout()
@@ -172,22 +168,30 @@ class AiSettingsDialog(QDialog):
         self.security_note.setWordWrap(True)
         self.security_note.setObjectName("securityNote")
         form.addRow("Security", self.security_note)
-        splitter.addWidget(right)
-        splitter.setSizes([250, 600])
+        self.splitter.addWidget(right)
+        self.splitter.setSizes([250, 600])
 
         actions = QHBoxLayout()
         self.test_button = QPushButton("Test connection")
         self.test_button.clicked.connect(self._test_connection)
-        save = QPushButton("Save profile")
-        save.setObjectName("primaryButton")
-        save.clicked.connect(self._save_profile)
-        close = QPushButton("Close")
-        close.clicked.connect(self.accept)
+        self.save_button = QPushButton("Save profile")
+        self.save_button.setObjectName("primaryButton")
+        self.save_button.clicked.connect(self._save_profile)
+        self.close_button = QPushButton("Close")
+        self.close_button.clicked.connect(self.accept)
         actions.addWidget(self.test_button)
         actions.addStretch()
-        actions.addWidget(close)
-        actions.addWidget(save)
+        actions.addWidget(self.close_button)
+        actions.addWidget(self.save_button)
         root.addLayout(actions)
+
+    def _toggle_key_visibility(self, shown: bool) -> None:
+        self.key_edit.setEchoMode(
+            QLineEdit.EchoMode.Normal
+            if shown
+            else QLineEdit.EchoMode.Password
+        )
+        self.reveal_button.setText("Hide" if shown else "Show")
 
     def _populate_profiles(self, selected_id: str = "") -> None:
         self.profile_list.clear()
@@ -403,6 +407,24 @@ class AiSettingsDialog(QDialog):
     def _test_busy(self, busy: bool) -> None:
         self.test_button.setEnabled(not busy)
         self.test_button.setText("Testing..." if busy else "Test connection")
+        self.splitter.setEnabled(not busy)
+        self.save_button.setEnabled(not busy)
+
+    def _cancel_active_test(self) -> None:
+        if self.client.is_busy():
+            self.client.cancel()
+
+    def accept(self) -> None:
+        self._cancel_active_test()
+        super().accept()
+
+    def reject(self) -> None:
+        self._cancel_active_test()
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        self._cancel_active_test()
+        super().closeEvent(event)
 
     def _test_succeeded(self, response: str) -> None:
         try:

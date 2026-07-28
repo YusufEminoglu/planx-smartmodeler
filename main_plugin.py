@@ -7,7 +7,9 @@ from qgis.PyQt.QtCore import QTimer, Qt
 from qgis.PyQt.QtGui import QAction, QIcon
 from qgis.core import QgsApplication
 
+from .core.translation import TranslationManager
 from .gui.agent_dock import AgentWorkspaceDock
+from .gui.help_dialog import HelpDialog
 from .gui.modeler_window import SmartModelerWindow
 
 
@@ -37,10 +39,14 @@ class SmartModelerPlugin:
     def __init__(self, iface) -> None:
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
+        self.translation = TranslationManager(self.plugin_dir)
+        self.translation.install()
         self.action: QAction | None = None
         self.window: SmartModelerWindow | None = None
         self.agent_action: QAction | None = None
         self.agent_dock: AgentWorkspaceDock | None = None
+        self.help_action: QAction | None = None
+        self.help_dialog: HelpDialog | None = None
 
     def initGui(self) -> None:
         icon_path = os.path.join(self.plugin_dir, "icons", "icon.png")
@@ -57,7 +63,7 @@ class SmartModelerPlugin:
         self.action.setObjectName("SmartModelerAction")
         self.action.setStatusTip("Design and run QGIS 4 Processing workflows")
         self.action.triggered.connect(self.run)
-        self.iface.addPluginToVectorMenu("SmartModeler GIS", self.action)
+        self.iface.addPluginToMenu("SmartModeler GIS", self.action)
         self.iface.addVectorToolBarIcon(self.action)
 
         self.agent_dock = AgentWorkspaceDock(
@@ -76,23 +82,45 @@ class SmartModelerPlugin:
         )
         self.agent_action.setObjectName("SmartModelerAgentWorkspaceAction")
         self.agent_action.setStatusTip(
-            "Open the read-only Agent Workspace inspection panel"
+            "Open supervised inspections and explicit-approval actions"
         )
         self.agent_action.triggered.connect(self.open_agent_workspace)
-        self.iface.addPluginToVectorMenu("SmartModeler GIS", self.agent_action)
+        self.iface.addPluginToMenu("SmartModeler GIS", self.agent_action)
         self.iface.addVectorToolBarIcon(self.agent_action)
+
+        self.help_action = QAction(
+            QgsApplication.getThemeIcon("/mActionHelpContents.svg"),
+            "SmartModeler GIS - Help and Safety",
+            self.iface.mainWindow(),
+        )
+        self.help_action.setObjectName("SmartModelerHelpAction")
+        self.help_action.setStatusTip(
+            "Open quick start, keyboard, privacy, and support guidance"
+        )
+        self.help_action.triggered.connect(self.open_help)
+        self.iface.addPluginToMenu("SmartModeler GIS", self.help_action)
 
     def unload(self) -> None:
         if self.action is not None:
-            self.iface.removePluginVectorMenu("SmartModeler GIS", self.action)
+            self.iface.removePluginMenu("SmartModeler GIS", self.action)
             self.iface.removeVectorToolBarIcon(self.action)
             self.action.deleteLater()
             self.action = None
         if self.agent_action is not None:
-            self.iface.removePluginVectorMenu("SmartModeler GIS", self.agent_action)
+            self.iface.removePluginMenu("SmartModeler GIS", self.agent_action)
             self.iface.removeVectorToolBarIcon(self.agent_action)
             self.agent_action.deleteLater()
             self.agent_action = None
+        if self.help_action is not None:
+            self.iface.removePluginMenu(
+                "SmartModeler GIS", self.help_action
+            )
+            self.help_action.deleteLater()
+            self.help_action = None
+        if self.help_dialog is not None:
+            self.help_dialog.close()
+            self.help_dialog.deleteLater()
+            self.help_dialog = None
         if self.agent_dock is not None:
             self.agent_dock.shutdown()
             self.iface.removeDockWidget(self.agent_dock)
@@ -103,6 +131,7 @@ class SmartModelerPlugin:
             self.window = None
             retiring_window.prepare_for_shutdown()
             self._dispose_window_when_idle(retiring_window)
+        self.translation.remove()
 
     def _dispose_window_when_idle(self, window: SmartModelerWindow) -> None:
         """Never delete a window while its synchronous run stack is unwinding."""
@@ -130,6 +159,14 @@ class SmartModelerPlugin:
             return
         self.agent_dock.show()
         self.agent_dock.raise_()
+        self.agent_dock.prompt_input.setFocus()
+
+    def open_help(self) -> None:
+        if self.help_dialog is None:
+            self.help_dialog = HelpDialog(self.iface.mainWindow())
+        self.help_dialog.show()
+        self.help_dialog.raise_()
+        self.help_dialog.activateWindow()
 
     def _current_graph(self):
         """Optional model adapter: the live graph, or None when no studio is

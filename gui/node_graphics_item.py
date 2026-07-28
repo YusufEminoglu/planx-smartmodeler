@@ -14,14 +14,14 @@ class NodeGraphicsItem(QGraphicsItem):
     PORT_SPACING = 24.0
 
     CATEGORY_COLORS = {
-        "Vector Geometry": "#2E7D32",
-        "Vector Overlay": "#1565C0",
-        "Vector Selection": "#6A1B9A",
-        "Raster Analysis": "#D84315",
-        "Raster Terrain": "#E65100",
-        "Table Operations": "#00838F",
-        "Parameters": "#F57F17",
-        "Inputs": "#7C5CFC",
+        "Vector Geometry": "#1B5E20",
+        "Vector Overlay": "#0D47A1",
+        "Vector Selection": "#4A148C",
+        "Raster Analysis": "#8E2A13",
+        "Raster Terrain": "#8A3500",
+        "Table Operations": "#006064",
+        "Parameters": "#704000",
+        "Inputs": "#4527A0",
         "General": "#424242"
     }
 
@@ -87,7 +87,7 @@ class NodeGraphicsItem(QGraphicsItem):
         hdr_color = QColor(self.CATEGORY_COLORS.get(self.node.category, "#424242"))
         hdr_rect = QRectF(0, 0, self.WIDTH, self.HEADER_HEIGHT)
         hdr_grad = QLinearGradient(0, 0, 0, self.HEADER_HEIGHT)
-        hdr_grad.setColorAt(0.0, hdr_color.lighter(115))
+        hdr_grad.setColorAt(0.0, hdr_color.lighter(104))
         hdr_grad.setColorAt(1.0, hdr_color)
         painter.setBrush(QBrush(hdr_grad))
         painter.setPen(Qt.PenStyle.NoPen)

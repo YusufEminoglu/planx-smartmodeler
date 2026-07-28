@@ -122,6 +122,20 @@ class CanvasView(QGraphicsView):
             self.canvas_scene.remove_selected_items()
             event.accept()
             return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            selected = self.canvas_scene.selectedItems()
+            node_item = next(
+                (
+                    item
+                    for item in selected
+                    if hasattr(item, "node")
+                ),
+                None,
+            )
+            if node_item is not None:
+                self.canvas_scene.node_activated.emit(node_item.node)
+                event.accept()
+                return
         if event.key() == Qt.Key.Key_F:
             items_rect = self.canvas_scene.itemsBoundingRect()
             if not items_rect.isEmpty():

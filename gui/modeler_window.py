@@ -9,6 +9,7 @@ from pathlib import Path
 from qgis.PyQt.QtCore import QByteArray, QSize, QTimer, Qt
 from qgis.PyQt.QtGui import QAction, QKeySequence
 from qgis.PyQt.QtWidgets import (
+    QDialog,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -47,6 +48,7 @@ from ..core.proposal_engine import ProposalRecommendation
 from .ai_prompt_widget import AiPromptWidget
 from .canvas_scene import CanvasScene
 from .canvas_view import CanvasView
+from .connection_dialog import ConnectionDialog
 from .node_parameter_dialog import NodeParameterDialog
 from .node_palette_widget import NodePaletteWidget
 from .model_properties_dialog import ModelPropertiesDialog
@@ -68,6 +70,10 @@ class SmartModelerWindow(QMainWindow):
         self._external_run_active = external_run_active or (lambda: False)
         self.settings = QgsSettings()
         self.setWindowTitle("SmartModeler GIS - QGIS 4 Workflow Studio")
+        self.setAccessibleName("SmartModeler GIS Workflow Studio")
+        self.setAccessibleDescription(
+            "Build, validate, and run QGIS Processing workflows."
+        )
         self.setMinimumSize(1040, 680)
         self.resize(1440, 900)
         self.setStyleSheet(STUDIO_STYLE)
@@ -122,8 +128,15 @@ class SmartModelerWindow(QMainWindow):
         layout.addWidget(self.proposal_bar)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setAccessibleName("Workflow workspace")
         self.palette_widget = NodePaletteWidget(self)
         self.inspector_widget = WireInspectorWidget(self)
+        self.inspector_widget.set_graph(self.graph)
+        self.view.setAccessibleName("Workflow canvas")
+        self.view.setAccessibleDescription(
+            "Node graph. Delete removes selected items, Enter configures the "
+            "selected node, and F fits the graph when the canvas has focus."
+        )
         self.splitter.addWidget(self.palette_widget)
         self.splitter.addWidget(self.view)
         self.splitter.addWidget(self.inspector_widget)
@@ -133,7 +146,9 @@ class SmartModelerWindow(QMainWindow):
 
         self._build_toolbar()
         self.status_label = QLabel("Ready")
+        self.status_label.setAccessibleName("Workflow status")
         self.progress = QProgressBar()
+        self.progress.setAccessibleName("Workflow progress")
         self.progress.setTextVisible(False)
         self.progress.setFixedWidth(160)
         self.progress.hide()
@@ -146,6 +161,7 @@ class SmartModelerWindow(QMainWindow):
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("Workflow", self)
         toolbar.setObjectName("SmartModelerWorkflowToolbar")
+        toolbar.setAccessibleName("Workflow commands")
         toolbar.setIconSize(QSize(18, 18))
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
@@ -154,24 +170,40 @@ class SmartModelerWindow(QMainWindow):
             self._theme_icon("/mActionUndo.svg"), "Undo", self
         )
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self.undo_action.setShortcutContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.view.addAction(self.undo_action)
+        self.undo_action.setStatusTip("Undo the last workflow edit")
         self.undo_action.triggered.connect(self.undo_document)
         toolbar.addAction(self.undo_action)
         self.redo_action = QAction(
             self._theme_icon("/mActionRedo.svg"), "Redo", self
         )
         self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        self.redo_action.setShortcutContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
+        self.view.addAction(self.redo_action)
+        self.redo_action.setStatusTip("Redo the last undone workflow edit")
         self.redo_action.triggered.connect(self.redo_document)
         toolbar.addAction(self.redo_action)
         toolbar.addSeparator()
 
         self.run_action = QAction(self._theme_icon("/mActionStart.svg"), "Run", self)
         self.run_action.setShortcut(QKeySequence("Ctrl+R"))
+        self.run_action.setStatusTip(
+            "Validate and run an immutable workflow snapshot"
+        )
         self.run_action.triggered.connect(self.run_model)
         toolbar.addAction(self.run_action)
         self.cancel_run_action = QAction(
             self._theme_icon("/mActionCancel.svg"), "Cancel", self
         )
         self.cancel_run_action.setShortcut(QKeySequence("Esc"))
+        self.cancel_run_action.setStatusTip(
+            "Cancel the active workflow without adding result layers"
+        )
         self.cancel_run_action.setEnabled(False)
         self.cancel_run_action.triggered.connect(self.cancel_model)
         toolbar.addAction(self.cancel_run_action)
@@ -182,65 +214,115 @@ class SmartModelerWindow(QMainWindow):
         setup_action.setToolTip(
             "Review every step in run order and fill in the missing inputs"
         )
+        setup_action.setStatusTip(setup_action.toolTip())
         # Explicit lambda: QAction.triggered passes a `checked` bool that would
         # otherwise land in only_when_incomplete.
         setup_action.triggered.connect(lambda: self.open_run_setup())
         toolbar.addAction(setup_action)
 
         validate_action = QAction(self._theme_icon("/mIconSuccess.svg"), "Validate", self)
+        validate_action.setStatusTip(
+            "Check the graph and every required input without running it"
+        )
         validate_action.triggered.connect(self.validate_model)
         toolbar.addAction(validate_action)
         properties_action = QAction(
             self._theme_icon("/mActionOptions.svg"), "Model properties", self
         )
+        properties_action.setStatusTip(
+            "Edit workflow metadata and published output layers"
+        )
         properties_action.triggered.connect(self.open_model_properties)
         toolbar.addAction(properties_action)
+        connect_action = QAction(
+            self._theme_icon("/mActionLink.svg"), "Connect nodes", self
+        )
+        connect_action.setShortcut(QKeySequence("Ctrl+Shift+C"))
+        connect_action.setStatusTip(
+            "Create a compatible workflow connection using the keyboard"
+        )
+        connect_action.triggered.connect(self.open_connection_dialog)
+        toolbar.addAction(connect_action)
         toolbar.addSeparator()
 
         new_action = QAction(self._theme_icon("/mActionFileNew.svg"), "New", self)
         new_action.setShortcut(QKeySequence.StandardKey.New)
+        new_action.setStatusTip("Create a new empty workflow")
         new_action.triggered.connect(self.new_document)
         toolbar.addAction(new_action)
         open_action = QAction(self._theme_icon("/mActionFileOpen.svg"), "Open", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
+        open_action.setStatusTip("Open SmartModeler JSON or a QGIS model")
         open_action.triggered.connect(self.import_model)
         toolbar.addAction(open_action)
         self.save_action = QAction(
             self._theme_icon("/mActionFileSave.svg"), "Save", self
         )
         self.save_action.setShortcut(QKeySequence.StandardKey.Save)
+        self.save_action.setStatusTip("Save the current workflow")
         self.save_action.triggered.connect(self.save_document)
         toolbar.addAction(self.save_action)
         self.save_as_action = QAction(
             self._theme_icon("/mActionFileSaveAs.svg"), "Save As", self
         )
         self.save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self.save_as_action.setStatusTip(
+            "Save the workflow to a new file or format"
+        )
         self.save_as_action.triggered.connect(self.save_document_as)
         toolbar.addAction(self.save_as_action)
         toolbar.addSeparator()
 
         layout_action = QAction(self._theme_icon(
             "/mActionArrangeSymbolsLeft.svg"), "Auto layout", self)
+        layout_action.setStatusTip("Arrange workflow nodes automatically")
         layout_action.triggered.connect(self.auto_layout)
         toolbar.addAction(layout_action)
         fit_action = QAction(self._theme_icon("/mActionZoomFullExtent.svg"), "Fit", self)
-        fit_action.setShortcut(QKeySequence("F"))
+        fit_action.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        fit_action.setStatusTip("Fit the complete graph in the canvas")
         fit_action.triggered.connect(self.fit_graph)
         toolbar.addAction(fit_action)
         toolbar.addSeparator()
 
         settings_action = QAction(self._theme_icon("/mActionOptions.svg"), "AI connections", self)
+        settings_action.setStatusTip("Configure offline or connected AI profiles")
         settings_action.triggered.connect(self.open_ai_settings)
         toolbar.addAction(settings_action)
         self.undo_ai_action = QAction(
             self._theme_icon("/mActionUndo.svg"), "Undo AI", self
         )
         self.undo_ai_action.setEnabled(False)
+        self.undo_ai_action.setStatusTip(
+            "Undo the most recent AI workflow replacement"
+        )
         self.undo_ai_action.triggered.connect(self.undo_last_ai_change)
         toolbar.addAction(self.undo_ai_action)
         clear_action = QAction(self._theme_icon("/mActionDeleteSelected.svg"), "Clear", self)
+        clear_action.setStatusTip("Remove every node after confirmation")
         clear_action.triggered.connect(self.clear_canvas)
         toolbar.addAction(clear_action)
+
+        search_action = QAction("Find algorithm", self)
+        search_action.setShortcut(QKeySequence.StandardKey.Find)
+        search_action.setStatusTip("Focus the installed algorithm search")
+        search_action.triggered.connect(self._focus_algorithm_search)
+        self.addAction(search_action)
+
+    def _focus_algorithm_search(self) -> None:
+        self.palette_widget.search_bar.setFocus()
+        self.palette_widget.search_bar.selectAll()
+
+    def open_connection_dialog(self) -> None:
+        if self._is_executing or not self.graph.nodes:
+            return
+        dialog = ConnectionDialog(self.graph, self)
+        if (
+            dialog.exec() != QDialog.DialogCode.Accepted
+            or dialog.connection is None
+        ):
+            return
+        self.scene.connect_ports(*dialog.connection)
 
     def _connect_permanent_signals(self) -> None:
         self.ai_prompt_bar.prompt_submitted.connect(self.generate_ai_graph)
@@ -249,6 +331,9 @@ class SmartModelerWindow(QMainWindow):
         self.proposal_bar.algorithm_selected.connect(self.add_node_by_alg)
         self.proposal_bar.proposal_selected.connect(self.apply_smart_proposal)
         self.inspector_widget.configure_requested.connect(self.configure_node)
+        self.inspector_widget.node_requested.connect(
+            self._select_node_from_outline
+        )
         self.execution_engine.node_state_changed.connect(self._node_state_changed)
         self.execution_engine.progress_changed.connect(self._execution_progress)
         self.ai_client.succeeded.connect(self._ai_succeeded)
@@ -282,6 +367,7 @@ class SmartModelerWindow(QMainWindow):
             self.scene.add_connection_to_scene(edge)
         self._connect_scene_signals()
         self.inspector_widget.inspect_node(None)
+        self.inspector_widget.set_graph(graph)
         if old_scene is not self.scene:
             old_scene.deleteLater()
         self._sync_ai_workflow_state()
@@ -293,7 +379,17 @@ class SmartModelerWindow(QMainWindow):
 
     def _on_scene_graph_changed(self) -> None:
         self._sync_ai_workflow_state()
+        self.inspector_widget.refresh_outline()
         self._record_document_change()
+
+    def _select_node_from_outline(self, node_id: str) -> None:
+        item = self.scene.node_items.get(node_id)
+        if item is None:
+            return
+        self.scene.clearSelection()
+        item.setSelected(True)
+        self.view.centerOn(item)
+        self.view.setFocus()
 
     def _record_document_change(self) -> bool:
         if self._history_suspended:
@@ -974,6 +1070,7 @@ class SmartModelerWindow(QMainWindow):
             return
         layers = "\n".join(
             f"- {name}" for name in report.added_layers) or "No map layers were produced."
+        self.status_label.setText("Workflow complete")
         QMessageBox.information(
             self,
             "Workflow complete",
@@ -1016,6 +1113,7 @@ class SmartModelerWindow(QMainWindow):
         item = self.scene.node_items.get(node_id)
         if item is not None:
             item.refresh()
+        self.inspector_widget.refresh_outline()
         if self.inspector_widget.node is self.graph.nodes.get(node_id):
             self.inspector_widget.inspect_node(self.graph.nodes[node_id])
 

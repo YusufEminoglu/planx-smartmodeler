@@ -33,7 +33,7 @@ class PortGraphicsItem(QGraphicsItem):
         self.setToolTip(f"{direction}: {port.name} [{port.socket_type}]")
 
     def boundingRect(self) -> QRectF:
-        r = self.RADIUS + 4.0
+        r = 12.0
         return QRectF(-r, -r, 2 * r, 2 * r)
 
     def paint(self, painter, option, widget=None):

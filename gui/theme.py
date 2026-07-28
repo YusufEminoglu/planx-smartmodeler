@@ -4,8 +4,6 @@ STUDIO_STYLE = """
 QMainWindow, QDialog, QWidget {
     background: #111722;
     color: #EAF0F7;
-    font-family: "Segoe UI", "Inter", sans-serif;
-    font-size: 10pt;
 }
 QToolBar {
     background: #151D29;
@@ -22,6 +20,7 @@ QToolButton {
     padding: 5px 8px;
 }
 QToolButton:hover { background: #202B3B; border-color: #34445C; }
+QToolButton:focus { border: 2px solid #F7C948; }
 QSplitter::handle { background: #29364A; width: 1px; }
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     background: #182130;
@@ -41,6 +40,7 @@ QPushButton {
     padding: 6px 12px;
 }
 QPushButton:hover { background: #29384C; border-color: #557093; }
+QPushButton:focus { border: 2px solid #F7C948; }
 QPushButton:disabled { color: #637083; background: #171E29; }
 QPushButton#primaryButton { background: #2B6FE8; border-color: #4F8BFA; font-weight: 600; }
 QPushButton#primaryButton:hover { background: #397CF0; }
@@ -49,7 +49,9 @@ QTreeWidget, QListWidget, QTableWidget {
     alternate-background-color: #182231;
     border: 1px solid #29364A;
     border-radius: 6px;
-    outline: none;
+}
+QTreeWidget:focus, QListWidget:focus, QTableWidget:focus {
+    border: 2px solid #F7C948;
 }
 QTreeWidget::item, QListWidget::item { padding: 5px 4px; }
 QTreeWidget::item:selected, QListWidget::item:selected {

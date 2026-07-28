@@ -10,6 +10,7 @@ from qgis.PyQt.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 
@@ -27,6 +28,7 @@ class AiPromptWidget(QFrame):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("aiPromptPanel")
+        self.setAccessibleName("AI workflow planner")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(14, 10, 14, 10)
         outer.setSpacing(7)
@@ -43,6 +45,10 @@ class AiPromptWidget(QFrame):
 
         row = QHBoxLayout()
         self.prompt_edit = QPlainTextEdit()
+        self.prompt_edit.setAccessibleName("Workflow request")
+        self.prompt_edit.setAccessibleDescription(
+            "Describe a workflow. Press Control plus Enter to submit."
+        )
         self.prompt_edit.setPlaceholderText(
             "Describe the GIS result you need. Include layers, fields, distances and outputs when known..."
         )
@@ -52,15 +58,18 @@ class AiPromptWidget(QFrame):
 
         right = QVBoxLayout()
         self.mode_combo = QComboBox()
+        self.mode_combo.setAccessibleName("Workflow generation mode")
         self.mode_combo.addItem("Improve current", "improve")
         self.mode_combo.addItem("Build new", "new")
         self.mode_combo.currentIndexChanged.connect(self._update_mode_ui)
         right.addWidget(self.mode_combo)
         self.preset_combo = QComboBox()
+        self.preset_combo.setAccessibleName("Example workflow prompts")
         self.preset_combo.addItems(self.PRESET_PROMPTS)
         self.preset_combo.currentIndexChanged.connect(self._preset_selected)
         right.addWidget(self.preset_combo)
         self.generate_button = QPushButton()
+        self.generate_button.setAccessibleName("Submit workflow request")
         self.generate_button.setObjectName("primaryButton")
         self.generate_button.clicked.connect(self.submit_prompt)
         right.addWidget(self.generate_button)
@@ -73,6 +82,9 @@ class AiPromptWidget(QFrame):
         )
         self.hint.setObjectName("mutedLabel")
         outer.addWidget(self.hint)
+        QWidget.setTabOrder(self.prompt_edit, self.mode_combo)
+        QWidget.setTabOrder(self.mode_combo, self.preset_combo)
+        QWidget.setTabOrder(self.preset_combo, self.generate_button)
         self.set_workflow_available(False)
 
     def eventFilter(self, watched, event):
@@ -114,6 +126,11 @@ class AiPromptWidget(QFrame):
         improve = self.mode_combo.currentData() == "improve"
         self.generate_button.setText(
             "Improve workflow" if improve else "Build workflow"
+        )
+        self.generate_button.setAccessibleDescription(
+            "Generate a validated update to the current workflow."
+            if improve
+            else "Generate a new validated workflow."
         )
         self.hint.setText(
             "Ctrl+Enter to improve the current canvas. Existing nodes, parameters "

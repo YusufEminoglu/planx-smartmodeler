@@ -8,7 +8,7 @@ from pathlib import Path
 
 from qgis.PyQt.QtCore import QEvent, QMetaType, QPointF, QTimer, Qt
 from qgis.PyQt.QtGui import QAction, QColor, QIcon, QKeyEvent
-from qgis.PyQt.QtWidgets import QApplication
+from qgis.PyQt.QtWidgets import QApplication, QLineEdit
 from qgis.core import (
     QgsApplication,
     QgsFeature,
@@ -86,11 +86,14 @@ def run_checks() -> str:
     from planx_smartmodeler.core.model3_serializer import Model3Serializer
     from planx_smartmodeler.core.micro_packages import MicroPackageCatalog
     from planx_smartmodeler.core.proposal_engine import SmartProposalEngine
+    from planx_smartmodeler.core.translation import TranslationManager
     from planx_smartmodeler.gui.agent_dock import AgentWorkspaceDock
     from planx_smartmodeler.gui.ai_prompt_widget import AiPromptWidget
     from planx_smartmodeler.gui.ai_settings_dialog import AiSettingsDialog
     from planx_smartmodeler.gui.canvas_scene import CanvasScene
     from planx_smartmodeler.gui.canvas_view import CanvasView
+    from planx_smartmodeler.gui.connection_dialog import ConnectionDialog
+    from planx_smartmodeler.gui.help_dialog import HelpDialog
     from planx_smartmodeler.gui.node_parameter_dialog import NodeParameterDialog
     from planx_smartmodeler.gui.node_palette_widget import NodePaletteWidget
     from planx_smartmodeler.gui.model_properties_dialog import (
@@ -833,7 +836,49 @@ def run_checks() -> str:
         prompt = AiPromptWidget()
         prompt.set_workflow_available(True)
         palette = NodePaletteWidget()
+        palette_activations = []
+        palette.node_requested.connect(
+            lambda algorithm_id, _title, _category: (
+                palette_activations.append(algorithm_id)
+            )
+        )
+        first_group = palette.tree.topLevelItem(0)
+        first_algorithm = (
+            first_group.child(0)
+            if first_group is not None and first_group.childCount()
+            else None
+        )
+        if first_algorithm is not None:
+            palette.tree.itemActivated.emit(first_algorithm, 0)
+        if not palette_activations:
+            raise RuntimeError("Enter did not activate a palette algorithm.")
         settings_dialog = AiSettingsDialog()
+        settings_dialog.reveal_button.setChecked(True)
+        if (
+            settings_dialog.reveal_button.text() != "Hide"
+            or settings_dialog.key_edit.echoMode()
+            != QLineEdit.EchoMode.Normal
+        ):
+            raise RuntimeError("The API key reveal control did not expose Hide.")
+        canceled_tests = []
+        settings_dialog.client.is_busy = lambda: True
+        settings_dialog.client.cancel = lambda: canceled_tests.append(True)
+        settings_dialog.reject()
+        if canceled_tests != [True]:
+            raise RuntimeError(
+                "Closing AI settings did not cancel its active connection test."
+            )
+        help_dialog = HelpDialog()
+        if not help_dialog.accessibleName():
+            raise RuntimeError("The in-application help dialog is inaccessible.")
+        help_dialog.close()
+        translation = TranslationManager(
+            str(plugin_root / "planx_smartmodeler")
+        )
+        if translation.install() != "en":
+            raise RuntimeError("A missing locale catalog did not fall back to English.")
+        translation.remove()
+        translation.remove()
         icon_path = plugin_root / "planx_smartmodeler" / "icons" / "icon.png"
         icon = QIcon(str(icon_path))
         if (
@@ -884,6 +929,18 @@ def run_checks() -> str:
             )
 
         document_window = SmartModelerWindow(None)
+        if (
+            not document_window.view.accessibleName()
+            or not document_window.palette_widget.search_bar.accessibleName()
+            or not document_window.inspector_widget.outline.accessibleName()
+            or document_window.undo_action.shortcutContext()
+            != Qt.ShortcutContext.WidgetWithChildrenShortcut
+            or document_window.redo_action.shortcutContext()
+            != Qt.ShortcutContext.WidgetWithChildrenShortcut
+        ):
+            raise RuntimeError(
+                "Studio accessibility names or text-safe shortcuts are missing."
+            )
         if document_window.document_history.is_dirty:
             raise RuntimeError("A new Workflow Studio document started dirty.")
         document_window.add_node_by_alg("smart:number")
@@ -896,6 +953,8 @@ def run_checks() -> str:
         if len(document_window.graph.nodes) != 1:
             raise RuntimeError("Document Redo did not restore the added node.")
         number_node = next(iter(document_window.graph.nodes.values()))
+        if document_window.inspector_widget.outline.topLevelItemCount() != 1:
+            raise RuntimeError("The accessible graph outline did not track nodes.")
         number_output = number_node.outputs["OUTPUT"]
         recommendations = SmartProposalEngine.get_proposals_for_port(
             number_output, number_node
@@ -917,6 +976,49 @@ def run_checks() -> str:
         document_window.undo_document()
         if len(document_window.graph.nodes) != 1:
             raise RuntimeError("Smart proposal was not one undoable document edit.")
+
+        keyboard_graph = GraphModel("Keyboard connections")
+        keyboard_number = AlgorithmCatalog.create_node(
+            "smart:number", "keyboard_number", "Distance"
+        )
+        keyboard_buffer = AlgorithmCatalog.create_node(
+            "native:buffer", "keyboard_buffer", "Buffer"
+        )
+        keyboard_graph.add_node(keyboard_number)
+        keyboard_graph.add_node(keyboard_buffer)
+        connection_dialog = ConnectionDialog(keyboard_graph)
+        source_index = next(
+            (
+                index
+                for index in range(connection_dialog.source_combo.count())
+                if tuple(connection_dialog.source_combo.itemData(index))
+                == ("keyboard_number", "OUTPUT")
+            ),
+            -1,
+        )
+        connection_dialog.source_combo.setCurrentIndex(source_index)
+        target_index = next(
+            (
+                index
+                for index in range(connection_dialog.target_combo.count())
+                if tuple(connection_dialog.target_combo.itemData(index))
+                == ("keyboard_buffer", "DISTANCE")
+            ),
+            -1,
+        )
+        connection_dialog.target_combo.setCurrentIndex(target_index)
+        connection_dialog._accept_connection()
+        if connection_dialog.connection != (
+            "keyboard_number",
+            "OUTPUT",
+            "keyboard_buffer",
+            "DISTANCE",
+        ):
+            raise RuntimeError(
+                "The keyboard connection dialog did not select a valid edge: "
+                f"source_index={source_index}, target_index={target_index}, "
+                f"connection={connection_dialog.connection!r}."
+            )
         with _document_tempfile.TemporaryDirectory() as document_tmp:
             document_path = Path(document_tmp) / "atomic.smartmodeler.json"
             if not document_window._save_to_path(
@@ -943,10 +1045,10 @@ def run_checks() -> str:
             def mainWindow(self):
                 return None
 
-            def addPluginToVectorMenu(self, _name, _action):
+            def addPluginToMenu(self, _name, _action):
                 pass
 
-            def removePluginVectorMenu(self, _name, _action):
+            def removePluginMenu(self, _name, _action):
                 pass
 
             def addVectorToolBarIcon(self, _action):
@@ -3056,6 +3158,11 @@ def run_checks() -> str:
 
         # -- Owner-QA follow-up: Run shows the whole flow, not one modal/node --
         original_rough_parameters = dict(rough_buffer.parameters)
+        original_rough_sources = {
+            name: list(sources)
+            for name, sources in rough_buffer.parameter_source_order.items()
+        }
+        original_rough_dirty = rough_buffer.is_dirty
         setup = RunSetupDialog(rough)
         try:
             if [node.title for node, _form in setup._forms] != ["Buffer step", "Centres"]:
@@ -3065,11 +3172,39 @@ def run_checks() -> str:
             setup.show_all_check.setChecked(True)
             if len(setup._forms) != 2:
                 raise RuntimeError("Run setup lost a step when showing all parameters.")
+            mutated = dict(rough_buffer.parameters)
+            mutated["DISTANCE"] = 999
+            setup._forms[0][1].apply(mutated)
             setup.reject()
-            if rough_buffer.parameters != original_rough_parameters:
-                raise RuntimeError("Cancelling run setup did not restore the parameters.")
+            if (
+                rough_buffer.parameters != original_rough_parameters
+                or rough_buffer.parameter_source_order
+                != original_rough_sources
+                or rough_buffer.is_dirty != original_rough_dirty
+            ):
+                raise RuntimeError(
+                    "Cancelling run setup did not restore the complete node state."
+                )
         finally:
             setup.deleteLater()
+
+        unavailable_graph = GraphModel("Unavailable algorithm")
+        unavailable_node = AlgorithmCatalog.create_node(
+            "native:buffer", "unavailable_step", "Unavailable step"
+        )
+        unavailable_node.algorithm_id = "missing_provider:missing_algorithm"
+        unavailable_graph.add_node(unavailable_node)
+        unavailable_setup = RunSetupDialog(unavailable_graph)
+        try:
+            if (
+                unavailable_setup.run_button.isEnabled()
+                or "missing" not in unavailable_setup.summary_label.text().lower()
+            ):
+                raise RuntimeError(
+                    "Run setup presented an unavailable algorithm as ready."
+                )
+        finally:
+            unavailable_setup.deleteLater()
 
         return f"QGIS {Qgis.QGIS_VERSION}: {len(records)} algorithms; smoke test passed"
 
@@ -3208,6 +3343,11 @@ def main() -> int:
             QApplication.processEvents()
             time.sleep(0.01)
         for widget in QApplication.topLevelWidgets():
+            prepare_for_shutdown = getattr(
+                widget, "prepare_for_shutdown", None
+            )
+            if callable(prepare_for_shutdown):
+                prepare_for_shutdown()
             widget.close()
             widget.deleteLater()
         QApplication.sendPostedEvents(

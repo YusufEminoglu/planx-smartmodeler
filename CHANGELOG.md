@@ -2,6 +2,33 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.10.0] - 2026-07-27
+
+### Accessible workflow authoring
+
+- Adds keyboard activation for algorithms and starter workflows, `Ctrl+F`
+  search focus, canvas-local document Undo/Redo, Enter-to-configure, and a
+  `Ctrl+Shift+C` connection dialog for pointer-free graph construction.
+- Adds a synchronized screen-reader workflow outline containing node state,
+  ports, and connection sources, plus accessible names/descriptions and a
+  deliberate focus order across primary Studio controls.
+- Replaces hidden item-view focus outlines with a two-pixel contrast ring,
+  respects the QGIS/system base font, enlarges port hit targets, and darkens
+  node header colors for readable white labels.
+
+### Honest and recoverable UX
+
+- Missing Processing algorithms now remain visibly unavailable in Run Setup
+  and disable Run instead of being described as ready.
+- Run Setup Cancel restores parameters, ordered sources, and dirty state after
+  any sheet rebuild; closing AI settings cancels an active connection test.
+- Moves actions from Vector to the standard Plugins menu, focuses Agent input
+  on open, and adds an in-application Quick Start, Keyboard, Privacy/Safety,
+  and Support guide.
+- Adds an English-fallback Qt translation lifecycle without claiming shipped
+  non-English coverage, corrects provider privacy boundaries and the current
+  sixteen-algorithm Agent allowlist, and documents Hub installation/support.
+
 ## [0.9.0] - 2026-07-27
 
 ### Cancellable workflow execution

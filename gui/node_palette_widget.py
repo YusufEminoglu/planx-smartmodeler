@@ -28,6 +28,7 @@ class NodePaletteWidget(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setAccessibleName("Algorithm library")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 8, 10)
         layout.setSpacing(8)
@@ -36,26 +37,38 @@ class NodePaletteWidget(QWidget):
         title.setObjectName("panelEyebrow")
         layout.addWidget(title)
         self.search_bar = QLineEdit()
+        self.search_bar.setAccessibleName("Search installed algorithms")
         self.search_bar.setClearButtonEnabled(True)
         self.search_bar.setPlaceholderText("Search installed algorithms...")
         self.search_bar.textChanged.connect(self.filter_tree)
         layout.addWidget(self.search_bar)
 
         self.tree = QTreeWidget()
+        self.tree.setAccessibleName("Installed Processing algorithms")
+        self.tree.setAccessibleDescription(
+            "Choose an algorithm and press Enter or double-click to add it."
+        )
         self.tree.setHeaderHidden(True)
         self.tree.setUniformRowHeights(True)
         self.tree.itemDoubleClicked.connect(self.on_item_double_clicked)
+        self.tree.itemActivated.connect(self.on_item_double_clicked)
         layout.addWidget(self.tree, 1)
 
         self.count_label = QLabel()
+        self.count_label.setAccessibleName("Algorithm search result count")
         self.count_label.setObjectName("mutedLabel")
         layout.addWidget(self.count_label)
 
         presets = QGroupBox("Starter workflows")
         preset_layout = QVBoxLayout(presets)
         self.preset_list = QListWidget()
+        self.preset_list.setAccessibleName("Starter workflows")
+        self.preset_list.setAccessibleDescription(
+            "Choose a workflow and press Enter or double-click to load it."
+        )
         self.preset_list.setMaximumHeight(125)
         self.preset_list.itemDoubleClicked.connect(self.on_preset_double_clicked)
+        self.preset_list.itemActivated.connect(self.on_preset_double_clicked)
         preset_layout.addWidget(self.preset_list)
         layout.addWidget(presets)
 

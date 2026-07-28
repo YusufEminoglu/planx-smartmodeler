@@ -84,7 +84,7 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   commits one atomic change (rolling back on any failure), and records the
   outcome in a bounded in-session action ledger.
 - An approved **run** executes either one algorithm from a shipped, hardcoded
-  list of twelve reviewed native algorithms -- and only while its live signature
+  list of sixteen reviewed native algorithms -- and only while its live signature
   still matches the reviewed one -- or your current workflow, whose every step
   must independently pass the same check. There is no "run any algorithm" path,
   and neither the AI nor your prompt can extend the list. Runs show progress, can
@@ -144,11 +144,12 @@ The auditable instruction set lives in [`ai_context/`](ai_context/):
 
 ## Basic use
 
-1. Open **Plugins > SmartModeler GIS**.
+1. Open **Plugins > SmartModeler GIS > SmartModeler GIS - Workflow Studio**.
+   The adjacent **Agent Workspace** action opens the supervised assistant dock.
 2. Add installed algorithms from the palette or choose a starter workflow.
 3. Connect compatible ports, then double-click a node to configure it or open
    **Run setup** to review and fill in the whole workflow at once.
-4. Use **Validate** and then **Run Model**.
+4. Use **Validate** and then **Run**.
 5. Optionally configure an AI profile and describe the workflow in the prompt bar.
 6. Save a portable SmartModeler JSON file, a QGIS `.model3` model, or a QGIS
    Python algorithm.
@@ -178,16 +179,51 @@ Practical limits worth knowing before you rely on it:
   clears the conversation, the ledger and the freshness tokens.
 - The agent never continues by itself. Every step is one you asked for.
 
+### Keyboard and accessibility
+
+| Command | Keyboard path |
+|---|---|
+| Find and add an algorithm | `Ctrl+F`, type, arrow to a result, `Enter` |
+| Configure a selected node | `Enter` while the canvas has focus |
+| Connect two ports | `Ctrl+Shift+C`, choose source and target, activate Connect |
+| Remove selected nodes or edges | `Delete` while the canvas has focus |
+| Fit the graph | `F` on the canvas or `Ctrl+Shift+F` anywhere in Studio |
+| Undo or redo graph edits | `Ctrl+Z` / `Ctrl+Y` while the canvas has focus |
+| Run or cancel | `Ctrl+R` / `Esc` |
+
+The Node Inspector contains a keyboard- and screen-reader-accessible workflow
+outline with every node, execution state, input, output, and connection. Primary
+Studio, settings, run, approval, and help controls expose accessible names.
+Focus indicators use a two-pixel high-contrast ring, and SmartModeler respects
+the QGIS/system font instead of forcing a font family or base size. The same
+Quick start, Keyboard, Privacy/Safety, and Support guidance is available inside
+QGIS through **SmartModeler GIS - Help and Safety**.
+
 ## Privacy
 
-What leaves your machine, and only when you send a chat turn to a non-offline
-profile: your message, the plugin's own instructions, and **bounded metadata** —
-layer names, geometry types, CRS identifiers, field names and types, algorithm
-names, and installed plugin names and versions.
+SmartModeler makes a provider request only after you submit a Planner prompt or
+Agent message to a connected, non-offline profile. That request contains what
+you typed, SmartModeler's static instructions, and the metadata enabled in the
+selected profile.
 
-What never leaves it: feature and attribute **values**, source paths, file names,
-data source URIs and connection strings, style and label expressions, credentials
-and API keys, and your project file path.
+The Workflow Studio Planner can include bounded project layer metadata and
+installed Processing signatures. **Improve current** also includes the redacted
+workflow structure: model name/description, node and algorithm identifiers,
+parameter names, connections, and local-only retention tokens in place of
+existing parameter values.
+
+Agent Chat can include bounded inspection results such as project title and
+layer count; layer IDs, names, visibility, provider type, geometry, CRS, field
+names/types, and feature count; installed plugin names/versions; and workflow
+structure/validation summaries. Scope and mode restrict which inspection is
+available.
+
+SmartModeler does not automatically collect feature or attribute **values**,
+source paths, data-source URIs or connection strings, style/label expressions,
+credentials/API keys, or the project file path. Anything you type into your own
+message is part of that message, so do not paste secrets or private values.
+Storage, training, and retention after delivery are governed by the provider
+you configured and are outside SmartModeler's control.
 
 The **SmartModeler Offline** profile sends no network request at all, and every
 quick inspection in the dock works with it. API keys are held in the QGIS
@@ -224,12 +260,38 @@ The panel reports what it can prove, and nothing more.
 **Unlock vault** in AI connections. That password is the QGIS vault password, not
 your provider API key.
 
+**A provider endpoint is rejected.** Remote endpoints must use HTTPS. Plain HTTP
+is accepted only for loopback hosts such as `localhost` and `127.0.0.1`. Check
+the provider-specific endpoint, deployment/model name, API version, and timeout.
+
+**A provider connected but returned an invalid workflow.** Connectivity alone is
+not enough: the response must satisfy the local SmartModeler graph contract.
+Try a model with reliable structured-output support or simplify the prompt.
+
+**An API key must be rotated or removed.** Open **AI connections**, replace the
+key and save, or delete the profile. A session-only key disappears when QGIS
+closes. A persisted key is stored in the QGIS Authentication Database and must
+be managed with that database unlocked.
+
 ## Requirements and installation
 
 - QGIS 4.0 or newer
 - No pip or external Python dependencies
 
-Install the release ZIP through **Plugins > Manage and Install Plugins > Install from ZIP**. The ZIP root must be `planx_smartmodeler/`.
+For a Hub release, open **Plugins > Manage and Install Plugins**, search for
+**SmartModeler GIS**, and choose Install. For a manual or development build, use
+**Install from ZIP**; the ZIP root must be `planx_smartmodeler/`.
+
+After installation, the **Plugins > SmartModeler GIS** submenu contains Workflow
+Studio, Agent Workspace, and Help and Safety. The first two also have toolbar
+actions.
+
+## Support
+
+Report reproducible bugs and feature requests at the
+[SmartModeler GIS issue tracker](https://github.com/YusufEminoglu/planx-smartmodeler/issues).
+Include QGIS and plugin versions, exact steps, and relevant Processing log
+messages. Remove private paths, data-source details, and credentials first.
 
 ## Development checks
 
@@ -270,8 +332,8 @@ launchers.
 ## Architecture
 
 ```text
-gui/                 Qt 6 window, canvas, palette, inspector, model properties
-                     and dialogs
+gui/                 Qt window, canvas, accessible graph outline, palette,
+                     inspector, model properties, help, and dialogs
 gui/agent_dock.py    Agent Workspace panel: the only place a human click
                      turns a proposal into an action
 core/graph_model.py  Pure-Python typed DAG and validation
@@ -301,7 +363,7 @@ agent_context/       Auditable Markdown context and guardrails for the agent
 ai_context/          Auditable Markdown context and guardrails for the planner
 resources/           Shipped micro-package workflow schemas
 tests/               Pure unit tests, seeded fuzz suite, real-QGIS smoke harness
-docs/                Versioned delivery, release, and architecture decisions
+docs/                Versioned V1.0 delivery and acceptance plan
 ```
 
 The split above is the design, not a filing convention: every security decision

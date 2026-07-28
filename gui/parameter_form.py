@@ -52,6 +52,7 @@ class NodeParameterForm:
         self.editors: Dict[str, Tuple[QWidget, str]] = {}
         self.native_wrappers: Dict[str, Any] = {}
         self.native_values: Dict[str, Any] = {}
+        self.algorithm_available = True
         self.processing_context = QgsProcessingContext()
         self.processing_context.setProject(QgsProject.instance())
         self.widget_context = QgsProcessingParameterWidgetContext()
@@ -75,8 +76,10 @@ class NodeParameterForm:
         registry = QgsApplication.processingRegistry()
         algorithm = registry.algorithmById(self.node.algorithm_id)
         if algorithm is None:
+            self.algorithm_available = False
             form.addRow(QLabel("This Processing algorithm is not available."))
             return 0
+        self.algorithm_available = True
         added = 0
         for definition in algorithm.parameterDefinitions():
             hidden = definition.flags() & Qgis.ProcessingParameterFlag.Hidden
@@ -100,6 +103,15 @@ class NodeParameterForm:
 
     def unconfigured_names(self) -> List[str]:
         """Names of required inputs that are neither connected nor set."""
+        if (
+            not self.node.algorithm_id.startswith("smart:")
+            and QgsApplication.processingRegistry().algorithmById(
+                self.node.algorithm_id
+            )
+            is None
+        ):
+            self.algorithm_available = False
+            return ["Processing algorithm unavailable"]
         missing: List[str] = []
         if self.node.model_parameter_required:
             key = (
