@@ -2,6 +2,29 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.10.1] - 2026-07-29
+
+### Real-world AI workflow planning
+
+- Separates Workflow Studio's reviewable graph-planning catalog from Agent
+  Chat's narrow execution allowlist. The local PlanX Processing provider and
+  reviewed `native:randomextract` step can now be proposed in Studio without
+  expanding Agent `processing_run` authority.
+- Adds bounded live enum index labels and safe defaults to AI algorithm
+  signatures, so providers can distinguish choices such as random feature
+  count versus percentage and street buffer versus concave hull.
+- Treats provider JSON `null` parameters as explicitly unconfigured values,
+  matching the published graph contract. Connected and optional inputs may be
+  left unset while required unconnected inputs still fail closed.
+
+### Verification
+
+- DeepSeek generated and SmartModeler executed a real Konak acceptance graph:
+  prepare 6,414 OSM roads into 16,092 network segments, randomly select 15 of
+  161 bus stops, and create 15 individual plus one merged 320 m walking
+  isochrone with 1,491 reached street pieces.
+- 697 pure-Python tests and the real QGIS 4.2.0 smoke suite pass.
+
 ## [0.10.0] - 2026-07-27
 
 ### Accessible workflow authoring

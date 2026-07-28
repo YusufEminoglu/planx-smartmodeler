@@ -80,6 +80,16 @@ class AiContractTests(unittest.TestCase):
         self.assertFalse(AlgorithmCatalog.ai_algorithm_allowed("native:setlayerstyle"))
         self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("native:buffer"))
 
+    def test_workflow_ai_catalog_is_broader_than_agent_run_allowlist(self) -> None:
+        from planx_smartmodeler.core.agent.safe_algorithm_policy import default_policy
+
+        self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("native:randomextract"))
+        self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("planx:preparenetwork"))
+        self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("planx:serviceareas"))
+        self.assertFalse(AlgorithmCatalog.ai_algorithm_allowed("thirdparty:unreviewed"))
+        self.assertIsNone(default_policy().record_for("native:randomextract"))
+        self.assertIsNone(default_policy().record_for("planx:serviceareas"))
+
     def test_ai_parameter_literals_reject_paths_uris_and_wrong_types(self) -> None:
         node = NodeDefinition("n1", "Safe", algorithm_id="native:extractbyattribute")
         node.add_input("VALUE", "Value", SocketType.STRING)
@@ -173,6 +183,32 @@ class AiContractTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(AiResponseError, "local-value token"):
             AiMcpBridge.parse_response(json.dumps(payload))
+
+    def test_null_parameter_is_an_explicit_unconfigured_value(self) -> None:
+        baseline = GraphModel("Baseline")
+        source = AlgorithmCatalog.create_node(
+            "smart:input_layer", "source", "Source"
+        )
+        source.parameters["LAYER"] = "private-layer-id"
+        baseline.add_node(source)
+        payload = {
+            "title": "Clear source",
+            "summary": "Leave the source for guided setup.",
+            "nodes": [
+                {
+                    "id": "source",
+                    "algorithm_id": "smart:input_layer",
+                    "title": "Source",
+                    "parameters": [{"name": "LAYER", "value": None}],
+                }
+            ],
+            "edges": [],
+            "warnings": ["Select the input layer."],
+        }
+        parsed = AiMcpBridge.parse_response(
+            json.dumps(payload), base_graph=baseline
+        )
+        self.assertEqual(parsed.graph.nodes["source"].parameters["LAYER"], "")
 
 
 if __name__ == "__main__":

@@ -469,6 +469,15 @@ class AiMcpBridge:
                     raise AiResponseError(
                         f"Parameter '{key}' does not exist on {algorithm_id}."
                     )
+                # The graph contract permits JSON null. Providers commonly
+                # emit it for an optional input, or for a required input that
+                # is satisfied by an edge. Treat it as an explicit
+                # "leave/unset this value": in improve mode the key remains in
+                # supplied_parameters, so a private baseline value is cleared
+                # instead of restored. Required unconnected inputs still fail
+                # normal graph validation, so null never widens authority.
+                if value is None:
+                    continue
                 if value == cls.LOCAL_PARAMETER_MARKER:
                     if baseline_node is None or key not in baseline_node.parameters:
                         raise AiResponseError(

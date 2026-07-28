@@ -1,6 +1,7 @@
 """Bridge between the visual graph and the live QGIS Processing registry."""
 from __future__ import annotations
 
+import json
 import re
 import math
 from dataclasses import dataclass
@@ -45,6 +46,35 @@ class AlgorithmRecord:
 
 class AlgorithmCatalog:
     """Discovers algorithms and creates correctly typed graph nodes."""
+
+    # Workflow Studio planning and Agent Chat execution are different trust
+    # boundaries.  The Agent's processing_run proposal stays behind the
+    # deny-by-default SafeAlgorithmPolicy and its pinned live signatures.
+    # Workflow Studio only drafts a reviewable graph, so it may additionally
+    # use PlanX's application-owned, local Processing provider plus a small
+    # set of explicitly reviewed native graph-building steps.
+    AI_WORKFLOW_EXTRA_ALGORITHMS = frozenset(
+        {
+            "native:randomextract",
+        }
+    )
+    AI_WORKFLOW_TRUSTED_PREFIXES = ("planx:",)
+    AI_BLOCKED_ID_TERMS = (
+        "command",
+        "download",
+        "executesql",
+        "execute_sql",
+        "shell",
+        "upload",
+    )
+    AI_BLOCKED_ALGORITHM_IDS = frozenset(
+        {
+            "native:createdirectory",
+            "native:loadlayer",
+            "native:setlayerstyle",
+            "native:setprojectvariable",
+        }
+    )
 
     SMART_ALGORITHMS = {
         "smart:input_layer": ("Vector layer input", "Inputs", SocketType.VECTOR),
@@ -103,10 +133,29 @@ class AlgorithmCatalog:
 
     @classmethod
     def ai_algorithm_allowed(cls, algorithm_id: str) -> bool:
-        """Allow only application-owned inputs and reviewed Processing steps."""
+        """Return whether Workflow Studio may place an algorithm in an AI graph.
+
+        This is intentionally broader than Agent Chat's processing-run
+        allowlist: a Workflow Studio graph is inert until the user runs it and
+        every destination is forced through the normal Processing/output
+        boundary.  Agent execution still re-checks ``SafeAlgorithmPolicy`` and
+        cannot gain authority from this catalog predicate.
+        """
         if algorithm_id in cls.SMART_ALGORITHMS:
             return True
-        return default_policy().record_for(algorithm_id) is not None
+        if not isinstance(algorithm_id, str):
+            return False
+        normalized = algorithm_id.lower().replace("-", "_")
+        if (
+            normalized in cls.AI_BLOCKED_ALGORITHM_IDS
+            or any(term in normalized for term in cls.AI_BLOCKED_ID_TERMS)
+        ):
+            return False
+        return (
+            default_policy().record_for(algorithm_id) is not None
+            or algorithm_id in cls.AI_WORKFLOW_EXTRA_ALGORITHMS
+            or algorithm_id.startswith(cls.AI_WORKFLOW_TRUSTED_PREFIXES)
+        )
 
     @classmethod
     def ai_parameter_value_allowed(
@@ -464,8 +513,26 @@ class AlgorithmCatalog:
         for record in selected:
             try:
                 node = cls.create_node(record.algorithm_id)
+                registry = QgsApplication.processingRegistry()
+                algorithm = (
+                    registry.algorithmById(record.algorithm_id)
+                    if registry is not None
+                    and record.algorithm_id not in cls.SMART_ALGORITHMS
+                    else None
+                )
+                definitions = {
+                    definition.name(): definition
+                    for definition in (
+                        algorithm.parameterDefinitions()
+                        if algorithm is not None
+                        else ()
+                    )
+                }
                 inputs = ", ".join(
-                    f"{port.port_id}:{port.socket_type}" for port in node.inputs.values()
+                    cls._compact_ai_input_signature(
+                        node, port, definitions.get(port.port_id)
+                    )
+                    for port in node.inputs.values()
                 )
                 outputs = ", ".join(
                     f"{port.port_id}:{port.socket_type}" for port in node.outputs.values()
@@ -476,6 +543,47 @@ class AlgorithmCatalog:
             except (RuntimeError, ValueError):
                 continue
         return "\n".join(lines)
+
+    @classmethod
+    def _compact_ai_input_signature(
+        cls,
+        node: NodeDefinition,
+        port: Any,
+        definition: Any,
+    ) -> str:
+        """Describe one input with bounded enum meanings and safe defaults.
+
+        Enum indices are otherwise opaque to a provider (``METHOD=0`` versus
+        ``METHOD=1``), which made valid-looking AI graphs silently choose
+        percentage mode instead of feature-count mode. Option labels are
+        JSON-escaped, whitespace-normalized, length-bounded untrusted metadata.
+        """
+        details: Dict[str, Any] = {}
+        if isinstance(definition, QgsProcessingParameterEnum):
+            try:
+                raw_options = list(definition.options())
+            except (AttributeError, TypeError):
+                raw_options = []
+            option_labels = []
+            for index, option in enumerate(raw_options[:30]):
+                clean_option = re.sub(r"\s+", " ", str(option)).strip()[:120]
+                option_labels.append(f"{index}:{clean_option}")
+            details["options"] = option_labels
+        default = node.parameters.get(port.port_id)
+        if port.socket_type in (
+            SocketType.NUMBER,
+            SocketType.BOOLEAN,
+            SocketType.ENUM,
+            SocketType.STRING,
+        ) and GraphModel.value_is_configured(default):
+            if not isinstance(default, str) or cls._safe_ai_text(default):
+                details["default"] = default
+        suffix = (
+            json.dumps(details, ensure_ascii=False, separators=(",", ":"))
+            if details
+            else ""
+        )
+        return f"{port.port_id}:{port.socket_type}{suffix}"
 
     @staticmethod
     def project_context() -> str:

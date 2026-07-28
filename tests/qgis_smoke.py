@@ -120,6 +120,20 @@ def run_checks() -> str:
             raise RuntimeError("A side-effecting algorithm reached the AI catalog.")
         if AlgorithmCatalog.ai_algorithm_allowed("native:fileuploader"):
             raise RuntimeError("The AI graph policy allowed native:fileuploader.")
+        random_catalog = AlgorithmCatalog.compact_ai_catalog(
+            "randomly extract features",
+            5,
+            ["native:randomextract"],
+        )
+        if (
+            "native:randomextract" not in random_catalog
+            or "METHOD:enum{" not in random_catalog
+            or '"options":["0:' not in random_catalog
+            or '"default":0' not in random_catalog
+        ):
+            raise RuntimeError(
+                "The AI catalog omitted enum index meanings or defaults."
+            )
         import json as _json
 
         unsafe_graph = {
