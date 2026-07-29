@@ -1,47 +1,19 @@
 from __future__ import annotations
 
 import json
-import sys
-import types
 import unittest
 
+from planx_smartmodeler.tests.qgis_stubs import ensure_qgis_core
 
-if "qgis.core" not in sys.modules:
-    qgis_module = types.ModuleType("qgis")
-    core_module = types.ModuleType("qgis.core")
-    dummy_names = (
-        "Qgis",
-        "QgsApplication",
-        "QgsFeatureRequest",
-        "QgsProcessingParameterBoolean",
-        "QgsProcessingParameterCrs",
-        "QgsProcessingParameterDefinition",
-        "QgsProcessingParameterEnum",
-        "QgsProcessingParameterExtent",
-        "QgsProcessingParameterFeatureSource",
-        "QgsProcessingParameterField",
-        "QgsProcessingParameterFile",
-        "QgsProcessingParameterMapLayer",
-        "QgsProcessingParameterMultipleLayers",
-        "QgsProcessingParameterNumber",
-        "QgsProcessingParameterRasterDestination",
-        "QgsProcessingParameterRasterLayer",
-        "QgsProcessingParameterString",
-        "QgsProcessingParameterVectorDestination",
-        "QgsProcessingParameterVectorLayer",
-        "QgsProject",
-        "QgsRasterLayer",
-        "QgsVectorLayer",
-    )
-    for name in dummy_names:
-        setattr(core_module, name, type(name, (), {}))
-    qgis_module.core = core_module
-    sys.modules["qgis"] = qgis_module
-    sys.modules["qgis.core"] = core_module
+ensure_qgis_core()
 
-from planx_smartmodeler.core.ai_mcp_bridge import AiMcpBridge, AiResponseError
-from planx_smartmodeler.core.algorithm_catalog import AlgorithmCatalog
-from planx_smartmodeler.core.graph_model import GraphModel, NodeDefinition, SocketType
+from planx_smartmodeler.core.ai_mcp_bridge import AiMcpBridge, AiResponseError  # noqa: E402
+from planx_smartmodeler.core.algorithm_catalog import AlgorithmCatalog  # noqa: E402
+from planx_smartmodeler.core.graph_model import (  # noqa: E402
+    GraphModel,
+    NodeDefinition,
+    SocketType,
+)
 
 
 class AiContractTests(unittest.TestCase):

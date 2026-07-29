@@ -2,6 +2,23 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.16.0] - 2026-07-29
+
+### Complete live-catalog modeler compatibility
+
+- Audits every installed Processing algorithm through typed-node construction
+  and bounded SmartModeler JSON round-tripping on both supported QGIS runtimes.
+- Preserves valid provider parameter identifiers such as GRASS `-z` and
+  `DBSCAN*`, and stores native CRS and color defaults as portable text.
+- Repairs the real-QGIS Agent smoke sequence so the ten-action session safety
+  cap remains enforced while current-workflow runs are independently tested.
+- Makes pure QGIS stubs import-order independent, allowing the registry's whole
+  pure suite to run deterministically in one pytest process.
+- Adds a dedicated transparent node-and-spark Agent Workspace toolbar icon with
+  verified 16, 24, 32, and 64 pixel readability.
+- Moves the shared release command onto registry/git/attribution preflight,
+  full `pf verify`, verified ZIP creation, and annotated release tags.
+
 ## [0.15.3] - 2026-07-29
 
 ### Companion plugin AI connection bridge

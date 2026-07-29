@@ -91,8 +91,18 @@ class SmartModelerPlugin:
         )
         self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.agent_dock)
         self.agent_dock.hide()
+        agent_icon_path = os.path.join(
+            self.plugin_dir,
+            "icons",
+            "agent_workspace.png",
+        )
+        agent_icon = (
+            QIcon(agent_icon_path)
+            if os.path.exists(agent_icon_path)
+            else QgsApplication.getThemeIcon("/mIconModelInput.svg")
+        )
         self.agent_action = QAction(
-            QgsApplication.getThemeIcon("/mIconModelInput.svg"),
+            agent_icon,
             "SmartModeler GIS - Agent Workspace",
             self.iface.mainWindow(),
         )

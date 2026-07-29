@@ -17,30 +17,11 @@ from __future__ import annotations
 import json
 import random
 import string
-import sys
-import types
 import unittest
 
-# Same qgis.core stub convention as test_agent_runtime_tools.py, so the public
-# URL validator can be fuzzed without a QGIS runtime.
-if "qgis.core" not in sys.modules:
-    _qgis = types.ModuleType("qgis")
-    _core = types.ModuleType("qgis.core")
-    for _name in (
-        "Qgis", "QgsApplication", "QgsFeatureRequest",
-        "QgsProcessingParameterBoolean",
-        "QgsProcessingParameterDefinition", "QgsProcessingParameterFeatureSource",
-        "QgsProcessingParameterField", "QgsProcessingParameterFile",
-        "QgsProcessingParameterMapLayer", "QgsProcessingParameterMultipleLayers",
-        "QgsProcessingParameterNumber", "QgsProcessingParameterRasterDestination",
-        "QgsProcessingParameterRasterLayer", "QgsProcessingParameterString",
-        "QgsProcessingParameterVectorDestination", "QgsProcessingParameterVectorLayer",
-        "QgsProject", "QgsRasterLayer", "QgsVectorLayer",
-    ):
-        setattr(_core, _name, type(_name, (), {}))
-    _qgis.core = _core
-    sys.modules["qgis"] = _qgis
-    sys.modules["qgis.core"] = _core
+from planx_smartmodeler.tests.qgis_stubs import ensure_qgis_core
+
+ensure_qgis_core()
 
 from planx_smartmodeler.core.agent import context as agent_context  # noqa: E402
 from planx_smartmodeler.core.agent import runtime_tools  # noqa: E402

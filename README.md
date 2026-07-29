@@ -8,6 +8,9 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 ## Current capabilities
 
 - Discovers installed algorithms directly from the QGIS Processing registry.
+- Audits the complete live registry on both supported QGIS runtimes: every
+  installed algorithm must construct a typed node and preserve its port schema
+  through a bounded SmartModeler JSON round-trip.
 - Builds typed, acyclic graphs and rejects incompatible or duplicate connections.
 - Configures layers, multi-layer collections, files, extents, CRS values, and
   other parameters with native QGIS Processing controls.
@@ -71,6 +74,8 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   metadata-only (no feature values, source URIs, style/label expressions,
   baseline model parameter values, or credentials). Quick inspections keep
   working with the `offline` profile, which is not treated as a language model.
+- Uses a dedicated node-and-spark Agent Workspace toolbar icon that remains
+  distinct from the main Workflow Studio action at small QGIS toolbar sizes.
 - In Plan or Act mode the Agent Workspace can show five kinds of **validated
   proposals**: a model-workflow patch, a vector/raster symbology-and-labeling
   intent, a single reviewed Processing run, a run of your current workflow, and
@@ -354,6 +359,7 @@ messages. Remove private paths, data-source details, and credentials first.
 From the physical plugin monorepo root:
 
 ```powershell
+py -3 packaging/pf.py verify planx_smartmodeler
 python -m pytest planx_smartmodeler\tests -q
 python -m unittest discover -s planx_smartmodeler\tests -v
 python -m flake8 planx_smartmodeler
@@ -373,6 +379,9 @@ Processing execution, progressless task cancellation, atomic result ownership,
 Qt widget construction, `.model3` round-tripping, and the full agent
 proposal/approval/run/undo path. The distributed plugin requires QGIS 4; QGIS
 3.44 LTR is retained as an additional compatibility/regression runtime.
+`tests/qgis_modeler_catalog_matrix.py` separately walks every live Processing
+algorithm without executing arbitrary side effects, constructs its typed node,
+and verifies the complete port schema after JSON round-trip.
 Run the harness under both, each with its own throwaway profile:
 
 ```powershell

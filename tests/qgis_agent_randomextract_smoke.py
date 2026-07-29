@@ -7,10 +7,13 @@ import sys
 from pathlib import Path
 
 from qgis.core import (
+    QgsApplication,
     QgsFeature,
     QgsGeometry,
     QgsPointXY,
     QgsProcessingAlgorithm,
+    QgsProcessingContext,
+    QgsProcessingFeedback,
     QgsProcessingOutputString,
     QgsProject,
     QgsVectorLayer,
@@ -117,7 +120,9 @@ class SmartModelerAgentRandomExtractSmoke(QgsProcessingAlgorithm):
                 or not rows[0].get("agent_runnable")
                 or len(rows) > 8
             ):
-                raise RuntimeError("Processing search did not prioritize a compact runnable result.")
+                raise RuntimeError(
+                    "Processing search did not prioritize a compact runnable result."
+                )
 
             dynamic_safe = controller.execute(
                 AgentToolCall(
@@ -213,3 +218,42 @@ class SmartModelerAgentRandomExtractSmoke(QgsProcessingAlgorithm):
         finally:
             for layer_id in set(project.mapLayers()) - before:
                 project.removeMapLayer(layer_id)
+
+
+def main() -> int:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    source_root = Path(__file__).resolve().parents[1]
+    os.environ["SMARTMODELER_SOURCE_ROOT"] = str(source_root)
+    plugins_root = str(source_root.parent)
+    if plugins_root not in sys.path:
+        sys.path.insert(0, plugins_root)
+
+    application = QgsApplication([], False)
+    application.initQgis()
+    processing_plugins = os.path.join(
+        QgsApplication.prefixPath(),
+        "python",
+        "plugins",
+    )
+    if processing_plugins not in sys.path:
+        sys.path.append(processing_plugins)
+    try:
+        from processing.core.Processing import Processing
+
+        Processing.initialize()
+        algorithm = SmartModelerAgentRandomExtractSmoke()
+        algorithm.initAlgorithm()
+        result = algorithm.processAlgorithm(
+            {},
+            QgsProcessingContext(),
+            QgsProcessingFeedback(),
+        )
+        print(f"AGENT RANDOM EXTRACT SMOKE PASS: {result['RESULT']}")
+        return 0
+    finally:
+        QgsProject.instance().clear()
+        application.exitQgis()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

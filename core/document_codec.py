@@ -27,7 +27,10 @@ class GraphDocumentCodec:
     MAX_COLLECTION_ITEMS = 2_000
     MAX_VALUE_DEPTH = 10
     MAX_TEXT = 100_000
-    ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+    # QGIS Processing providers may expose command-style parameter/port names
+    # such as GRASS ``-z``.  Keep identifiers path/whitespace free and bounded,
+    # but accept that documented provider convention at the first character.
+    ID_PATTERN = re.compile(r"^[A-Za-z0-9*-][A-Za-z0-9_.:*-]{0,127}$")
     TYPE_KEY = "$smartmodeler_type"
 
     @classmethod
@@ -567,6 +570,27 @@ class GraphDocumentCodec:
     @classmethod
     def _encode_value(cls, value: Any, depth: int) -> Any:
         cls._check_depth(depth)
+        if type(value).__name__ == "QgsCoordinateReferenceSystem":
+            authid = getattr(value, "authid", None)
+            text = authid() if callable(authid) else ""
+            if not text:
+                to_wkt = getattr(value, "toWkt", None)
+                text = to_wkt() if callable(to_wkt) else ""
+            return cls._text(text, "CRS parameter", cls.MAX_TEXT)
+        if type(value).__name__ == "QColor":
+            channels = []
+            for component in ("red", "green", "blue", "alpha"):
+                accessor = getattr(value, component, None)
+                channels.append(accessor() if callable(accessor) else None)
+            if not all(
+                isinstance(channel, int) and 0 <= channel <= 255
+                for channel in channels
+            ):
+                raise DocumentCodecError("Invalid Qt color parameter value.")
+            red, green, blue, alpha = channels
+            if alpha == 255:
+                return f"#{red:02x}{green:02x}{blue:02x}"
+            return f"#{alpha:02x}{red:02x}{green:02x}{blue:02x}"
         if type(value).__name__ == "QVariant":
             is_null = getattr(value, "isNull", None)
             if callable(is_null) and is_null():

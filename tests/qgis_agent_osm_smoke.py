@@ -13,6 +13,8 @@ from qgis.core import (
     QgsGeometry,
     QgsPointXY,
     QgsProcessingAlgorithm,
+    QgsProcessingContext,
+    QgsProcessingFeedback,
     QgsProcessingOutputString,
     QgsProject,
     QgsVectorLayer,
@@ -291,3 +293,63 @@ class SmartModelerAgentOsmSmoke(QgsProcessingAlgorithm):
         finally:
             for layer_id in set(project.mapLayers()) - before:
                 project.removeMapLayer(layer_id)
+
+
+def main() -> int:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    source_root = Path(__file__).resolve().parents[1]
+    os.environ["SMARTMODELER_SOURCE_ROOT"] = str(source_root)
+    plugins_root = str(source_root.parent)
+    if plugins_root not in sys.path:
+        sys.path.insert(0, plugins_root)
+
+    application = QgsApplication([], False)
+    application.initQgis()
+    processing_plugins = os.path.join(
+        QgsApplication.prefixPath(),
+        "python",
+        "plugins",
+    )
+    if processing_plugins not in sys.path:
+        sys.path.append(processing_plugins)
+
+    added_providers = []
+    registry = QgsApplication.processingRegistry()
+    try:
+        from processing.core.Processing import Processing
+        from planx_smartmodeler.processing.provider import (
+            SmartModelerProcessingProvider,
+        )
+        from zero2agent_osm_downloader.processing.provider import AgentOsmProvider
+
+        Processing.initialize()
+        for provider_type in (
+            SmartModelerProcessingProvider,
+            AgentOsmProvider,
+        ):
+            if registry.providerById(provider_type.PROVIDER_ID) is None:
+                provider = provider_type()
+                if not registry.addProvider(provider):
+                    raise RuntimeError(
+                        f"Could not register smoke provider {provider_type.PROVIDER_ID}."
+                    )
+                added_providers.append(provider)
+
+        algorithm = SmartModelerAgentOsmSmoke()
+        algorithm.initAlgorithm()
+        result = algorithm.processAlgorithm(
+            {},
+            QgsProcessingContext(),
+            QgsProcessingFeedback(),
+        )
+        print(f"AGENT OSM SMOKE PASS: {result['RESULT']}")
+        return 0
+    finally:
+        for provider in reversed(added_providers):
+            registry.removeProvider(provider)
+        QgsProject.instance().clear()
+        application.exitQgis()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

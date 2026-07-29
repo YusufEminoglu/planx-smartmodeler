@@ -29,6 +29,10 @@ def node_factory(
         node.add_input("OPTIONS", "Options", SocketType.ANY)
         node.add_output("OUTPUT", "Output", SocketType.VECTOR)
         return node
+    if algorithm_id == "grass:test":
+        node.add_input("-z", "Ignore zero cells", SocketType.BOOLEAN)
+        node.add_output("OUTPUT", "Output", SocketType.RASTER)
+        return node
     raise ValueError("Unavailable algorithm")
 
 
@@ -101,6 +105,57 @@ class GraphDocumentCodecTests(unittest.TestCase):
         self.assertEqual(decoded.outputs["RESULT"]["node_id"], "target")
         self.assertNotIn('"inputs"', encoded)
         self.assertNotIn('"outputs": {', encoded)
+
+    def test_round_trip_accepts_command_style_qgis_parameter_names(self):
+        graph = GraphModel("Provider flag")
+        node = node_factory("grass:test", "grass_node", "GRASS test")
+        node.parameters["-z"] = False
+        graph.add_node(node)
+
+        decoded = GraphDocumentCodec.decode(
+            GraphDocumentCodec.encode(graph),
+            node_factory,
+        )
+
+        self.assertIn("-z", decoded.nodes["grass_node"].inputs)
+        self.assertIs(decoded.nodes["grass_node"].parameters["-z"], False)
+
+    def test_qgis_crs_and_qt_color_defaults_are_portable_text(self):
+        class QgsCoordinateReferenceSystem:
+            def authid(self):
+                return "EPSG:4326"
+
+        class QColor:
+            def red(self):
+                return 10
+
+            def green(self):
+                return 20
+
+            def blue(self):
+                return 30
+
+            def alpha(self):
+                return 128
+
+        graph = self.graph()
+        graph.nodes["target"].parameters["OPTIONS"] = {
+            "crs": QgsCoordinateReferenceSystem(),
+            "color": QColor(),
+        }
+        graph.nodes["target"].parameter_source_order["OPTIONS"] = [
+            {"kind": "static", "value": graph.nodes["target"].parameters["OPTIONS"]}
+        ]
+
+        decoded = GraphDocumentCodec.decode(
+            GraphDocumentCodec.encode(graph),
+            node_factory,
+        )
+
+        self.assertEqual(
+            decoded.nodes["target"].parameters["OPTIONS"],
+            {"crs": "EPSG:4326", "color": "#800a141e"},
+        )
 
     def test_rejects_unknown_version_and_nonfinite_number(self):
         payload = json.loads(GraphDocumentCodec.encode(self.graph()))

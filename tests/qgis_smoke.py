@@ -1085,6 +1085,14 @@ def run_checks() -> str:
             )
         lifecycle_plugin.initGui()
         try:
+            if (
+                lifecycle_plugin.agent_action is None
+                or lifecycle_plugin.agent_action.icon().isNull()
+                or lifecycle_plugin.agent_action.icon().pixmap(16, 16).isNull()
+            ):
+                raise RuntimeError(
+                    "Agent Workspace did not load a usable small toolbar icon."
+                )
             if lifecycle_plugin._current_graph() is not None:
                 raise RuntimeError(
                     "Agent Workspace reported a model before Workflow Studio ever ran."
@@ -2224,6 +2232,14 @@ def run_checks() -> str:
             if raster_run_id is not None:
                 project.removeMapLayer(raster_run_id)
             os.unlink(raster_run_tmp.name)
+
+        # Start a fresh bounded session before exercising model_run.  The
+        # preceding adversarial and real-run cases intentionally consume the
+        # ten-action safety budget; a production user would choose New chat at
+        # this point, and the smoke test must not bypass or weaken that guard.
+        run_dock.run_loop.new_chat()
+        run_dock.token_service.rotate()
+        run_dock._clear_all_action_state()
 
         # model_run: the current 2-node workflow, approved and undone.
         model_before = set(project.mapLayers())

@@ -10,40 +10,9 @@ import sys
 import types
 import unittest
 
-# Matches the shared dummy qgis.core surface used by test_ai_contract.py so
-# whichever test module the unittest loader imports first leaves a complete,
-# mutually compatible stub in sys.modules for the rest of the run.
-if "qgis.core" not in sys.modules:
-    qgis_module = types.ModuleType("qgis")
-    core_module = types.ModuleType("qgis.core")
-    _dummy_names = (
-        "Qgis",
-        "QgsApplication",
-        "QgsFeatureRequest",
-        "QgsProcessingParameterBoolean",
-        "QgsProcessingParameterDefinition",
-        "QgsProcessingParameterFeatureSource",
-        "QgsProcessingParameterField",
-        "QgsProcessingParameterFile",
-        "QgsProcessingParameterMapLayer",
-        "QgsProcessingParameterMultipleLayers",
-        "QgsProcessingParameterNumber",
-        "QgsProcessingParameterRasterDestination",
-        "QgsProcessingParameterRasterLayer",
-        "QgsProcessingParameterString",
-        "QgsProcessingParameterVectorDestination",
-        "QgsProcessingParameterVectorLayer",
-        "QgsProject",
-        "QgsRasterLayer",
-        "QgsVectorLayer",
-    )
-    for _name in _dummy_names:
-        setattr(core_module, _name, type(_name, (), {}))
-    qgis_module.core = core_module
-    sys.modules["qgis"] = qgis_module
-    sys.modules["qgis.core"] = core_module
-else:
-    qgis_module = sys.modules["qgis"]
+from planx_smartmodeler.tests.qgis_stubs import ensure_qgis_core
+
+qgis_module, _core_module = ensure_qgis_core()
 
 from planx_smartmodeler.core.agent import runtime_tools  # noqa: E402
 from planx_smartmodeler.core.agent.contracts import AgentToolCall  # noqa: E402
