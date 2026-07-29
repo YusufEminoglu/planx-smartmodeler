@@ -117,6 +117,11 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   only through an application-reviewed `plugin_action` adapter shown on its own
   approval card. The first adapter opens 02viz on one selected vector layer and
   renders 02viz's offline smart chart suggestion.
+- **Shared AI connections for companion plugins.** Trusted PlanX companions
+  such as 02Agent OSM Downloader can open SmartModeler's AI Connections and
+  Agent Workspace through a narrow public bridge. They receive only
+  display-safe profile/provider/model information; API secrets remain in
+  SmartModeler's session memory or encrypted QGIS vault.
 - A chat session can carry a task across several steps: after an action finishes,
   a short sanitized note of what happened stays in the conversation so you can
   say "now style the result". The agent never continues on its own -- you ask

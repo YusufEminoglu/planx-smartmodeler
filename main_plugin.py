@@ -180,6 +180,27 @@ class SmartModelerPlugin:
         self.agent_dock.raise_()
         self.agent_dock.prompt_input.setFocus()
 
+    def open_ai_connections(self) -> bool:
+        """Open the shared AI profile editor for trusted companion plugins."""
+        if self.agent_dock is None:
+            return False
+        self.agent_dock.open_ai_connections()
+        return True
+
+    def agent_connection_info(self) -> dict:
+        """Return display-only profile state without reading an API secret."""
+        from .core.ai_settings import AiSettingsStore, PROVIDERS
+
+        profile = AiSettingsStore().active_profile()
+        provider = PROVIDERS[profile.provider_id]
+        return {
+            "profile_name": profile.name or provider.name,
+            "provider_id": profile.provider_id,
+            "provider_name": provider.name,
+            "model": profile.model,
+            "agent_chat_enabled": profile.provider_id != "offline",
+        }
+
     def open_help(self) -> None:
         if self.help_dialog is None:
             self.help_dialog = HelpDialog(self.iface.mainWindow())

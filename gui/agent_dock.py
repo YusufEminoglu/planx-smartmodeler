@@ -562,6 +562,10 @@ class AgentWorkspaceDock(QDockWidget):
         self.profile_label.setText(text)
 
     def _open_ai_settings(self) -> None:
+        self.open_ai_connections()
+
+    def open_ai_connections(self) -> None:
+        """Public, secret-safe entry point for companion PlanX plugins."""
         from .ai_settings_dialog import AiSettingsDialog
 
         dialog = AiSettingsDialog(self)

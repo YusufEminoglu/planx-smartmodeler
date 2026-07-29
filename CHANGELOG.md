@@ -2,6 +2,17 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.15.3] - 2026-07-29
+
+### Companion plugin AI connection bridge
+
+- Adds a small public bridge for trusted companion plugins to open the shared
+  AI Connections dialog and Agent Workspace.
+- Exposes display-only active profile/provider/model information without
+  reading, returning or copying an API secret.
+- Lets 02Agent OSM Downloader reuse SmartModeler's existing secure QGIS vault
+  profiles rather than creating a second credential store.
+
 ## [0.15.2] - 2026-07-29
 
 ### Optional 02Agent OSM Downloader integration
