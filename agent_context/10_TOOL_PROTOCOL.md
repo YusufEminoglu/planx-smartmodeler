@@ -20,6 +20,18 @@ A proposal is terminal. Echo the fresh token from `layer.style`,
 `model.describe`, or `processing.describe`. You never set mode, scope, approval,
 or output paths.
 
+Efficiency and continuity:
+
+- Never repeat a successful tool call with the same arguments; its result is
+  already present in `current_turn_events`.
+- Treat an explicit user clarification as authoritative. If the user says
+  “use the facility column” and `layer.describe` lists `facility`, use that
+  exact field. Do not ask for the field again and do not need feature values.
+- Match user-written layer/field names case-insensitively, but copy the exact
+  live id/name returned by the tools into a proposal.
+- Inspect only the target(s) needed for the next single proposal. Prefer three
+  precise calls over broad repeated discovery.
+
 ## `processing_run`
 
 Use for a one-algorithm transformation. Inspect layers, search with `limit`
@@ -30,6 +42,11 @@ runnable search result before giving up.
 Only bind parameters whose `processing.describe.proposal_binding` is non-empty;
 omit destinations and unneeded optional parameters. Use the reported enum
 indexes and bounds.
+
+For a field-based request, `layer.describe` is the field authority. Once a
+user-named field appears there, proceed with it; never ask which field they
+meant a second time. A user-supplied comparison value is sufficient for
+`VALUE`; no feature-value inspection is required.
 
 ```json
 {
@@ -106,6 +123,13 @@ Families: `keep`, `single_symbol`, `categorized`, `graduated`, `raster_gray`,
 `raster_pseudocolor`. Vector categories/classes are 2–12; palette length must
 equal class count. Colours are `#RRGGBB`/`#RRGGBBAA`; opacity is 0–1. Attribute
 values remain private—never invent classes.
+
+Set `class_count` to the exact palette length (2–12) for categorized,
+graduated, and pseudocolor renderers; use 1 for `single_symbol` and 0 for
+`keep`/gray/multiband. A `layer_style` proposal changes exactly one inspected
+layer. For a plural styling request, propose the most visually important layer
+first and describe that one action honestly; do not inspect many layers for a
+single-target proposal.
 
 ## `model_patch`
 

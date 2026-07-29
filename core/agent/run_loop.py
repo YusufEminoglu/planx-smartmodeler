@@ -14,7 +14,7 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .contracts import AgentMode, AgentResultStatus, AgentScope
+from .contracts import AgentMode, AgentResultStatus, AgentScope, AgentToolCall
 from .controller import AgentController, RunLimitExceededError
 from .prompt_builder import (
     PromptBudget,
@@ -31,6 +31,7 @@ from .proposals import (
     ProposalReason,
     ProposalValidation,
 )
+from .proposal_recovery import InspectionRequest, recover_agent_turn
 from .protocol import AgentTurn, ProtocolError, agent_turn_response_schema, parse_agent_turn
 
 # A validator that turns one parsed pure proposal draft into a bounded
@@ -156,6 +157,12 @@ class AgentRunLoop:
         self._token_counter = 0
         self._seen_call_ids: set = set()
         self._turn_events: List[Dict[str, Any]] = []
+        # Freshness receipts observed during this run. They come only from
+        # trusted read-only tool results and are used solely by the narrow
+        # proposal-recovery path; starting another run discards them so a
+        # previous request can never silently supply the new request's context.
+        self._proposal_receipts: Dict[Tuple[str, str], str] = {}
+        self._recovery_call_counter = 0
 
     def is_active(self) -> bool:
         return self._active and not self._terminal
@@ -240,16 +247,22 @@ class AgentRunLoop:
         if not self._is_current_token(request_token):
             return None
         self._current_token = None
+        recovery_events: Tuple[Dict[str, Any], ...] = ()
         try:
             turn = parse_agent_turn(raw_text, self.controller.limits.max_tool_calls_per_turn)
         except ProtocolError as error:
-            return self._fail(
-                f"The AI response could not be understood: {error}", "malformed_provider_turn"
-            )
+            recovered, recovery_events = self._recover_provider_proposal(raw_text)
+            if recovered is None:
+                return self._fail(
+                    f"The AI response could not be understood: {error}",
+                    "malformed_provider_turn",
+                    tool_events=recovery_events,
+                )
+            turn = recovered
         if turn.is_final:
             return self._finish(turn.assistant_text)
         if turn.is_proposal:
-            return self._handle_proposal(turn)
+            return self._handle_proposal(turn, tool_events=recovery_events)
         return self._execute_turn(turn)
 
     def submit_provider_failure(self, request_token: str, message: str) -> Optional[RunEvent]:
@@ -298,6 +311,7 @@ class AgentRunLoop:
                 call, self._mode, self._scope, run_state=self._run_state, approved=False
             )
             result_dict = result.to_dict()
+            self._remember_proposal_receipt(call.tool_name, result_dict)
             event_dict = {
                 "kind": "tool_result",
                 "tool_name": call.tool_name,
@@ -323,6 +337,94 @@ class AgentRunLoop:
         return self._advance_turn(
             assistant_text=turn.assistant_text, tool_events=tuple(this_turn_events)
         )
+
+    def _remember_proposal_receipt(
+        self, tool_name: str, result: Dict[str, Any]
+    ) -> None:
+        """Cache one trusted inspection receipt for this run only."""
+
+        if result.get("status") != AgentResultStatus.SUCCESS:
+            return
+        data = result.get("data")
+        if not isinstance(data, dict):
+            return
+        token = data.get("context_token")
+        if not isinstance(token, str) or not token:
+            return
+        if tool_name == "processing.describe":
+            target = data.get("algorithm_id")
+            key = PROPOSAL_KIND_PROCESSING_RUN
+        elif tool_name == "layer.style":
+            target = data.get("layer_id")
+            key = PROPOSAL_KIND_LAYER_STYLE
+        elif tool_name == "model.describe":
+            from .identifiers import MODEL_PROPOSAL_KIND, MODEL_TARGET_ID
+
+            target = MODEL_TARGET_ID
+            key = MODEL_PROPOSAL_KIND
+        else:
+            return
+        if isinstance(target, str) and target:
+            self._proposal_receipts[(key, target)] = token
+
+    def _run_recovery_inspection(
+        self, inspection: InspectionRequest
+    ) -> Tuple[Optional[Dict[str, Any]], Tuple[Dict[str, Any], ...]]:
+        """Execute exactly one controller-gated read-only recovery inspection."""
+
+        try:
+            self._run_state.check_capacity(1)
+        except RunLimitExceededError:
+            return None, ()
+        self._recovery_call_counter += 1
+        call = AgentToolCall(
+            call_id=f"recovery_{self._recovery_call_counter}",
+            tool_name=inspection.tool_name,
+            arguments=dict(inspection.arguments),
+        )
+        result = self.controller.execute(
+            call,
+            self._mode,
+            self._scope,
+            run_state=self._run_state,
+            approved=False,
+        )
+        result_dict = result.to_dict()
+        self._remember_proposal_receipt(call.tool_name, result_dict)
+        event = {
+            "kind": "tool_result",
+            "tool_name": call.tool_name,
+            "call_id": self._trace_call_id(call.call_id),
+            "result": result_dict,
+        }
+        self._turn_events.append(event)
+        if result.status != AgentResultStatus.SUCCESS:
+            return None, (event,)
+        return result_dict, (event,)
+
+    def _recover_provider_proposal(
+        self, raw_text: str
+    ) -> Tuple[Optional[AgentTurn], Tuple[Dict[str, Any], ...]]:
+        """Recover one mechanical proposal error without another provider turn."""
+
+        outcome = recover_agent_turn(
+            raw_text,
+            self.controller.limits.max_tool_calls_per_turn,
+            self._proposal_receipts,
+        )
+        if outcome.turn is not None:
+            return outcome.turn, ()
+        if outcome.inspection is None:
+            return None, ()
+        _result, events = self._run_recovery_inspection(outcome.inspection)
+        if _result is None:
+            return None, events
+        retried = recover_agent_turn(
+            raw_text,
+            self.controller.limits.max_tool_calls_per_turn,
+            self._proposal_receipts,
+        )
+        return retried.turn, events
 
     def _trace_call_id(self, call_id: str) -> str:
         """Return a run-unique id for this call's trace event.
@@ -391,7 +493,11 @@ class AgentRunLoop:
             tool_events=tool_events,
         )
 
-    def _handle_proposal(self, turn: AgentTurn) -> RunEvent:
+    def _handle_proposal(
+        self,
+        turn: AgentTurn,
+        tool_events: Tuple[Dict[str, Any], ...] = (),
+    ) -> RunEvent:
         """Validate one terminal, inert proposal turn and stop.
 
         A proposal never starts another provider turn, never consumes tool
@@ -404,22 +510,27 @@ class AgentRunLoop:
             return self._fail(
                 "Proposals are not available in Ask mode; switch to Plan or Act.",
                 ProposalReason.NOT_ALLOWED_IN_ASK,
+                tool_events=tool_events,
             )
         # Only Plan or Act may propose; any other (including an invalid) mode
         # fails closed before the validator is ever called.
         if self._mode not in (AgentMode.PLAN, AgentMode.ACT):
             return self._fail(
-                "Proposals require Plan or Act mode.", "invalid_mode"
+                "Proposals require Plan or Act mode.",
+                "invalid_mode",
+                tool_events=tool_events,
             )
         if self._scope not in _PROPOSAL_SCOPES.get(kind, ()):
             return self._fail(
                 "This proposal is not compatible with the selected scope.",
                 ProposalReason.SCOPE_MISMATCH,
+                tool_events=tool_events,
             )
         if self._proposal_validator is None:
             return self._fail(
                 "Proposals are not available in this session.",
                 ProposalReason.VALIDATION_FAILED,
+                tool_events=tool_events,
             )
         # The injected validator must fail closed even if it raises: a raw
         # exception (or its message/traceback) must never escape to the caller.
@@ -427,21 +538,32 @@ class AgentRunLoop:
             validation = self._proposal_validator(kind, turn.proposal, self._mode, self._scope)
         except Exception:  # noqa: BLE001 - a validator failure must be sanitized
             return self._fail(
-                "The proposal could not be validated.", ProposalReason.VALIDATION_FAILED
+                "The proposal could not be validated.",
+                ProposalReason.VALIDATION_FAILED,
+                tool_events=tool_events,
             )
         if not isinstance(validation, ProposalValidation):
             return self._fail(
-                "The proposal could not be validated.", ProposalReason.VALIDATION_FAILED
+                "The proposal could not be validated.",
+                ProposalReason.VALIDATION_FAILED,
+                tool_events=tool_events,
             )
         if not validation.ok:
             return self._fail(
                 validation.message or "The proposal was rejected.",
                 validation.reason_code or ProposalReason.VALIDATION_FAILED,
+                tool_events=tool_events,
             )
-        return self._finish_proposal(turn.assistant_text, kind, validation.preview)
+        return self._finish_proposal(
+            turn.assistant_text, kind, validation.preview, tool_events=tool_events
+        )
 
     def _finish_proposal(
-        self, assistant_text: str, kind: str, preview: Optional[Dict[str, Any]]
+        self,
+        assistant_text: str,
+        kind: str,
+        preview: Optional[Dict[str, Any]],
+        tool_events: Tuple[Dict[str, Any], ...] = (),
     ) -> RunEvent:
         self._terminal = True
         preview = preview or {}
@@ -457,6 +579,7 @@ class AgentRunLoop:
             text=assistant_text,
             reason_code=kind,
             proposal=preview,
+            tool_events=tool_events,
         )
 
     def _finish(self, assistant_text: str) -> RunEvent:

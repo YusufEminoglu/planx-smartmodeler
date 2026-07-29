@@ -113,7 +113,16 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 - A chat session can carry a task across several steps: after an action finishes,
   a short sanitized note of what happened stays in the conversation so you can
   say "now style the result". The agent never continues on its own -- you ask
-  each time -- and a session is capped at ten actions.
+  each time -- and a session is capped at ten actions. Same-run inspection
+  receipts are reused, explicit field clarifications are authoritative when the
+  inspected schema contains that field, and identical successful inspections
+  are not repeated. A mechanically missing proposal receipt can be restored
+  locally with one bounded read-only inspection, avoiding another provider turn
+  while preserving the normal strict validation and approval boundary.
+- Reviewed optional Processing result sinks remain signature-checked but are
+  left unset unless they are the requested output. For example, **Extract by
+  attribute** adds the matching temporary layer without also cluttering the
+  project with an unrequested `FAIL_OUTPUT` layer.
 - There is still **no** plugin invocation, file/database/network output, or
   persistence from the Agent Workspace. `plugin.describe` reports only bounded
   installed plugin metadata; it never invokes or reads a plugin, and never

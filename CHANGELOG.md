@@ -2,6 +2,32 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.12.0] - 2026-07-29
+
+### Resilient, lower-token Agent proposals
+
+- Adds a narrow local recovery boundary for provider proposals that omit or
+  malform a freshness token. SmartModeler reuses a trusted same-run inspection
+  receipt or performs exactly one controller-gated read-only inspection, then
+  sends the proposal through the unchanged strict parser and live validator.
+  This avoids another paid provider turn without expanding execution authority.
+- Repairs only mechanical layer-style cardinality errors: renderer class counts
+  are synchronized with a bounded palette, common inert label/warning defaults
+  are filled, and all target, field, renderer and approval checks still fail
+  closed through the normal validator.
+- Makes clarification continuity explicit: a user-supplied field such as
+  `facility` is reused when it exists in the inspected schema, and successful
+  identical inspections are not repeated. Plural styling requests are handled
+  as one reviewable layer proposal at a time.
+- Keeps reviewed optional Processing sinks in the live-signature check while
+  leaving them unmaterialized. Attribute extraction now adds only the requested
+  matching layer instead of also adding an empty `FAIL_OUTPUT`; table joins
+  likewise omit an unrequested `NON_MATCHING` layer.
+- Adds regression coverage for cached-receipt reuse, automatic inspection,
+  quota enforcement, style recovery, optional-output signature drift and
+  one-primary-output planning. The pure suite now contains 715 passing tests;
+  QGIS 4.2 and 3.44 LTR registry probes confirm the affected live signatures.
+
 ## [0.11.0] - 2026-07-29
 
 ### Broad live algorithm intelligence

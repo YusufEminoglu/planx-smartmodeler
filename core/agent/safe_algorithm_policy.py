@@ -133,6 +133,11 @@ class AllowedAlgorithm:
     required_layer_params: Tuple[str, ...]
     # Destination parameters, always forced to a temporary output.
     destinations: Tuple[str, ...]
+    # Reviewed optional map-layer sinks that may exist in the live signature
+    # but are deliberately left unset. This avoids clutter such as an empty
+    # FAIL_OUTPUT layer while still treating any unknown destination as
+    # signature drift.
+    optional_destinations: Tuple[str, ...] = ()
 
     @property
     def label_safe_string_params(self) -> Tuple[str, ...]:
@@ -305,11 +310,28 @@ class SafeAlgorithmPolicy:
             if param is None or not param.is_destination:
                 return _deny(ProposalReason.SIGNATURE_MISMATCH)
 
-        known = set(record.bindable) | set(record.destinations)
+        for dname in record.optional_destinations:
+            param = by_name.get(dname)
+            if (
+                param is None
+                or not param.is_destination
+                or not param.is_optional
+                or not (_SAFE_DESTINATION_CLASS_NAMES & param.type_names)
+            ):
+                return _deny(ProposalReason.SIGNATURE_MISMATCH)
+
+        known = (
+            set(record.bindable)
+            | set(record.destinations)
+            | set(record.optional_destinations)
+        )
+        known_destinations = set(record.destinations) | set(
+            record.optional_destinations
+        )
         for pname, param in by_name.items():
             # An unpinned destination (e.g. a newly added file/HTML output) is a
             # signature drift: deny until individually reviewed.
-            if param.is_destination and pname not in record.destinations:
+            if param.is_destination and pname not in known_destinations:
                 return _deny(ProposalReason.SIGNATURE_MISMATCH)
             if pname in known:
                 continue
@@ -331,12 +353,14 @@ def _alg(
     bindable: Mapping[str, str],
     required: Tuple[str, ...],
     destinations: Tuple[str, ...] = ("OUTPUT",),
+    optional_destinations: Tuple[str, ...] = (),
 ) -> AllowedAlgorithm:
     return AllowedAlgorithm(
         algorithm_id=algorithm_id,
         bindable=dict(bindable),
         required_layer_params=required,
         destinations=destinations,
+        optional_destinations=optional_destinations,
     )
 
 
@@ -371,10 +395,11 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         "native:extractbyattribute",
         {"INPUT": VECTOR_LAYER, "FIELD": FIELD, "OPERATOR": ENUM, "VALUE": STRING_LABEL},
         ("INPUT",),
-        # Both sinks are pinned so the live-signature gate accepts the algorithm;
-        # every destination is forced to a temporary output, so the run adds a
-        # matching-features layer and a non-matching (FAIL_OUTPUT) layer.
-        destinations=("OUTPUT", "FAIL_OUTPUT"),
+        # FAIL_OUTPUT remains part of the reviewed signature but is optional
+        # and deliberately left unset, so a normal extraction adds only the
+        # matching-features layer the user asked for.
+        destinations=("OUTPUT",),
+        optional_destinations=("FAIL_OUTPUT",),
     ),
     # "Extract the features of X that intersect / are within / touch Y" -- the
     # spatial sibling of extract-by-attribute. Reads two vector layers, writes a
@@ -403,7 +428,8 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
             "DISCARD_NONMATCHING": BOOL,
         },
         ("INPUT", "INPUT_2"),
-        destinations=("OUTPUT", "NON_MATCHING"),
+        destinations=("OUTPUT",),
+        optional_destinations=("NON_MATCHING",),
     ),
     # "Merge all these layers into one." LAYERS is a *vector* multilayer, so it
     # is pinned as MULTI_VECTOR (the run planner then demands vector inputs);

@@ -260,7 +260,7 @@ class ProcessingRunPlannerTests(unittest.TestCase):
         )
         self.assertEqual(plan.binding_for("FIELD").value, "class")
         self.assertEqual(plan.binding_for("FIELD_2").value, "code")
-        self.assertEqual(plan.destinations, ("OUTPUT", "NON_MATCHING"))
+        self.assertEqual(plan.destinations, ("OUTPUT",))
 
     def test_merge_accepts_multiple_vector_layers(self):
         plan = self.plan(

@@ -100,6 +100,36 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         decision = self.policy.is_runnable("native:extractbyattribute", params)
         self.assertTrue(decision.allowed)
         self.assertIsNotNone(decision.record)
+        self.assertEqual(decision.record.destinations, ("OUTPUT",))
+        self.assertEqual(
+            decision.record.optional_destinations, ("FAIL_OUTPUT",)
+        )
+
+    def test_extract_by_attribute_rejects_required_fail_output_drift(self) -> None:
+        params = (
+            ParamSpec("INPUT", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
+            ParamSpec("FIELD", False, frozenset({"QgsProcessingParameterField"}), False, False),
+            ParamSpec("OPERATOR", False, frozenset({"QgsProcessingParameterEnum"}), False, True),
+            ParamSpec("VALUE", False, frozenset({"QgsProcessingParameterString"}), False, False),
+            ParamSpec("OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), False, False),
+            ParamSpec("FAIL_OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), False, False),
+        )
+        decision = self.policy.is_runnable("native:extractbyattribute", params)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason_code, ProposalReason.SIGNATURE_MISMATCH)
+
+    def test_extract_by_attribute_rejects_non_layer_fail_output_drift(self) -> None:
+        params = (
+            ParamSpec("INPUT", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
+            ParamSpec("FIELD", False, frozenset({"QgsProcessingParameterField"}), False, False),
+            ParamSpec("OPERATOR", False, frozenset({"QgsProcessingParameterEnum"}), False, True),
+            ParamSpec("VALUE", False, frozenset({"QgsProcessingParameterString"}), False, False),
+            ParamSpec("OUTPUT", True, frozenset({"QgsProcessingParameterFeatureSink"}), False, False),
+            ParamSpec("FAIL_OUTPUT", True, frozenset({"QgsProcessingParameterFileDestination"}), True, False),
+        )
+        decision = self.policy.is_runnable("native:extractbyattribute", params)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason_code, ProposalReason.SIGNATURE_MISMATCH)
 
     def test_extract_by_location_run_signature(self) -> None:
         # Live signature probed identical on 3.44.12 LTR and 4.2.0.
@@ -114,8 +144,9 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertIsNotNone(decision.record)
 
     def test_join_attributes_table_run_signature(self) -> None:
-        # Two pinned sinks (OUTPUT, NON_MATCHING); the optional FIELDS_TO_COPY and
-        # PREFIX are tolerated unbound. Probed identical on both runtimes.
+        # OUTPUT is materialized; reviewed optional NON_MATCHING is left unset.
+        # FIELDS_TO_COPY and PREFIX are tolerated unbound. Probed identical on
+        # both runtimes.
         params = (
             ParamSpec("INPUT", False, frozenset({"QgsProcessingParameterFeatureSource"}), False, False),
             ParamSpec("FIELD", False, frozenset({"QgsProcessingParameterField"}), False, False),
@@ -132,7 +163,8 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertTrue(decision.allowed)
         record = decision.record
         self.assertIsNotNone(record)
-        self.assertEqual(record.destinations, ("OUTPUT", "NON_MATCHING"))
+        self.assertEqual(record.destinations, ("OUTPUT",))
+        self.assertEqual(record.optional_destinations, ("NON_MATCHING",))
 
     def test_merge_vector_layers_run_signature(self) -> None:
         # LAYERS is pinned as MULTI_VECTOR: the same QGIS class as a multi-raster
