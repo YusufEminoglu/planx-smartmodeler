@@ -49,7 +49,7 @@ from ..core.agent.run_loop import AgentRunLoop, RunEventKind, RunLoopError
 from ..core.agent.runtime_apply import RUN_KINDS, RuntimeApplyCoordinator
 from ..core.agent.runtime_proposals import RuntimeProposalValidator
 from ..core.agent.runtime_tools import ModelProvider, build_default_registry
-from ..core.ai_client import AiNetworkClient, StructuredResponseContract
+from ..core.ai_client import AiNetworkClient, AiTokenUsage, StructuredResponseContract
 from ..core.ai_settings import AiSettingsStore, PROVIDERS
 from ..core.prompt_context import PromptContextLoader
 from .theme import STUDIO_STYLE
@@ -153,10 +153,14 @@ class AgentWorkspaceDock(QDockWidget):
         self.ai_client = AiNetworkClient(self)
         self.ai_client.succeeded.connect(self._on_provider_succeeded)
         self.ai_client.failed.connect(self._on_provider_failed)
+        self.ai_client.usage_reported.connect(self._on_token_usage)
 
         self._active_request_token: Optional[str] = None
         self._active_api_key = ""
         self._active_profile = None
+        self._token_input = 0
+        self._token_output = 0
+        self._token_total = 0
         # At most one pending, human-approvable action and one last-applied
         # action (for a single-level, state-fingerprinted Undo).
         self._pending_action = None
@@ -385,9 +389,19 @@ class AgentWorkspaceDock(QDockWidget):
         self.mode_combo.currentIndexChanged.connect(self._on_mode_or_scope_changed)
         self.scope_combo.currentIndexChanged.connect(self._on_mode_or_scope_changed)
 
+        status_row = QHBoxLayout()
         self.status_label = QLabel("Ready.")
         self.status_label.setStyleSheet("color: #9AAAC2;")
-        layout.addWidget(self.status_label)
+        status_row.addWidget(self.status_label, 1)
+        self.token_usage_label = QLabel("Tokens -")
+        self.token_usage_label.setAccessibleName("AI token usage")
+        self.token_usage_label.setStyleSheet("color: #70849F;")
+        self.token_usage_label.setToolTip(
+            "Provider-reported token use for this chat. No estimate is shown "
+            "when the provider omits usage metadata."
+        )
+        status_row.addWidget(self.token_usage_label)
+        layout.addLayout(status_row)
 
         self.prompt_input = QPlainTextEdit()
         self.prompt_input.setPlaceholderText(
@@ -652,6 +666,7 @@ class AgentWorkspaceDock(QDockWidget):
             self.token_service.rotate()
             self._clear_proposal_preview()
             self._clear_all_action_state()
+            self._reset_token_usage()
             return
         confirm = QMessageBox.question(
             self,
@@ -668,6 +683,7 @@ class AgentWorkspaceDock(QDockWidget):
         self.transcript.clear()
         self._clear_proposal_preview()
         self._clear_all_action_state()
+        self._reset_token_usage()
         self.status_label.setText("Ready.")
 
     # -- Agent Chat: event handling --------------------------------------
@@ -742,6 +758,30 @@ class AgentWorkspaceDock(QDockWidget):
         if event is None:
             return
         self._handle_run_event(event)
+
+    def _on_token_usage(self, usage: AiTokenUsage) -> None:
+        if not isinstance(usage, AiTokenUsage):
+            return
+        self._token_input += usage.input_tokens
+        self._token_output += usage.output_tokens
+        self._token_total += usage.total_tokens
+        self.token_usage_label.setText(f"Tokens {self._token_total:,}")
+        self.token_usage_label.setToolTip(
+            "Provider-reported usage for this chat: "
+            f"{self._token_input:,} input + {self._token_output:,} output; "
+            f"{self._token_total:,} total. A provider may include reasoning or "
+            "cache tokens only in the total."
+        )
+
+    def _reset_token_usage(self) -> None:
+        self._token_input = 0
+        self._token_output = 0
+        self._token_total = 0
+        self.token_usage_label.setText("Tokens -")
+        self.token_usage_label.setToolTip(
+            "Provider-reported token use for this chat. No estimate is shown "
+            "when the provider omits usage metadata."
+        )
 
     def _finish_run(self, status_text: str) -> None:
         self._active_request_token = None

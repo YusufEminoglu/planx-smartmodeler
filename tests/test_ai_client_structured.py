@@ -151,6 +151,7 @@ _install_qgis_stubs()
 
 from planx_smartmodeler.core.ai_client import (  # noqa: E402
     AiNetworkClient,
+    AiTokenUsage,
     StructuredResponseContract,
 )
 from planx_smartmodeler.core.ai_mcp_bridge import AiMcpBridge, AiResponseError  # noqa: E402
@@ -180,6 +181,85 @@ ALL_PROVIDERS = (
     "openai_compatible",
     "azure_openai",
 )
+
+
+class TokenUsageTests(unittest.TestCase):
+    def test_normalizes_every_supported_provider_shape(self) -> None:
+        cases = (
+            (
+                "openai",
+                {"usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 125}},
+                AiTokenUsage(100, 20, 125),
+            ),
+            (
+                "anthropic",
+                {"usage": {"input_tokens": 80, "output_tokens": 12}},
+                AiTokenUsage(80, 12, 92),
+            ),
+            (
+                "gemini",
+                {
+                    "usageMetadata": {
+                        "promptTokenCount": 70,
+                        "candidatesTokenCount": 10,
+                        "totalTokenCount": 95,
+                    }
+                },
+                AiTokenUsage(70, 10, 95),
+            ),
+            (
+                "ollama",
+                {"prompt_eval_count": 50, "eval_count": 9},
+                AiTokenUsage(50, 9, 59),
+            ),
+            (
+                "deepseek",
+                {"usage": {"prompt_tokens": 60, "completion_tokens": 11, "total_tokens": 71}},
+                AiTokenUsage(60, 11, 71),
+            ),
+            (
+                "azure_openai",
+                {"usage": {"prompt_tokens": 61, "completion_tokens": 12, "total_tokens": 73}},
+                AiTokenUsage(61, 12, 73),
+            ),
+        )
+        for provider_id, response, expected in cases:
+            with self.subTest(provider_id=provider_id):
+                self.assertEqual(
+                    AiNetworkClient.extract_token_usage(provider_id, response),
+                    expected,
+                )
+
+    def test_missing_or_malformed_usage_is_not_estimated(self) -> None:
+        self.assertIsNone(AiNetworkClient.extract_token_usage("deepseek", {}))
+        self.assertIsNone(
+            AiNetworkClient.extract_token_usage(
+                "deepseek",
+                {
+                    "usage": {
+                        "prompt_tokens": True,
+                        "completion_tokens": -1,
+                        "total_tokens": "200",
+                    }
+                },
+            )
+        )
+        self.assertIsNone(
+            AiNetworkClient.extract_token_usage(
+                "ollama",
+                {
+                    "prompt_eval_count": 1_000_000_001,
+                    "eval_count": 1_000_000_001,
+                },
+            )
+        )
+
+    def test_total_never_understates_reported_input_plus_output(self) -> None:
+        usage = AiNetworkClient.extract_token_usage(
+            "openai",
+            {"usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 10}},
+        )
+        self.assertEqual(usage, AiTokenUsage(100, 20, 120))
 
 
 def make_profile(provider_id: str) -> AiProfile:
@@ -635,6 +715,39 @@ class ResponseBodyBoundTests(unittest.TestCase):
         )
         self.assertEqual(len(fails), 1)
         self.assertNotIn("oversized", fails[0].lower())
+
+
+class UsageSignalTests(unittest.TestCase):
+    def test_success_emits_normalized_usage_before_content(self) -> None:
+        client = AiNetworkClient()
+        client._profile = make_profile("deepseek")
+        client._api_key = "secret-key"
+        client._system_prompt = "sys"
+        client._user_prompt = "user"
+        client._contract = AGENT_CONTRACT
+        client._timer = None
+        client._reply = _FakeReply(
+            200,
+            json.dumps(
+                {
+                    "choices": [{"message": {"content": '{"action":"final"}'}}],
+                    "usage": {
+                        "prompt_tokens": 40,
+                        "completion_tokens": 8,
+                        "total_tokens": 48,
+                    },
+                }
+            ).encode("utf-8"),
+            QNetworkReply.NetworkError.NoError,
+        )
+        events = []
+        client.usage_reported.connect(lambda usage: events.append(("usage", usage)))
+        client.succeeded.connect(lambda content: events.append(("content", content)))
+
+        client._on_finished()
+
+        self.assertEqual(events[0], ("usage", AiTokenUsage(40, 8, 48)))
+        self.assertEqual(events[1], ("content", '{"action":"final"}'))
 
 
 class Revision2AdversarialTests(unittest.TestCase):

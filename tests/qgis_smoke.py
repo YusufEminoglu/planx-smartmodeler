@@ -70,7 +70,7 @@ def run_checks() -> str:
     )
     from planx_smartmodeler.core.agent.runtime_tools import build_default_registry
     from planx_smartmodeler.core.algorithm_catalog import AlgorithmCatalog
-    from planx_smartmodeler.core.ai_client import AiNetworkClient
+    from planx_smartmodeler.core.ai_client import AiNetworkClient, AiTokenUsage
     from planx_smartmodeler.core.ai_mcp_bridge import AiMcpBridge, AiResponseError
     from planx_smartmodeler.core.ai_settings import (
         AiProfile,
@@ -1102,6 +1102,9 @@ def run_checks() -> str:
             if lifecycle_plugin.window is None:
                 raise RuntimeError("Hiding the studio window destroyed it instead of hiding it.")
             lifecycle_plugin.window.show()
+            lifecycle_plugin.window._on_token_usage(AiTokenUsage(100, 20, 125))
+            if lifecycle_plugin.window.token_usage_label.text() != "Tokens 125":
+                raise RuntimeError("Workflow Studio did not render provider token usage.")
             if lifecycle_plugin._current_graph() is None:
                 raise RuntimeError(
                     "Agent Workspace did not report the model again after the studio was reopened."
@@ -2605,6 +2608,9 @@ def run_checks() -> str:
         final_status = chat_dock.status_label.text()
         if "tool call" not in final_status or "turn" not in final_status.lower():
             raise RuntimeError("Agent Chat did not render turn/tool-call usage in its status.")
+        chat_dock._on_token_usage(AiTokenUsage(80, 12, 95))
+        if chat_dock.token_usage_label.text() != "Tokens 95":
+            raise RuntimeError("Agent Workspace did not render provider token usage.")
         if chat_dock._active_api_key != "" or chat_dock._active_profile is not None:
             raise RuntimeError("Agent Chat did not clear its transient key/profile after finishing.")
 

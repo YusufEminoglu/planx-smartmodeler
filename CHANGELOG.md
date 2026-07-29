@@ -2,6 +2,27 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.12.1] - 2026-07-29
+
+### Honest token usage and clearer capability boundaries
+
+- Adds a compact provider-reported token counter to Agent Workspace and
+  Workflow Studio. The visible label shows the session/window total; its
+  tooltip separates input and output counts. OpenAI, Anthropic, Gemini,
+  DeepSeek/OpenAI-compatible/Azure and Ollama response shapes are normalized.
+  No count is estimated when a provider omits or malforms usage metadata.
+- Makes multi-layer styling requests explicit: one approval card still changes
+  one layer, so the assistant must identify the first visual target and say
+  that remaining layers require separately reviewable actions instead of
+  implying the entire layout was styled.
+- Clarifies plugin capability refusals. Successfully inspecting QuickOSM proves
+  installation and Processing ownership but does not authorize its Overpass
+  network request, optional GeoPackage output, or plugin UI. The assistant now
+  states that exact boundary and the matching manual Processing path without
+  describing the plugin as broken.
+- Expands provider usage, malformed-count, cumulative UI and future QGIS smoke
+  coverage. The pure regression suite now contains 719 passing tests.
+
 ## [0.12.0] - 2026-07-29
 
 ### Resilient, lower-token Agent proposals

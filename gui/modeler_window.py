@@ -30,7 +30,7 @@ from qgis.core import (
     QgsSettings,
 )
 
-from ..core.ai_client import AiNetworkClient
+from ..core.ai_client import AiNetworkClient, AiTokenUsage
 from ..core.ai_mcp_bridge import AiMcpBridge, AiResponseError
 from ..core.ai_settings import AiSettingsStore, PROVIDERS
 from ..core.algorithm_catalog import AlgorithmCatalog
@@ -83,6 +83,9 @@ class SmartModelerWindow(QMainWindow):
         self.view = CanvasView(self.scene, self)
         self.execution_engine = GraphExecutionEngine(self)
         self.ai_client = AiNetworkClient(self)
+        self._token_input = 0
+        self._token_output = 0
+        self._token_total = 0
         self._ai_canvas_snapshot: str | None = None
         self._ai_request_mode = "new"
         self._last_ai_undo_snapshot: str | None = None
@@ -153,6 +156,13 @@ class SmartModelerWindow(QMainWindow):
         self.progress.setFixedWidth(160)
         self.progress.hide()
         self.statusBar().addWidget(self.status_label, 1)
+        self.token_usage_label = QLabel("Tokens -")
+        self.token_usage_label.setAccessibleName("AI token usage")
+        self.token_usage_label.setStyleSheet("color: #70849F;")
+        self.token_usage_label.setToolTip(
+            "Provider-reported AI token use in this Workflow Studio window."
+        )
+        self.statusBar().addPermanentWidget(self.token_usage_label)
         self.statusBar().addPermanentWidget(self.progress)
 
     def _theme_icon(self, name: str):
@@ -339,6 +349,21 @@ class SmartModelerWindow(QMainWindow):
         self.ai_client.succeeded.connect(self._ai_succeeded)
         self.ai_client.failed.connect(self._ai_failed)
         self.ai_client.busy_changed.connect(self._ai_busy_changed)
+        self.ai_client.usage_reported.connect(self._on_token_usage)
+
+    def _on_token_usage(self, usage: AiTokenUsage) -> None:
+        if not isinstance(usage, AiTokenUsage):
+            return
+        self._token_input += usage.input_tokens
+        self._token_output += usage.output_tokens
+        self._token_total += usage.total_tokens
+        self.token_usage_label.setText(f"Tokens {self._token_total:,}")
+        self.token_usage_label.setToolTip(
+            "Provider-reported usage in this window: "
+            f"{self._token_input:,} input + {self._token_output:,} output; "
+            f"{self._token_total:,} total. A provider may include reasoning or "
+            "cache tokens only in the total."
+        )
 
     def _connect_scene_signals(self) -> None:
         self.scene.node_selected.connect(self.on_node_selected)

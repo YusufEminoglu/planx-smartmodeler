@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.12.0
+version=0.12.1
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=no
 license=GPL-3
 
 changelog=
+    0.12.1 - Add compact exact provider token counters to Agent Workspace and Workflow Studio, clearly sequence multi-layer styling, and explain QuickOSM network/file capability boundaries without misreporting plugin availability.
     0.12.0 - Recover missing proposal freshness receipts with a bounded read-only inspection, preserve explicit field clarifications, correct layer-style class counts locally, avoid repeated successful inspections, and materialize only requested primary Processing outputs.
     0.10.1 - Separate Workflow Studio planning from the Agent run allowlist, expose PlanX and reviewed random extraction to AI graphs, include enum meanings/defaults in catalog signatures, and accept safe null-as-unconfigured provider parameters; verified with a live Konak 15-stop / 4-minute walking isochrone workflow.
     0.10.0 - Add keyboard-complete graph authoring, an accessible workflow outline, screen-reader names and focus order, high-contrast focus states, fail-closed Run Setup, cancellable connection testing, in-app Help and Safety, standard Plugins menu placement, translation lifecycle fallback, and corrected privacy/support documentation.

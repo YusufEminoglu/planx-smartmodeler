@@ -119,6 +119,10 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   are not repeated. A mechanically missing proposal receipt can be restored
   locally with one bounded read-only inspection, avoiding another provider turn
   while preserving the normal strict validation and approval boundary.
+- A compact **Tokens** label shows exact usage metadata reported by the active
+  provider. Agent Workspace totals the current chat and Workflow Studio totals
+  the current window; hover for input/output detail. It remains `Tokens -`
+  instead of inventing an estimate when a provider sends no usage metadata.
 - Reviewed optional Processing result sinks remain signature-checked but are
   left unset unless they are the requested output. For example, **Extract by
   attribute** adds the matching temporary layer without also cluttering the
@@ -127,6 +131,9 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   persistence from the Agent Workspace. `plugin.describe` reports only bounded
   installed plugin metadata; it never invokes or reads a plugin, and never
   fetches a URL. The dock works independently of the Workflow Studio.
+  Consequently, QuickOSM/Overpass downloads remain manual even when
+  `plugin.capabilities` confirms that QuickOSM and its Processing provider are
+  installed: capability discovery is not network-execution permission.
 
 ## AI providers
 

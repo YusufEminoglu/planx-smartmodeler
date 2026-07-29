@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import quote, urlencode, urlparse, urlunparse, parse_qsl
 
@@ -28,8 +29,26 @@ MAX_CONTRACT_SCHEMA_TOTAL_CHARS = 200_000
 # JSON at all (defense in depth against an oversized success or error body).
 MAX_RESPONSE_BODY_CHARS = 1_000_000
 
+# Provider usage metadata is untrusted JSON too. A one-billion-token ceiling is
+# far above any supported request while keeping malformed counters bounded.
+MAX_REPORTED_TOKEN_COUNT = 1_000_000_000
+
 _GRAPH_CONTRACT_NAME = "qgis_workflow"
 _GRAPH_CONTRACT_DESCRIPTION = "Return the validated SmartModeler GIS graph."
+
+
+@dataclass(frozen=True)
+class AiTokenUsage:
+    """One provider-reported request usage summary.
+
+    Counts are display-only and never affect billing, request limits, proposal
+    validation, or execution policy. ``total_tokens`` may exceed input + output
+    when a provider includes reasoning/cache tokens only in its total.
+    """
+
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
 
 
 class StructuredResponseContract:
@@ -119,6 +138,7 @@ class AiNetworkClient(QObject):
     succeeded = pyqtSignal(str)
     failed = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
+    usage_reported = pyqtSignal(object)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -459,6 +479,7 @@ class AiNetworkClient(QObject):
             provider_id = self._profile.provider_id if self._profile else ""
             submission_name = self._contract.name if self._contract else _GRAPH_CONTRACT_NAME
             content = self.extract_content(provider_id, data, submission_name)
+            usage = self.extract_token_usage(provider_id, data)
         except (
             json.JSONDecodeError,
             KeyError,
@@ -477,6 +498,8 @@ class AiNetworkClient(QObject):
             self.failed.emit(msg[:1000])
             return
         self._clear_sensitive_state()
+        if usage is not None:
+            self.usage_reported.emit(usage)
         self.succeeded.emit(content)
 
     def _clear_sensitive_state(self) -> None:
@@ -572,6 +595,79 @@ class AiNetworkClient(QObject):
         if not isinstance(text, str):
             raise AiResponseError("Provider response text was invalid.")
         return text
+
+    @staticmethod
+    def _reported_token_count(value: Any) -> Optional[int]:
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < 0
+            or value > MAX_REPORTED_TOKEN_COUNT
+        ):
+            return None
+        return value
+
+    @classmethod
+    def extract_token_usage(
+        cls, provider_id: str, data: Dict[str, Any]
+    ) -> Optional[AiTokenUsage]:
+        """Normalize exact provider usage metadata without estimating.
+
+        Providers use four different response shapes. Missing or malformed
+        metadata is ignored so the UI can honestly keep showing ``Tokens -``;
+        prompt length is never guessed and no response body is retained.
+        """
+
+        if not isinstance(data, dict):
+            return None
+        if provider_id == "gemini":
+            usage = data.get("usageMetadata")
+            input_value = usage.get("promptTokenCount") if isinstance(usage, dict) else None
+            output_value = (
+                usage.get("candidatesTokenCount") if isinstance(usage, dict) else None
+            )
+            total_value = usage.get("totalTokenCount") if isinstance(usage, dict) else None
+        elif provider_id == "ollama":
+            usage = data
+            input_value = usage.get("prompt_eval_count")
+            output_value = usage.get("eval_count")
+            total_value = None
+        else:
+            usage = data.get("usage")
+            if not isinstance(usage, dict):
+                return None
+            if provider_id == "openai":
+                input_value = usage.get("input_tokens")
+                output_value = usage.get("output_tokens")
+                total_value = usage.get("total_tokens")
+            else:
+                # Anthropic and Chat-Completions-compatible providers use
+                # input/output and prompt/completion spellings respectively.
+                input_value = usage.get(
+                    "input_tokens",
+                    usage.get("prompt_tokens"),
+                )
+                output_value = usage.get(
+                    "output_tokens",
+                    usage.get("completion_tokens"),
+                )
+                total_value = usage.get("total_tokens")
+
+        input_tokens = cls._reported_token_count(input_value)
+        output_tokens = cls._reported_token_count(output_value)
+        total_tokens = cls._reported_token_count(total_value)
+        if input_tokens is None and output_tokens is None and total_tokens is None:
+            return None
+        input_tokens = input_tokens or 0
+        output_tokens = output_tokens or 0
+        subtotal = input_tokens + output_tokens
+        if subtotal > MAX_REPORTED_TOKEN_COUNT:
+            return None
+        if total_tokens is None:
+            total_tokens = subtotal
+        else:
+            total_tokens = max(total_tokens, subtotal)
+        return AiTokenUsage(input_tokens, output_tokens, total_tokens)
 
     @classmethod
     def _extract_endpoint_host_targets(cls, endpoint: str) -> Tuple[str, ...]:
