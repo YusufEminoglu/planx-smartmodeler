@@ -56,7 +56,13 @@ class RiskAssessment:
         return f"{self.label} - {self.reason} ({suffix})."
 
 
-def assess_risk(kind: str, destructive: bool) -> RiskAssessment:
+def assess_risk(
+    kind: str,
+    destructive: bool,
+    *,
+    network_access: bool = False,
+    temporary_file: bool = False,
+) -> RiskAssessment:
     """Classify one pending action from its kind and validated destructive flag.
 
     ``destructive`` is the flag the Phase 03 preview computed inside the trusted
@@ -87,6 +93,16 @@ def assess_risk(kind: str, destructive: bool) -> RiskAssessment:
             reversible=True,
         )
     if kind in (PROCESSING_PROPOSAL_KIND, MODEL_RUN_KIND):
+        if network_access:
+            detail = "contacts a reviewed network service"
+            if temporary_file:
+                detail += " and creates an application-owned temporary download"
+            return RiskAssessment(
+                level=RISK_HIGH,
+                label=_LABELS[RISK_HIGH],
+                reason=detail,
+                reversible=False,
+            )
         return RiskAssessment(
             level=RISK_MEDIUM,
             label=_LABELS[RISK_MEDIUM],

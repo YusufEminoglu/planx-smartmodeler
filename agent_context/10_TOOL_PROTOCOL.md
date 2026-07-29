@@ -72,6 +72,13 @@ Exact tagged forms:
 - `{"number":5}`; `{"distance":50}`; `{"bool":true}`
 - `{"enum":0}` or `{"enum_string":"label"}`
 - `{"string":"plain user-supplied label"}`; `{"crs":"EPSG:3857"}`
+- `{"text":"800, n"}` only when `proposal_binding` is `text`. This is
+  reviewed first-party domain text, never a path, URI, credential, expression,
+  query, server, or file setting.
+- `{"map_extent":true}` means the current QGIS map canvas extent; never invent
+  or copy coordinates into a proposal.
+- `{"osm_tag":"building"}` is a plain OSM key/value tag only. It cannot contain
+  an Overpass query, URL, path, expression, credential, or statement syntax.
 
 Never bind a destination, path, folder, URL, connection, SQL, expression, or
 credential. Outputs are forced to temporary layers.
@@ -90,7 +97,16 @@ Intent rules:
 If no result is directly runnable, say why using `agent_reason`. For a
 multi-step task or non-runnable operation, prefer `model_patch` when a workflow
 is open. Do not claim the whole Processing registry is unavailable merely
-because one candidate is blocked.
+because one candidate is blocked. Never replace an `unsupported_parameter`,
+`provider_not_trusted`, `unsafe_destination`, or `no_layer_output` reason with
+a guessed claim about network access or external code.
+
+For OSM data in the current map view, use
+`quickosm:downloadosmdataextentquery` only when live inspection reports it
+runnable. Bind `KEY`/optional `VALUE` with `osm_tag` and `EXTENT` with
+`map_extent`; never bind `SERVER`, `TIMEOUT`, `FILE`, or a raw query. The
+application presents this as a high-risk network action with an explicit Run
+approval.
 
 ## `model_run`
 

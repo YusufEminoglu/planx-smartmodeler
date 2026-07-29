@@ -86,12 +86,14 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 - An approved **run** executes either a signature-pinned reviewed algorithm or a
   first-party QGIS/PlanX algorithm whose live signature passes the local
   structural policy: constrained typed inputs, temporary map-layer destinations,
-  and no opaque file/folder/database/expression or known network/project side
-  effects. The same policy checks every workflow step again at Run time. There
+  bounded domain text/current-canvas extent bindings, and no opaque
+  file/folder/database/expression or unreviewed network/project side effects.
+  This includes PlanX analyses such as Space Syntax whose radii are safe domain
+  text. The same policy checks every workflow step again at Run time. There
   is no "run any algorithm" path, and neither the AI nor a prompt can weaken
   these rules. Runs show progress, can
-  be **cancelled**, and always write to **temporary layers**: no file, folder,
-  database, or network output can even be expressed. Agent results are accepted
+  be **cancelled**, and write results to **temporary layers**: no user-selected
+  file, folder or database destination can be expressed. Agent results are accepted
   only from the exact engine/result ledger; missing, duplicate, scalar,
   oversized, or already-present layers fail closed. A failed or cancelled run
   verifies cleanup and never claims or removes an unrelated project layer.
@@ -127,13 +129,14 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   left unset unless they are the requested output. For example, **Extract by
   attribute** adds the matching temporary layer without also cluttering the
   project with an unrequested `FAIL_OUTPUT` layer.
-- There is still **no** plugin invocation, file/database/network output, or
-  persistence from the Agent Workspace. `plugin.describe` reports only bounded
-  installed plugin metadata; it never invokes or reads a plugin, and never
-  fetches a URL. The dock works independently of the Workflow Studio.
-  Consequently, QuickOSM/Overpass downloads remain manual even when
-  `plugin.capabilities` confirms that QuickOSM and its Processing provider are
-  installed: capability discovery is not network-execution permission.
+- QuickOSM has one deliberately narrow network adapter: “OSM data in the
+  current map view” can use plain key/value tags such as `building`, the live
+  canvas extent, a pinned Overpass endpoint and a QGIS-owned temporary
+  GeoPackage. It cannot accept a raw query, arbitrary URL or user path. The
+  approval card shows this as a high-risk network action; Undo can remove the
+  added layer but cannot undo the completed request or temporary download.
+  Every other plugin UI/network action remains unavailable unless it receives
+  its own reviewed adapter.
 
 ## AI providers
 
@@ -159,8 +162,9 @@ independently rechecks its stricter structural execution policy. Live enum
 meanings and safe defaults keep choice indices unambiguous. Feature values are
 not included. Returned JSON must pass the shipped schema, installed-algorithm,
 parameter, socket-type, and DAG checks. `null` means deliberately unconfigured.
-AI output cannot request Python, shell commands, downloads, filesystem changes,
-or arbitrary network actions.
+AI output cannot request Python, shell commands, arbitrary downloads,
+user-selected filesystem changes, or arbitrary network actions. The bounded
+QuickOSM adapter is application-owned and separately approved.
 
 The auditable instruction set lives in [`ai_context/`](ai_context/):
 

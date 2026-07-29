@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
 from .proposals import (
+    MAX_RUN_STRING_CHARS,
     MAX_WARNINGS,
     ProposalError,
     ProposalReason,
@@ -35,10 +36,13 @@ from .safe_algorithm_policy import (
     FIELD,
     MULTI_RASTER,
     MULTI_VECTOR,
+    MAP_EXTENT,
     NUMBER,
+    OSM_TAG,
     ParamSpec,
     RASTER_LAYER,
     STRING_LABEL,
+    STRING_TEXT,
     SafeAlgorithmPolicy,
     VECTOR_LAYER,
     kind_matches,
@@ -92,7 +96,10 @@ _TAG_KINDS: Mapping[str, FrozenSet[str]] = {
     "enum": frozenset({ENUM}),
     "enum_string": frozenset({ENUM}),
     "string": frozenset({STRING_LABEL}),
+    "text": frozenset({STRING_TEXT}),
     "crs": frozenset({CRS}),
+    "map_extent": frozenset({MAP_EXTENT}),
+    "osm_tag": frozenset({OSM_TAG}),
 }
 
 # Which layer kind each layer-ish parameter kind demands.
@@ -132,6 +139,11 @@ class RunPlan:
     algorithm_id: str
     bindings: Tuple[ResolvedBinding, ...] = ()
     destinations: Tuple[str, ...] = ()
+    parameter_destinations: Tuple[str, ...] = ()
+    internal_destinations: Tuple[str, ...] = ()
+    fixed_values: Tuple[Tuple[str, Any], ...] = ()
+    network_access: bool = False
+    temporary_file: bool = False
     input_layer_ids: Tuple[str, ...] = ()
     preview_lines: Tuple[str, ...] = ()
 
@@ -315,10 +327,17 @@ def plan_processing_run(
             value = bool(binding.value)
         elif binding.tag in ("enum", "enum_string"):
             value = _plan_enum(spec, binding.tag, binding.value)
-        elif binding.tag == "string":
-            if len(str(binding.value)) > MAX_LABEL_STRING_CHARS:
-                _reject("A label value is too long.", ProposalReason.LIMIT_EXCEEDED)
+        elif binding.tag in ("string", "text", "osm_tag"):
+            maximum = (
+                MAX_LABEL_STRING_CHARS
+                if kind == STRING_LABEL
+                else MAX_RUN_STRING_CHARS
+            )
+            if len(str(binding.value)) > maximum:
+                _reject("A text value is too long.", ProposalReason.LIMIT_EXCEEDED)
             value = str(binding.value)
+        elif binding.tag == "map_extent":
+            value = True
         else:  # crs -- the authid's validity is confirmed by the QGIS adapter
             value = str(binding.value)
         resolved.append(ResolvedBinding(param=param, kind=kind, tag=binding.tag, value=value))
@@ -326,7 +345,7 @@ def plan_processing_run(
 
     # Every reviewed required input must actually be bound.
     bound_names = {binding.param for binding in resolved}
-    for required in record.required_layer_params:
+    for required in tuple(record.required_layer_params) + tuple(record.required_params):
         if required not in bound_names:
             _reject("A required input was not provided.", ProposalReason.VALIDATION_FAILED)
 
@@ -346,7 +365,12 @@ def plan_processing_run(
     return RunPlan(
         algorithm_id=proposal.algorithm_id,
         bindings=tuple(resolved),
-        destinations=tuple(record.destinations),
+        destinations=tuple(record.result_outputs or record.destinations),
+        parameter_destinations=tuple(record.destinations),
+        internal_destinations=tuple(record.internal_destinations),
+        fixed_values=tuple((record.fixed_values or {}).items()),
+        network_access=bool(record.network_access),
+        temporary_file=bool(record.internal_destinations),
         input_layer_ids=tuple(dict.fromkeys(input_layer_ids)),
         preview_lines=tuple(preview[:MAX_PREVIEW_LINES]),
     )

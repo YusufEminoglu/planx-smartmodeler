@@ -2,6 +2,35 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.13.0] - 2026-07-29
+
+### General QGIS agent execution and reviewed OSM acquisition
+
+- Replaces misleading generic refusals with stable, live-signature reasons for
+  unreviewed providers, known side effects, unsupported parameter types, unsafe
+  destinations, missing layer outputs, and signature drift. The assistant is
+  explicitly forbidden from guessing “network/external code” when that is not
+  the reported cause.
+- Broadens structural execution across native QGIS and PlanX algorithms:
+  bounded first-party domain strings and current-canvas extent parameters now
+  have dedicated tagged bindings, while expressions, code, queries, paths,
+  servers, credentials and connection-shaped parameters remain blocked.
+  `planx:spacesyntax` and comparable PlanX analyses can therefore run directly
+  and inside safe workflows instead of being rejected for their `RADII` text.
+- Adds a reviewed QuickOSM current-map-extent adapter. It accepts only plain OSM
+  key/value tags, reads the extent from the live QGIS canvas, pins the Overpass
+  endpoint and timeout, creates a QGIS-owned temporary GeoPackage, and publishes
+  only the requested multipolygon result. Raw Overpass, arbitrary URLs and user
+  output paths cannot be expressed. The approval card identifies the network
+  request and temporary download as high risk and not undoable.
+- Signs Processing output definitions as well as parameters, validates reviewed
+  result keys against their live vector-output classes, reports runnability in
+  both search and describe, and preserves the one-click-per-action boundary.
+- Adds real-QGIS regression probes for PlanX and QuickOSM bindings plus compact
+  network, parser, policy, planner and risk tests. The pure suite contains 731
+  passing tests. Live QGIS 4.2 runs successfully downloaded a bounded building
+  sample from Overpass and executed Space Syntax with `100, 400, n` radii.
+
 ## [0.12.1] - 2026-07-29
 
 ### Honest token usage and clearer capability boundaries

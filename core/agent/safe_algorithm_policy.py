@@ -3,7 +3,9 @@
 A `processing_run` / `model_run` may execute either a signature-pinned reviewed
 algorithm or a first-party QGIS/PlanX algorithm whose *live* signature passes
 the structural policy: constrained tagged inputs only, temporary map-layer
-destinations only, and no known network/project/database side effects.
+destinations only, and no known network/project/database side effects except a
+signature-pinned, application-owned adapter such as bounded QuickOSM extent
+acquisition.
 Provider output and user text can never extend these rules.
 
 The policy is deliberately QGIS-free: it reasons over a small immutable
@@ -16,7 +18,7 @@ directly. This keeps the security policy testable without a Processing registry.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import FrozenSet, Mapping, Optional, Sequence, Tuple
+from typing import Any, FrozenSet, Mapping, Optional, Sequence, Tuple
 
 from .proposals import ProposalReason
 
@@ -35,6 +37,9 @@ BOOL = "bool"
 ENUM = "enum"
 CRS = "crs"
 STRING_LABEL = "string_label"
+STRING_TEXT = "string_text"
+MAP_EXTENT = "map_extent"
+OSM_TAG = "osm_tag"
 
 _KIND_CLASS_NAMES: Mapping[str, FrozenSet[str]] = {
     VECTOR_LAYER: frozenset(
@@ -54,6 +59,9 @@ _KIND_CLASS_NAMES: Mapping[str, FrozenSet[str]] = {
     ENUM: frozenset({"QgsProcessingParameterEnum"}),
     CRS: frozenset({"QgsProcessingParameterCrs"}),
     STRING_LABEL: frozenset({"QgsProcessingParameterString"}),
+    STRING_TEXT: frozenset({"QgsProcessingParameterString"}),
+    MAP_EXTENT: frozenset({"QgsProcessingParameterExtent"}),
+    OSM_TAG: frozenset({"QgsProcessingParameterString"}),
 }
 
 # Blocked id terms mirrored from AlgorithmCatalog.AI_BLOCKED_ID_TERMS so the
@@ -99,6 +107,39 @@ _SAFE_DESTINATION_CLASS_NAMES = frozenset(
         "QgsProcessingParameterVectorDestination",
     }
 )
+_SAFE_INTERNAL_DESTINATION_CLASS_NAMES = frozenset(
+    {"QgsProcessingParameterFileDestination"}
+)
+
+# PlanX's embedded algorithms use bounded strings for domain settings such as
+# radii ("800, n"), class breaks and scenario labels. These are ordinary
+# values, not expressions or resource locators. Parameter names with external
+# resource/code semantics remain ineligible even inside this first-party
+# provider.
+_UNSAFE_TEXT_PARAM_TERMS = (
+    "command",
+    "code",
+    "connection",
+    "credential",
+    "database",
+    "directory",
+    "expression",
+    "filter",
+    "file",
+    "folder",
+    "formula",
+    "host",
+    "password",
+    "path",
+    "query",
+    "script",
+    "server",
+    "sql",
+    "template",
+    "token",
+    "uri",
+    "url",
+)
 
 
 @dataclass(frozen=True)
@@ -123,6 +164,14 @@ class ParamSpec:
 
 
 @dataclass(frozen=True)
+class OutputSpec:
+    """A QGIS-free view of one live Processing output definition."""
+
+    name: str
+    type_names: FrozenSet[str]
+
+
+@dataclass(frozen=True)
 class AllowedAlgorithm:
     """One reviewed, side-effect-safe algorithm and its pinned signature."""
 
@@ -133,11 +182,27 @@ class AllowedAlgorithm:
     required_layer_params: Tuple[str, ...]
     # Destination parameters, always forced to a temporary output.
     destinations: Tuple[str, ...]
+    # Required bindable parameters that are not necessarily project layers.
+    required_params: Tuple[str, ...] = ()
     # Reviewed optional map-layer sinks that may exist in the live signature
     # but are deliberately left unset. This avoids clutter such as an empty
     # FAIL_OUTPUT layer while still treating any unknown destination as
     # signature drift.
     optional_destinations: Tuple[str, ...] = ()
+    # Reviewed non-layer destinations needed internally by an adapter. They are
+    # never supplied by a provider and are always forced to an application-owned
+    # temporary path.
+    internal_destinations: Tuple[str, ...] = ()
+    # Result dictionary keys that must resolve to map layers. Normally these are
+    # the same names as ``destinations``; adapters such as QuickOSM expose vector
+    # results separately from their internal download-file parameter.
+    result_outputs: Tuple[str, ...] = ()
+    # Application-owned values pinned by the adapter (for example a fixed
+    # Overpass endpoint and timeout). A proposal cannot override them.
+    fixed_values: Optional[Mapping[str, Any]] = None
+    # A reviewed network adapter is visible as high risk and always needs the
+    # normal explicit Run approval.
+    network_access: bool = False
 
     @property
     def label_safe_string_params(self) -> Tuple[str, ...]:
@@ -168,6 +233,16 @@ def kind_matches(kind: str, param: ParamSpec) -> bool:
     return True
 
 
+def _fixed_value_matches(value: Any, param: ParamSpec) -> bool:
+    if isinstance(value, bool):
+        return kind_matches(BOOL, param)
+    if isinstance(value, (int, float)):
+        return kind_matches(NUMBER, param)
+    if isinstance(value, str):
+        return kind_matches(STRING_TEXT, param)
+    return False
+
+
 def _id_has_blocked_term(algorithm_id: str) -> bool:
     normalized = algorithm_id.lower().replace("-", "_")
     return (
@@ -176,12 +251,27 @@ def _id_has_blocked_term(algorithm_id: str) -> bool:
     )
 
 
-def _structural_kind(param: ParamSpec) -> Optional[str]:
+def _safe_first_party_text(algorithm_id: str, param: ParamSpec) -> bool:
+    """Whether a trusted QGIS/PlanX string is ordinary bounded domain text.
+
+    Names suggesting code, expressions, resources, credentials or connections
+    stay blocked. This admits harmless first-party settings such as output
+    column names, labels, radii and class breaks without maintaining one-off
+    algorithm entries.
+    """
+    if not algorithm_id.startswith(_STRUCTURALLY_TRUSTED_PREFIXES):
+        return False
+    normalized = param.name.strip().lower().replace("-", "_")
+    return not any(term in normalized for term in _UNSAFE_TEXT_PARAM_TERMS)
+
+
+def _structural_kind(algorithm_id: str, param: ParamSpec) -> Optional[str]:
     """Return the narrow tagged-binding kind for a safe live input."""
     # Order matters: Distance subclasses Number, and the two multiple-layer
     # kinds share one QGIS class but differ by their live layerType.
     for kind in (
         DISTANCE,
+        MAP_EXTENT,
         MULTI_RASTER,
         MULTI_VECTOR,
         VECTOR_LAYER,
@@ -194,6 +284,10 @@ def _structural_kind(param: ParamSpec) -> Optional[str]:
     ):
         if kind_matches(kind, param):
             return kind
+    if kind_matches(STRING_TEXT, param) and _safe_first_party_text(
+        algorithm_id, param
+    ):
+        return STRING_TEXT
     return None
 
 
@@ -226,7 +320,7 @@ def _structural_record(
                 return None
             destinations.append(param.name)
             continue
-        kind = _structural_kind(param)
+        kind = _structural_kind(algorithm_id, param)
         if kind is None:
             # Even an optional opaque string/file/database parameter is not
             # silently inherited: its default may carry a path or side effect.
@@ -266,7 +360,12 @@ class SafeAlgorithmPolicy:
         """The kind a bound parameter must satisfy, or ``None`` if not bindable."""
         return record.bindable.get(param_name)
 
-    def is_runnable(self, algorithm_id: str, params: Sequence[ParamSpec]) -> PolicyDecision:
+    def is_runnable(
+        self,
+        algorithm_id: str,
+        params: Sequence[ParamSpec],
+        outputs: Sequence[OutputSpec] = (),
+    ) -> PolicyDecision:
         """Return an allow/deny decision for a live algorithm's current signature.
 
         ``params`` is the live parameter set viewed as :class:`ParamSpec`. The
@@ -277,9 +376,23 @@ class SafeAlgorithmPolicy:
         if record is None and self._allow_structural:
             record = _structural_record(algorithm_id, params)
         if record is None:
-            return _deny(ProposalReason.ALGORITHM_NOT_ALLOWED)
-        if _id_has_blocked_term(algorithm_id):
-            return _deny(ProposalReason.ALGORITHM_NOT_ALLOWED)
+            if not self._allow_structural:
+                return _deny(ProposalReason.ALGORITHM_NOT_ALLOWED)
+            if not algorithm_id.startswith(_STRUCTURALLY_TRUSTED_PREFIXES):
+                return _deny(ProposalReason.PROVIDER_NOT_TRUSTED)
+            if _id_has_blocked_term(algorithm_id):
+                return _deny(ProposalReason.SIDE_EFFECT_BLOCKED)
+            if any(
+                param.is_destination
+                and not (_SAFE_DESTINATION_CLASS_NAMES & param.type_names)
+                for param in params
+            ):
+                return _deny(ProposalReason.UNSAFE_DESTINATION)
+            if not any(param.is_destination for param in params):
+                return _deny(ProposalReason.NO_LAYER_OUTPUT)
+            return _deny(ProposalReason.UNSUPPORTED_PARAMETER)
+        if _id_has_blocked_term(algorithm_id) and not record.network_access:
+            return _deny(ProposalReason.SIDE_EFFECT_BLOCKED)
 
         by_name = {param.name: param for param in params}
 
@@ -320,14 +433,45 @@ class SafeAlgorithmPolicy:
             ):
                 return _deny(ProposalReason.SIGNATURE_MISMATCH)
 
+        for dname in record.internal_destinations:
+            param = by_name.get(dname)
+            if (
+                param is None
+                or not param.is_destination
+                or not param.is_optional
+                or not (_SAFE_INTERNAL_DESTINATION_CLASS_NAMES & param.type_names)
+            ):
+                return _deny(ProposalReason.SIGNATURE_MISMATCH)
+
+        for pname, value in (record.fixed_values or {}).items():
+            param = by_name.get(pname)
+            if (
+                param is None
+                or param.is_destination
+                or not _fixed_value_matches(value, param)
+            ):
+                return _deny(ProposalReason.SIGNATURE_MISMATCH)
+
+        if record.result_outputs:
+            output_by_name = {output.name: output for output in outputs}
+            for name in record.result_outputs:
+                output = output_by_name.get(name)
+                if (
+                    output is None
+                    or "QgsProcessingOutputVectorLayer" not in output.type_names
+                ):
+                    return _deny(ProposalReason.SIGNATURE_MISMATCH)
+
         known = (
             set(record.bindable)
             | set(record.destinations)
             | set(record.optional_destinations)
+            | set(record.internal_destinations)
+            | set(record.fixed_values or {})
         )
         known_destinations = set(record.destinations) | set(
             record.optional_destinations
-        )
+        ) | set(record.internal_destinations)
         for pname, param in by_name.items():
             # An unpinned destination (e.g. a newly added file/HTML output) is a
             # signature drift: deny until individually reviewed.
@@ -365,6 +509,24 @@ def _alg(
 
 
 _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
+    # Reviewed QuickOSM adapter. The provider may supply only a plain OSM
+    # key/value pair and request the *current map canvas extent*. The endpoint,
+    # timeout and download destination are application-owned; arbitrary
+    # Overpass queries, URLs and file paths cannot be expressed.
+    "quickosm:downloadosmdataextentquery": AllowedAlgorithm(
+        algorithm_id="quickosm:downloadosmdataextentquery",
+        bindable={"KEY": OSM_TAG, "VALUE": OSM_TAG, "EXTENT": MAP_EXTENT},
+        required_layer_params=(),
+        required_params=("KEY", "EXTENT"),
+        destinations=(),
+        internal_destinations=("FILE",),
+        result_outputs=("OUTPUT_MULTIPOLYGONS",),
+        fixed_values={
+            "TIMEOUT": 25,
+            "SERVER": "https://overpass-api.de/api/interpreter",
+        },
+        network_access=True,
+    ),
     "native:buffer": _alg(
         "native:buffer",
         {"INPUT": VECTOR_LAYER, "DISTANCE": DISTANCE, "SEGMENTS": NUMBER, "DISSOLVE": BOOL},

@@ -59,6 +59,11 @@ class ProposalReason:
     LIMIT_EXCEEDED = "proposal_limit_exceeded"
     # Phase 05 -- safe Processing / current-model execution.
     ALGORITHM_NOT_ALLOWED = "proposal_algorithm_not_allowed"
+    PROVIDER_NOT_TRUSTED = "proposal_provider_not_trusted"
+    SIDE_EFFECT_BLOCKED = "proposal_side_effect_blocked"
+    UNSUPPORTED_PARAMETER = "proposal_unsupported_parameter"
+    UNSAFE_DESTINATION = "proposal_unsafe_destination"
+    NO_LAYER_OUTPUT = "proposal_no_layer_output"
     UNSAFE_PARAMETER = "proposal_unsafe_parameter"
     SIGNATURE_MISMATCH = "proposal_signature_mismatch"
     EXECUTION_FAILED = "proposal_execution_failed"
@@ -1132,7 +1137,8 @@ class RunBinding:
 
     The mandatory tag keeps a string from ever being reinterpreted as a path or a
     destination: a binding is exactly one of ``layer``/``layers``/``field``/
-    ``number``/``bool``/``enum``/``enum_string``/``string``/``crs``/``distance``.
+    ``number``/``bool``/``enum``/``enum_string``/``string``/``text``/``crs``/
+    ``distance``/``map_extent``/``osm_tag``.
     A destination/output binding cannot be expressed at all -- destinations are
     always application-forced to a temporary output downstream.
     """
@@ -1150,7 +1156,20 @@ class RunBinding:
 
 
 _BINDING_SINGLE_KEYS = frozenset(
-    {"layer", "layers", "number", "bool", "enum", "enum_string", "string", "crs", "distance"}
+    {
+        "layer",
+        "layers",
+        "number",
+        "bool",
+        "enum",
+        "enum_string",
+        "string",
+        "text",
+        "crs",
+        "distance",
+        "map_extent",
+        "osm_tag",
+    }
 )
 _FIELD_BINDING_KEYS = {"field", "layer_param"}
 
@@ -1190,6 +1209,25 @@ def _parse_binding(item: Any) -> RunBinding:
         return RunBinding("enum_string", _run_label(value))
     if tag == "string":
         return RunBinding("string", _run_label(value))
+    if tag == "text":
+        _require_safe_text(value, MAX_RUN_STRING_CHARS)
+        return RunBinding("text", value)
+    if tag == "map_extent":
+        if value is not True:
+            raise ProposalError(
+                "map_extent must be the literal true value.",
+                ProposalReason.MALFORMED,
+            )
+        return RunBinding("map_extent", True)
+    if tag == "osm_tag":
+        _require_safe_text(value, 128)
+        text = value.strip()
+        if not text or not re.fullmatch(r"[A-Za-z0-9_:., -]{1,128}", text):
+            raise ProposalError(
+                "An OSM tag must contain only ordinary tag characters.",
+                ProposalReason.MALFORMED,
+            )
+        return RunBinding("osm_tag", text)
     return RunBinding("crs", _crs_value(value))
 
 

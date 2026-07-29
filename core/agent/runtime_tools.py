@@ -61,9 +61,13 @@ from .safe_algorithm_policy import (  # noqa: E402 - same grouping
     MULTI_RASTER,
     MULTI_VECTOR,
     NUMBER,
+    OutputSpec,
     ParamSpec,
     RASTER_LAYER,
     STRING_LABEL,
+    STRING_TEXT,
+    MAP_EXTENT,
+    OSM_TAG,
     VECTOR_LAYER,
     default_policy,
 )
@@ -83,6 +87,9 @@ _KIND_BINDING_FORM: Dict[str, str] = {
     ENUM: "enum",
     CRS: "crs",
     STRING_LABEL: "string",
+    STRING_TEXT: "text",
+    MAP_EXTENT: "map_extent",
+    OSM_TAG: "osm_tag",
 }
 from .plugin_capabilities import (  # noqa: E402 - same grouping
     MAX_ALGORITHMS,
@@ -241,6 +248,7 @@ def _tool_processing_search(call: AgentToolCall) -> Dict[str, Any]:
             decision = policy.is_runnable(
                 algorithm.id(),
                 build_param_specs(algorithm),
+                build_output_specs(algorithm),
             )
             matches.append(
                 {
@@ -253,6 +261,9 @@ def _tool_processing_search(call: AgentToolCall) -> Dict[str, Any]:
                     ),
                     "provider_id": _algorithm_provider_id(algorithm),
                     "agent_runnable": decision.allowed,
+                    "agent_reason": (
+                        "" if decision.allowed else decision.reason_code
+                    ),
                 }
             )
     # Relevance ranking requires the full match set before truncation; this
@@ -384,6 +395,19 @@ def build_param_specs(algorithm: Any) -> List[ParamSpec]:
     return specs
 
 
+def build_output_specs(algorithm: Any) -> List[OutputSpec]:
+    """Build the bounded live output view used by reviewed adapters."""
+    return [
+        OutputSpec(
+            name=agent_context.bound_text(definition.name(), 128),
+            type_names=frozenset(
+                cls.__name__ for cls in type(definition).__mro__
+            ),
+        )
+        for definition in algorithm.outputDefinitions()
+    ]
+
+
 def algorithm_signature_state(algorithm: Any) -> Dict[str, Any]:
     """The canonical live-signature state a ``processing_run`` receipt signs.
 
@@ -404,9 +428,19 @@ def algorithm_signature_state(algorithm: Any) -> Dict[str, Any]:
             ]
         )
     parameters.sort(key=lambda item: item[0])
+    outputs = []
+    for definition in algorithm.outputDefinitions():
+        outputs.append(
+            [
+                agent_context.bound_text(definition.name(), 128),
+                agent_context.bound_text(type(definition).__name__, 128),
+            ]
+        )
+    outputs.sort(key=lambda item: item[0])
     return {
         "algorithm_id": agent_context.bound_text(algorithm.id(), 200),
         "parameters": parameters,
+        "outputs": outputs,
     }
 
 
@@ -435,6 +469,7 @@ def _tool_processing_describe_factory(
         run_decision = default_policy().is_runnable(
             algorithm.id(),
             build_param_specs(algorithm),
+            build_output_specs(algorithm),
         )
         run_record = run_decision.record if run_decision.allowed else None
 

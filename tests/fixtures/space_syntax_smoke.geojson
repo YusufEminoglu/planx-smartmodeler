@@ -1,0 +1,42 @@
+{
+  "type": "FeatureCollection",
+  "name": "space_syntax_smoke",
+  "crs": {
+    "type": "name",
+    "properties": {"name": "urn:ogc:def:crs:EPSG::3857"}
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"id": 1},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 100], [200, 100]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": 2},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[100, 0], [100, 200]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": 3},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 0], [200, 200]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": 4},
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[0, 200], [200, 0]]
+      }
+    }
+  ]
+}

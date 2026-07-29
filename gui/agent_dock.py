@@ -128,6 +128,7 @@ class AgentWorkspaceDock(QDockWidget):
             model_provider,
             self.token_service,
             active_layer_provider=self._active_layer,
+            map_extent_provider=self._current_map_extent,
         )
         self.run_loop = AgentRunLoop(
             self.controller,
@@ -964,6 +965,11 @@ class AgentWorkspaceDock(QDockWidget):
         note = "destructive if applied" if card["destructive"] else "reversible via Undo"
         if is_run:
             note = "results go to temporary layers you can remove with Undo"
+        if is_run and card.get("network_access"):
+            note = (
+                "the network request and temporary download cannot be undone; "
+                "result layers can be removed"
+            )
         self.approval_status_label.setText(
             f"Explicit approval required for this {card['kind']} action ({note}). "
             f"Nothing happens until you click {verb}."
@@ -971,7 +977,12 @@ class AgentWorkspaceDock(QDockWidget):
         # Risk badge: derived from the kind and the validated destructive flag,
         # so it states what the trusted boundary already decided rather than what
         # the proposal calls itself.
-        risk = assess_risk(pending.kind, card["destructive"])
+        risk = assess_risk(
+            pending.kind,
+            card["destructive"],
+            network_access=bool(card.get("network_access")),
+            temporary_file=bool(card.get("temporary_file")),
+        )
         self.risk_badge_label.setText(risk.badge())
         self.risk_badge_label.setStyleSheet(
             f"color: {self._RISK_COLORS.get(risk.level, '#E2705F')}; font-weight: 600;"
@@ -987,6 +998,17 @@ class AgentWorkspaceDock(QDockWidget):
         # Watch for the TTL elapsing so a forgotten card visibly goes stale
         # instead of staying invitingly clickable until it fails at the click.
         self._stale_timer.start()
+
+    def _current_map_extent(self):
+        """Return the live canvas extent and CRS without exposing coordinates."""
+        canvas = self.iface.mapCanvas() if self.iface is not None else None
+        if canvas is None:
+            return None
+        extent = canvas.extent()
+        crs = canvas.mapSettings().destinationCrs()
+        if extent is None or crs is None or not crs.isValid():
+            return None
+        return extent, crs
 
     def _on_stale_tick(self) -> None:
         """Disable a pending action that has aged past its TTL.

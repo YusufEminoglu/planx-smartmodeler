@@ -2388,9 +2388,10 @@ def run_checks() -> str:
         if foreign_report["algorithms"]:
             raise RuntimeError("A foreign package received an algorithm listing.")
 
-        # A plugin algorithm stays non-runnable: the reviewed allowlist is
-        # unchanged, so processing.describe reports agent_runnable false for a
-        # provider algorithm and true for a reviewed native one.
+        # processing.describe reports runnability from the live signature. Core
+        # native algorithms, safe PlanX domain-text algorithms, and the one
+        # reviewed QuickOSM adapter are positive cases; unreviewed providers
+        # remain negative.
         native_described = caps_dock.controller.execute(
             AgentToolCall(call_id="p6_pd1", tool_name="processing.describe",
                           arguments={"algorithm_id": "native:buffer"}),
@@ -2407,6 +2408,52 @@ def run_checks() -> str:
                 raise RuntimeError("processing.describe omitted the required flag.")
         if not native_described.get("outputs"):
             raise RuntimeError("processing.describe did not report output definitions.")
+        if AlgorithmCatalog.algorithm_exists("planx:spacesyntax"):
+            planx_described = caps_dock.controller.execute(
+                AgentToolCall(
+                    call_id="p6_planx",
+                    tool_name="processing.describe",
+                    arguments={"algorithm_id": "planx:spacesyntax"},
+                ),
+                AgentMode.ASK,
+                AgentScope.PROJECT,
+            ).data
+            planx_bindings = {
+                row["name"]: row.get("proposal_binding", "")
+                for row in planx_described.get("parameters", [])
+            }
+            if (
+                not planx_described.get("agent_runnable")
+                or planx_bindings.get("NETWORK") != "layer"
+                or planx_bindings.get("RADII") != "text"
+            ):
+                raise RuntimeError(
+                    "planx:spacesyntax was not exposed through safe live bindings."
+                )
+        quick_id = "quickosm:downloadosmdataextentquery"
+        if AlgorithmCatalog.algorithm_exists(quick_id):
+            quick_described = caps_dock.controller.execute(
+                AgentToolCall(
+                    call_id="p6_quickosm",
+                    tool_name="processing.describe",
+                    arguments={"algorithm_id": quick_id},
+                ),
+                AgentMode.ASK,
+                AgentScope.PROJECT,
+            ).data
+            quick_bindings = {
+                row["name"]: row.get("proposal_binding", "")
+                for row in quick_described.get("parameters", [])
+            }
+            if (
+                not quick_described.get("agent_runnable")
+                or quick_bindings.get("KEY") != "osm_tag"
+                or quick_bindings.get("EXTENT") != "map_extent"
+                or quick_bindings.get("SERVER")
+            ):
+                raise RuntimeError(
+                    "The QuickOSM adapter exposed an unsafe or incomplete binding set."
+                )
         non_native = next(
             (a for a in ("gdal:buffervectors", "qgis:basicstatisticsforfields")
              if AlgorithmCatalog.algorithm_exists(a)), "")

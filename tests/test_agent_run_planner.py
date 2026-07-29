@@ -42,6 +42,8 @@ BOOL_PARAM = "QgsProcessingParameterBoolean"
 ENUM_PARAM = "QgsProcessingParameterEnum"
 CRS_PARAM = "QgsProcessingParameterCrs"
 STRING_PARAM = "QgsProcessingParameterString"
+EXTENT_PARAM = "QgsProcessingParameterExtent"
+FILE_DEST = "QgsProcessingParameterFileDestination"
 SINK = "QgsProcessingParameterFeatureSink"
 
 
@@ -135,6 +137,15 @@ MERGE_PARAMS = [
     spec("OUTPUT", SINK, destination=True),
     spec("ADD_SOURCE_FIELDS", BOOL_PARAM, default=True),
 ]
+QUICKOSM_PARAMS = [
+    spec("KEY", STRING_PARAM),
+    spec("VALUE", STRING_PARAM, optional=True),
+    spec("TYPE_MULTI_REQUEST", STRING_PARAM, optional=True),
+    spec("EXTENT", EXTENT_PARAM),
+    spec("TIMEOUT", NUMBER_PARAM, default=True),
+    spec("SERVER", STRING_PARAM, default=True),
+    spec("FILE", FILE_DEST, destination=True, optional=True),
+]
 
 VEC = LayerView("L_vec", "Roads", VECTOR, frozenset({"name", "class"}))
 VEC2 = LayerView("L_vec2", "Districts", VECTOR, frozenset({"code"}))
@@ -202,6 +213,60 @@ class ProcessingRunPlannerTests(unittest.TestCase):
     def test_plan_never_contains_a_destination_binding(self):
         plan = self.plan("native:buffer", {"INPUT": {"layer": "L_vec"}}, BUFFER_PARAMS)
         self.assertIsNone(plan.binding_for("OUTPUT"))
+
+    def test_planx_space_syntax_accepts_reviewed_domain_text(self):
+        params = [
+            spec("NETWORK", SOURCE),
+            spec("RADII", STRING_PARAM, default=True),
+            spec("OUTPUT", SINK, destination=True),
+        ]
+        policy = default_policy()
+        decision = policy.is_runnable("planx:spacesyntax", params)
+        self.assertTrue(decision.allowed)
+        plan = plan_processing_run(
+            proposal(
+                "planx:spacesyntax",
+                {
+                    "NETWORK": {"layer": "L_vec"},
+                    "RADII": {"text": "400, 800, n"},
+                },
+            ),
+            policy,
+            decision.record,
+            params,
+            lookup,
+        )
+        self.assertEqual(plan.binding_for("RADII").value, "400, 800, n")
+        self.assertEqual(plan.destinations, ("OUTPUT",))
+
+    def test_quickosm_plan_uses_canvas_extent_and_pinned_network_settings(self):
+        plan = self.plan(
+            "quickosm:downloadosmdataextentquery",
+            {
+                "KEY": {"osm_tag": "building"},
+                "EXTENT": {"map_extent": True},
+            },
+            QUICKOSM_PARAMS,
+        )
+        self.assertEqual(plan.destinations, ("OUTPUT_MULTIPOLYGONS",))
+        self.assertEqual(plan.parameter_destinations, ())
+        self.assertEqual(plan.internal_destinations, ("FILE",))
+        self.assertTrue(plan.network_access)
+        self.assertTrue(plan.temporary_file)
+        self.assertEqual(plan.binding_for("KEY").value, "building")
+        self.assertIs(plan.binding_for("EXTENT").value, True)
+        self.assertEqual(
+            dict(plan.fixed_values)["SERVER"],
+            "https://overpass-api.de/api/interpreter",
+        )
+
+    def test_quickosm_plan_requires_key_and_extent(self):
+        self.assert_rejects(
+            "quickosm:downloadosmdataextentquery",
+            {"KEY": {"osm_tag": "building"}},
+            QUICKOSM_PARAMS,
+            ProposalReason.VALIDATION_FAILED,
+        )
 
     def test_field_binding_resolves_against_its_named_input_layer(self):
         plan = self.plan(
@@ -539,7 +604,7 @@ class ModelRunPlannerTests(unittest.TestCase):
     def test_a_node_outside_the_allowlist_is_rejected(self):
         self.params["native:pixelstopoints"] = [spec("INPUT", SOURCE)]
         graph = build_graph(smart_node("src"), processing_node("x", "native:pixelstopoints"))
-        self.assert_rejects(graph, ProposalReason.ALGORITHM_NOT_ALLOWED)
+        self.assert_rejects(graph, ProposalReason.NO_LAYER_OUTPUT)
 
     def test_a_node_absent_from_the_live_registry_is_rejected(self):
         graph = build_graph(smart_node("src"), processing_node("x", "native:buffer"))

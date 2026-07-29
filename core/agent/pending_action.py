@@ -154,6 +154,9 @@ class PendingAction:
         for flag in ("operation_count", "incomplete", "validation_issues_truncated"):
             if flag in preview:
                 card[flag] = preview[flag]
+        for flag in ("network_access", "temporary_file"):
+            if flag in preview:
+                card[flag] = bool(preview[flag])
         return card
 
 

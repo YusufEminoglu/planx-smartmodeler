@@ -136,6 +136,17 @@ class KindConstantAgreementTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertNotEqual(assess_risk(kind, False).reason, fallback.reason)
 
+    def test_reviewed_network_run_is_high_risk(self) -> None:
+        risk = assess_risk(
+            identifiers.PROCESSING_PROPOSAL_KIND,
+            False,
+            network_access=True,
+            temporary_file=True,
+        )
+        self.assertEqual(risk.level, RISK_HIGH)
+        self.assertFalse(risk.reversible)
+        self.assertIn("network service", risk.reason)
+
 
 class DockConstantTests(unittest.TestCase):
     """The dock imports Qt, so read its source rather than importing it."""

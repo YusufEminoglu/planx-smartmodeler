@@ -3,11 +3,11 @@ name=SmartModeler GIS
 qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.12.1
+version=0.13.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
-about=SmartModeler GIS is a QGIS 4-only visual Processing studio. It discovers installed algorithms, builds and runs typed acyclic workflows, imports and exports native .model3 models, and offers schema-validated iterative AI planning through local or remote providers. A separate Agent Workspace dock adds bounded read-only inspections and a supervised assistant: it can propose a workflow patch, a symbology intent, a run of one reviewed core algorithm, or a run of your current workflow, but nothing takes effect until you click Apply or Run yourself, results go to temporary layers, and the last action can be undone. The assistant never invokes a plugin, runs an arbitrary algorithm, writes a file or database, or continues on its own. Connected requests include the user's message, static instructions, and profile-enabled bounded metadata; SmartModeler does not automatically collect feature values, source paths, data-source URIs or credentials. Provider retention remains the provider's responsibility. API keys use password-free session memory or the optional encrypted QGIS vault. No pip dependencies are required.
+about=SmartModeler GIS is a QGIS 4-only visual Processing studio. It discovers installed algorithms, builds and runs typed acyclic workflows, imports and exports native .model3 models, and offers schema-validated iterative AI planning through local or remote providers. A separate Agent Workspace dock adds bounded read-only inspections and a supervised assistant: it can propose a workflow patch, a symbology intent, a safe live-signature Processing run, or a run of your current workflow, but nothing takes effect until you click Apply or Run yourself. Results go to temporary layers and the last layer/model/style action can be undone. The assistant cannot run arbitrary code, expressions, URLs, paths, database actions or unreviewed algorithms. One reviewed QuickOSM adapter can download plain OSM key/value data for the current canvas through a pinned Overpass endpoint into QGIS-owned temporary storage; its approval card exposes the non-undoable network request. Connected AI requests include the user's message, static instructions, and profile-enabled bounded metadata; SmartModeler does not automatically collect feature values, source paths, data-source URIs or credentials. Provider retention remains the provider's responsibility. API keys use password-free session memory or the optional encrypted QGIS vault. No pip dependencies are required.
 
 tracker=https://github.com/YusufEminoglu/planx-smartmodeler/issues
 repository=https://github.com/YusufEminoglu/planx-smartmodeler
@@ -23,6 +23,7 @@ hasProcessingProvider=no
 license=GPL-3
 
 changelog=
+    0.13.0 - Generalize safe native QGIS and PlanX parameter binding, report exact execution blockers, run PlanX Space Syntax directly, and add an explicitly approved current-map QuickOSM building/data download adapter with pinned network and temporary-storage controls.
     0.12.1 - Add compact exact provider token counters to Agent Workspace and Workflow Studio, clearly sequence multi-layer styling, and explain QuickOSM network/file capability boundaries without misreporting plugin availability.
     0.12.0 - Recover missing proposal freshness receipts with a bounded read-only inspection, preserve explicit field clarifications, correct layer-style class counts locally, avoid repeated successful inspections, and materialize only requested primary Processing outputs.
     0.10.1 - Separate Workflow Studio planning from the Agent run allowlist, expose PlanX and reviewed random extraction to AI graphs, include enum meanings/defaults in catalog signatures, and accept safe null-as-unconfigured provider parameters; verified with a live Konak 15-stop / 4-minute walking isochrone workflow.

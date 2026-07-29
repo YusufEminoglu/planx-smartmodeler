@@ -145,6 +145,36 @@ class ProcessingRunParseTests(unittest.TestCase):
         with self.assertRaises(ProposalError):
             _parse_pr(data)
 
+    def test_reviewed_domain_text_binding_is_bounded_and_path_free(self) -> None:
+        data = _valid_processing_run()
+        data["inputs"]["RADII"] = {"text": "400, 800, n"}
+        proposal = _parse_pr(data)
+        self.assertEqual(dict(proposal.inputs)["RADII"].value, "400, 800, n")
+        for bad in ("https://example.test", "C:/private/file", "../secret"):
+            data["inputs"]["RADII"] = {"text": bad}
+            with self.assertRaises(ProposalError):
+                _parse_pr(data)
+
+    def test_quickosm_tags_and_canvas_extent_have_narrow_forms(self) -> None:
+        data = _valid_processing_run()
+        data["inputs"] = {
+            "KEY": {"osm_tag": "building"},
+            "VALUE": {"osm_tag": "apartments"},
+            "EXTENT": {"map_extent": True},
+        }
+        proposal = _parse_pr(data)
+        bindings = dict(proposal.inputs)
+        self.assertEqual(bindings["KEY"].value, "building")
+        self.assertIs(bindings["EXTENT"].value, True)
+        for bad in ("building;out body", "https://example.test", "a/b"):
+            data["inputs"]["KEY"] = {"osm_tag": bad}
+            with self.assertRaises(ProposalError):
+                _parse_pr(data)
+        data["inputs"]["KEY"] = {"osm_tag": "building"}
+        data["inputs"]["EXTENT"] = {"map_extent": False}
+        with self.assertRaises(ProposalError):
+            _parse_pr(data)
+
     def test_non_finite_number_rejected(self) -> None:
         raw = json.dumps(_valid_processing_run()).replace('"number": 5', '"number": 1e400')
         with self.assertRaises(ProposalError):

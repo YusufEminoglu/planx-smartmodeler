@@ -21,7 +21,9 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsProcessing,
     QgsProcessingContext,
+    QgsProcessingUtils,
     QgsProject,
+    QgsReferencedRectangle,
     QgsRasterLayer,
     QgsVectorLayer,
 )
@@ -59,6 +61,7 @@ from .runtime_tools import (
     STYLE_PROPOSAL_KIND,
     STYLE_STATE_LIMIT,
     algorithm_signature_state,
+    build_output_specs,
     build_param_specs,
     extract_layer_style_state,
 )
@@ -87,6 +90,21 @@ _KIND_SCOPES = {
 _POLICY_MESSAGES = {
     ProposalReason.ALGORITHM_NOT_ALLOWED: (
         "That algorithm does not pass the local safe-run policy."
+    ),
+    ProposalReason.PROVIDER_NOT_TRUSTED: (
+        "That third-party provider has no reviewed Agent execution adapter."
+    ),
+    ProposalReason.SIDE_EFFECT_BLOCKED: (
+        "That algorithm has a known network, project, database, or external-command side effect."
+    ),
+    ProposalReason.UNSUPPORTED_PARAMETER: (
+        "That algorithm uses an input type the Agent cannot bind safely yet."
+    ),
+    ProposalReason.UNSAFE_DESTINATION: (
+        "That algorithm requires a file, folder, database, or other non-layer destination."
+    ),
+    ProposalReason.NO_LAYER_OUTPUT: (
+        "That algorithm has no temporary map-layer destination for an Agent run."
     ),
     ProposalReason.SIGNATURE_MISMATCH: (
         "That algorithm's live signature is not safe for an Agent run."
@@ -166,6 +184,7 @@ class RuntimeProposalValidator:
         catalog: Optional[Any] = None,
         clone_fn: Optional[Callable[[GraphModel], GraphModel]] = None,
         policy: Optional[SafeAlgorithmPolicy] = None,
+        map_extent_provider: Optional[Callable[[], Any]] = None,
     ) -> None:
         self._model_provider = model_provider
         self._token_service = token_service
@@ -176,6 +195,7 @@ class RuntimeProposalValidator:
         # narrow it; nothing reachable from a provider, project, setting, or
         # user message can widen or replace it.
         self._policy = policy or default_policy()
+        self._map_extent_provider = map_extent_provider or (lambda: None)
         # On a successful validation the trusted boundary retains the detached
         # parsed proposal plus its target/token so the dock can build the single
         # pending action for an Act-mode apply. This never reaches the provider
@@ -441,16 +461,50 @@ class RuntimeProposalValidator:
                         ProposalReason.VALIDATION_FAILED,
                     )
                 parameters[binding.param] = crs
+            elif binding.tag == "map_extent":
+                current = self._map_extent_provider()
+                if (
+                    not isinstance(current, tuple)
+                    or len(current) != 2
+                    or current[0] is None
+                    or current[1] is None
+                ):
+                    raise ProposalError(
+                        "The current map extent is not available.",
+                        ProposalReason.TARGET_MISSING,
+                    )
+                parameters[binding.param] = QgsReferencedRectangle(
+                    current[0], current[1]
+                )
             else:
                 parameters[binding.param] = binding.value
-        for name in plan.destinations:
+        for name, value in plan.fixed_values:
+            parameters[name] = value
+        for name in plan.parameter_destinations:
             parameters[name] = QgsProcessing.TEMPORARY_OUTPUT
+        for name in plan.internal_destinations:
+            # QuickOSM's file destination mishandles the generic
+            # TEMPORARY_OUTPUT sentinel on Windows (mixed separators). Generate
+            # a QGIS-owned temporary GeoPackage path explicitly; the provider
+            # never sees or supplies this path.
+            parameters[name] = QgsProcessingUtils.generateTempFilename(
+                "smartmodeler_quickosm.gpkg"
+            )
         return parameters
 
     @staticmethod
-    def _output_lines(algorithm: Any, destinations: tuple) -> List[str]:
+    def _output_lines(
+        algorithm: Any, destinations: tuple, temporary_file: bool = False
+    ) -> List[str]:
         lines: List[str] = []
-        by_name = {definition.name(): definition for definition in algorithm.parameterDefinitions()}
+        by_name = {
+            definition.name(): definition
+            for definition in algorithm.parameterDefinitions()
+        }
+        output_by_name = {
+            definition.name(): definition
+            for definition in algorithm.outputDefinitions()
+        }
         for name in destinations:
             definition = by_name.get(name)
             label = "temporary output layer"
@@ -460,16 +514,21 @@ class RuntimeProposalValidator:
                     if class_name in type_names:
                         label = text
                         break
-            lines.append(f"{name}: {label} (added to the project, never written to disk)")
+            elif name in output_by_name:
+                label = "temporary vector result layer"
+            storage = (
+                "added to the project from application temporary storage"
+                if temporary_file
+                else "added to the project, never written to disk"
+            )
+            lines.append(f"{name}: {label} ({storage})")
         return lines
 
     def _validate_processing_run(
         self, proposal: ProcessingRunProposal, scope: str
     ) -> ProposalValidation:
         algorithm = self._live_algorithm(proposal.algorithm_id)
-        if algorithm is None or not self._catalog_port().ai_algorithm_allowed(
-            proposal.algorithm_id
-        ):
+        if algorithm is None:
             return ProposalValidation.failure(
                 ProposalReason.ALGORITHM_NOT_ALLOWED,
                 _POLICY_MESSAGES[ProposalReason.ALGORITHM_NOT_ALLOWED],
@@ -478,7 +537,9 @@ class RuntimeProposalValidator:
         # Deny by default *before* anything else is considered, so an algorithm
         # outside the pinned/structural policy is refused before its bindings
         # or freshness receipt are examined.
-        decision = self._policy.is_runnable(proposal.algorithm_id, specs)
+        decision = self._policy.is_runnable(
+            proposal.algorithm_id, specs, build_output_specs(algorithm)
+        )
         if not decision.allowed:
             return ProposalValidation.failure(
                 decision.reason_code,
@@ -533,18 +594,35 @@ class RuntimeProposalValidator:
         display_name = agent_context.bound_text(
             algorithm.displayName(), agent_context.MAX_DISPLAY_NAME
         )
-        outputs = self._output_lines(algorithm, plan.destinations)
+        outputs = self._output_lines(
+            algorithm, plan.destinations, temporary_file=plan.temporary_file
+        )
+        changes = list(plan.preview_lines)
+        warnings = list(proposal.warnings)
+        if plan.network_access:
+            changes.append(
+                "Network: contact the reviewed Overpass endpoint after explicit approval"
+            )
+            warnings.append(
+                "This run sends the current map bounding box and OSM tags to Overpass."
+            )
+        if plan.temporary_file:
+            changes.append(
+                "Storage: create an application-owned temporary GeoPackage"
+            )
         preview = {
             "kind": PROPOSAL_KIND_PROCESSING_RUN,
             "title": proposal.title,
             "target": display_name,
             "summary": proposal.summary,
-            "warnings": list(proposal.warnings),
+            "warnings": warnings,
             "applied": False,
             "destructive": False,
             "algorithm_id": proposal.algorithm_id,
-            "changes": list(plan.preview_lines),
+            "changes": changes,
             "outputs": outputs,
+            "network_access": bool(plan.network_access),
+            "temporary_file": bool(plan.temporary_file),
         }
         self._last_validated = {
             "kind": PROPOSAL_KIND_PROCESSING_RUN,
@@ -560,6 +638,7 @@ class RuntimeProposalValidator:
             "display_name": display_name,
             "run_parameters": parameters,
             "destinations": tuple(plan.destinations),
+            "network_access": bool(plan.network_access),
         }
         return ProposalValidation.success(preview)
 

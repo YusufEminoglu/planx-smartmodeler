@@ -22,8 +22,10 @@ What it guarantees:
   path-free, credential-free message before it reaches a signal, the UI, or the
   ledger.
 
-It never saves or closes the project, never writes a file, and never issues a
-follow-up provider call. Execution runs on the QGIS main thread for V1.
+It never saves or closes the project, never writes a user-selected file, and
+never issues a follow-up provider call. A reviewed network adapter may use a
+QGIS-owned temporary file prepared by the validator. Execution runs on the QGIS
+main thread for V1.
 """
 from __future__ import annotations
 

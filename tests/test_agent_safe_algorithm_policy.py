@@ -13,6 +13,8 @@ from planx_smartmodeler.core.agent.safe_algorithm_policy import (
     DISTANCE,
     MULTI_VECTOR,
     NUMBER,
+    OutputSpec,
+    STRING_TEXT,
     VECTOR_LAYER,
     AllowedAlgorithm,
     ParamSpec,
@@ -63,7 +65,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 17)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 18)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
         self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))
@@ -71,7 +73,60 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertIsNotNone(self.policy.record_for("native:joinattributestable"))
         self.assertIsNotNone(self.policy.record_for("native:mergevectorlayers"))
         self.assertIsNotNone(self.policy.record_for("native:randomextract"))
+        self.assertIsNotNone(
+            self.policy.record_for("quickosm:downloadosmdataextentquery")
+        )
         self.assertIsNone(self.policy.record_for("native:refactorfields"))
+
+    def test_quickosm_extent_adapter_is_narrow_and_signature_pinned(self) -> None:
+        params = (
+            _p("KEY", {"QgsProcessingParameterString"}),
+            _p("VALUE", {"QgsProcessingParameterString"}, optional=True),
+            _p("TYPE_MULTI_REQUEST", {"QgsProcessingParameterString"}, optional=True),
+            _p("EXTENT", {"QgsProcessingParameterExtent"}),
+            _p("TIMEOUT", {"QgsProcessingParameterNumber"}, default=True),
+            _p("SERVER", {"QgsProcessingParameterString"}, default=True),
+            _p(
+                "FILE",
+                {"QgsProcessingParameterFileDestination"},
+                dest=True,
+                optional=True,
+            ),
+        )
+        outputs = (
+            OutputSpec(
+                "OUTPUT_MULTIPOLYGONS",
+                frozenset({"QgsProcessingOutputVectorLayer"}),
+            ),
+        )
+        decision = self.policy.is_runnable(
+            "quickosm:downloadosmdataextentquery", params, outputs
+        )
+        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.record.network_access)
+        self.assertEqual(decision.record.result_outputs, ("OUTPUT_MULTIPOLYGONS",))
+        self.assertNotIn("SERVER", decision.record.bindable)
+
+    def test_quickosm_adapter_rejects_output_signature_drift(self) -> None:
+        params = (
+            _p("KEY", {"QgsProcessingParameterString"}),
+            _p("VALUE", {"QgsProcessingParameterString"}, optional=True),
+            _p("TYPE_MULTI_REQUEST", {"QgsProcessingParameterString"}, optional=True),
+            _p("EXTENT", {"QgsProcessingParameterExtent"}),
+            _p("TIMEOUT", {"QgsProcessingParameterNumber"}, default=True),
+            _p("SERVER", {"QgsProcessingParameterString"}, default=True),
+            _p(
+                "FILE",
+                {"QgsProcessingParameterFileDestination"},
+                dest=True,
+                optional=True,
+            ),
+        )
+        decision = self.policy.is_runnable(
+            "quickosm:downloadosmdataextentquery", params, ()
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.reason_code, ProposalReason.SIGNATURE_MISMATCH)
 
     def test_random_extract_run_signature(self) -> None:
         # Live signature probed identical on 3.44.12 LTR and 4.2.0. Unlike
@@ -233,7 +288,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
     def test_unknown_algorithm_denied(self) -> None:
         decision = self.policy.is_runnable("thirdparty:refactorfields", _buffer_params())
         self.assertFalse(decision.allowed)
-        self.assertEqual(decision.reason_code, ProposalReason.ALGORITHM_NOT_ALLOWED)
+        self.assertEqual(decision.reason_code, ProposalReason.PROVIDER_NOT_TRUSTED)
 
     def test_structurally_safe_native_algorithm_is_runnable(self) -> None:
         params = (
@@ -245,6 +300,32 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertEqual(decision.record.bindable, {"INPUT": VECTOR_LAYER})
         self.assertEqual(decision.record.destinations, ("OUTPUT",))
 
+    def test_structurally_safe_native_domain_text_is_runnable(self) -> None:
+        params = (
+            _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+            _p("FIELD_NAME", {"QgsProcessingParameterString"}, default=True),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        decision = self.policy.is_runnable("native:addfield", params)
+        self.assertTrue(decision.allowed)
+        self.assertEqual(
+            decision.record.bindable["FIELD_NAME"], STRING_TEXT
+        )
+
+    def test_native_expression_text_remains_blocked(self) -> None:
+        params = (
+            _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+            _p("EXPRESSION", {"QgsProcessingParameterString"}),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        decision = self.policy.is_runnable(
+            "native:hypotheticalexpression", params
+        )
+        self.assertFalse(decision.allowed)
+        self.assertEqual(
+            decision.reason_code, ProposalReason.UNSUPPORTED_PARAMETER
+        )
+
     def test_structurally_safe_qgis_and_planx_algorithms_are_runnable(self) -> None:
         params = (
             _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
@@ -255,6 +336,30 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertTrue(
             self.policy.is_runnable("planx_cartolab:safeoperation", params).allowed
         )
+
+    def test_planx_space_syntax_domain_text_is_safely_bindable(self) -> None:
+        params = (
+            _p("NETWORK", {"QgsProcessingParameterFeatureSource"}),
+            _p("RADII", {"QgsProcessingParameterString"}, default=True),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        decision = self.policy.is_runnable("planx:spacesyntax", params)
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.record.bindable["RADII"], STRING_TEXT)
+
+    def test_planx_resource_or_code_strings_remain_blocked(self) -> None:
+        for name in ("FILES", "SQL_QUERY", "SERVER_URL", "EXPRESSION"):
+            with self.subTest(name=name):
+                params = (
+                    _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+                    _p(name, {"QgsProcessingParameterString"}, default=True),
+                    _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+                )
+                decision = self.policy.is_runnable("planx:unsafe_text", params)
+                self.assertFalse(decision.allowed)
+                self.assertEqual(
+                    decision.reason_code, ProposalReason.UNSUPPORTED_PARAMETER
+                )
 
     def test_external_provider_is_not_structurally_trusted(self) -> None:
         self.assertFalse(
@@ -305,7 +410,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
             ],
         )
         self.assertFalse(decision.allowed)
-        self.assertEqual(decision.reason_code, ProposalReason.ALGORITHM_NOT_ALLOWED)
+        self.assertEqual(decision.reason_code, ProposalReason.SIDE_EFFECT_BLOCKED)
 
     def test_missing_required_input_denies(self) -> None:
         params = [p for p in _buffer_params() if p.name != "INPUT"]

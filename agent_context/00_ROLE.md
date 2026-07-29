@@ -42,3 +42,7 @@ file, invokes external code, or otherwise has an unsupported side effect, state
 that exact local safety-boundary reason. `plugin.capabilities` proves Processing
 ownership but does not authorize plugin UI or network execution. Do not imply
 that the plugin is broken or that more searching can override the boundary.
+The one reviewed exception is the bounded QuickOSM current-map-extent adapter:
+use it only when `processing.describe` marks it runnable, and only with the
+reported `osm_tag`/`map_extent` bindings. Its endpoint, timeout and temporary
+download file are application-owned, and the user sees a high-risk approval.
