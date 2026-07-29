@@ -585,6 +585,21 @@ class RuntimeProposalValidator:
                 parameters[binding.param] = QgsReferencedRectangle(
                     current[0], current[1]
                 )
+            elif binding.tag == "layer_extent":
+                layer = (
+                    project.mapLayer(binding.layer_ids[0])
+                    if project is not None and binding.layer_ids
+                    else None
+                )
+                if layer is None:
+                    raise ProposalError(
+                        "The extent source layer is not in the project.",
+                        ProposalReason.TARGET_MISSING,
+                    )
+                parameters[binding.param] = QgsReferencedRectangle(
+                    layer.extent(),
+                    layer.crs(),
+                )
             else:
                 parameters[binding.param] = binding.value
         for name, value in plan.fixed_values:

@@ -1141,7 +1141,7 @@ class RunBinding:
     The mandatory tag keeps a string from ever being reinterpreted as a path or a
     destination: a binding is exactly one of ``layer``/``layers``/``field``/
     ``number``/``bool``/``enum``/``enum_string``/``string``/``text``/``crs``/
-    ``distance``/``map_extent``/``osm_tag``.
+    ``distance``/``map_extent``/``layer_extent``/``osm_tag``.
     A destination/output binding cannot be expressed at all -- destinations are
     always application-forced to a temporary output downstream.
     """
@@ -1171,6 +1171,7 @@ _BINDING_SINGLE_KEYS = frozenset(
         "crs",
         "distance",
         "map_extent",
+        "layer_extent",
         "osm_tag",
     }
 )
@@ -1222,10 +1223,21 @@ def _parse_binding(item: Any) -> RunBinding:
                 ProposalReason.MALFORMED,
             )
         return RunBinding("map_extent", True)
+    if tag == "layer_extent":
+        return RunBinding(
+            "layer_extent",
+            _safe_id_text(value, MAX_LAYER_ID_CHARS, "layer extent id"),
+        )
     if tag == "osm_tag":
         _require_safe_text(value, 128)
         text = value.strip()
-        if not text or not re.fullmatch(r"[A-Za-z0-9_:., -]{1,128}", text):
+        if (
+            not text
+            or (
+                text != "*"
+                and not re.fullmatch(r"[A-Za-z0-9_:., ~-]{1,128}", text)
+            )
+        ):
             raise ProposalError(
                 "An OSM tag must contain only ordinary tag characters.",
                 ProposalReason.MALFORMED,

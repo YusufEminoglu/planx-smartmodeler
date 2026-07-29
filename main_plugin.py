@@ -11,6 +11,7 @@ from .core.translation import TranslationManager
 from .gui.agent_dock import AgentWorkspaceDock
 from .gui.help_dialog import HelpDialog
 from .gui.modeler_window import SmartModelerWindow
+from .processing.provider import SmartModelerProcessingProvider
 
 
 class _ModelWindowApplyAdapter:
@@ -47,8 +48,23 @@ class SmartModelerPlugin:
         self.agent_dock: AgentWorkspaceDock | None = None
         self.help_action: QAction | None = None
         self.help_dialog: HelpDialog | None = None
+        self.processing_provider: SmartModelerProcessingProvider | None = None
+
+    def initProcessing(self) -> None:
+        """Register the provider in desktop QGIS and headless qgis_process."""
+        if self.processing_provider is not None:
+            return
+        registry = QgsApplication.processingRegistry()
+        if registry.providerById(SmartModelerProcessingProvider.PROVIDER_ID) is None:
+            provider = SmartModelerProcessingProvider()
+            if registry.addProvider(provider):
+                self.processing_provider = provider
 
     def initGui(self) -> None:
+        self.initProcessing()
+        if self.iface is None:
+            return
+
         icon_path = os.path.join(self.plugin_dir, "icons", "icon.png")
         icon = (
             QIcon(icon_path)
@@ -101,6 +117,9 @@ class SmartModelerPlugin:
         self.iface.addPluginToMenu("SmartModeler GIS", self.help_action)
 
     def unload(self) -> None:
+        if self.processing_provider is not None:
+            QgsApplication.processingRegistry().removeProvider(self.processing_provider)
+            self.processing_provider = None
         if self.action is not None:
             self.iface.removePluginMenu("SmartModeler GIS", self.action)
             self.iface.removeVectorToolBarIcon(self.action)

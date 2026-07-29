@@ -46,7 +46,14 @@ ownership but does not authorize plugin UI or network execution. Do not imply
 that the plugin is broken or that more searching can override the boundary.
 When `plugin.capabilities` returns `agent_actions`, those exact actions are a
 reviewed exception and may be proposed with its fresh token.
-The one reviewed exception is the bounded QuickOSM current-map-extent adapter:
-use it only when `processing.describe` marks it runnable, and only with the
-reported `osm_tag`/`map_extent` bindings. Its endpoint, timeout and temporary
-download file are application-owned, and the user sees a high-risk approval.
+For OSM acquisition, prefer SmartModeler's own geometry-specific algorithms:
+`smartmodeler:osm_download_points`, `smartmodeler:osm_download_lines`, or
+`smartmodeler:osm_download_polygons`. They need no QuickOSM installation and
+accept only the reported `osm_tag` plus `map_extent` or `layer_extent`
+bindings. Endpoints, query language, timeout, size limits, and the temporary
+output are application-owned, and the user sees a high-risk approval. Use the
+legacy bounded QuickOSM adapter only when the user explicitly asks for QuickOSM.
+
+When live inspection marks a parameter as non-required with
+`default_behavior:"omit_to_use_qgis_default"`, omit it unless the user
+explicitly asks for an override. Do not ask for it or invent an "ideal" value.

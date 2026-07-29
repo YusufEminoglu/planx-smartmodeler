@@ -2,6 +2,27 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.15.0] - 2026-07-29
+
+### Direct OSM acquisition without QuickOSM
+
+- Adds a first-party `smartmodeler` Processing provider with separate reviewed
+  point, line, and polygon download algorithms for the current map extent.
+- Accepts only a plain OSM key/value filter. Three pinned HTTPS Overpass
+  mirrors, a 100 km² extent ceiling, a 64 MB response ceiling, a 100,000-element
+  ceiling, cancellation, and temporary output remain application-owned.
+- Creates useful generic OSM columns plus a bounded `tags_json` field directly
+  in QGIS memory/output sinks; no API key, pip dependency, QuickOSM installation,
+  raw Overpass query, endpoint, URL, or path is required.
+- Makes the internal geometry-specific downloader the Agent's preferred OSM
+  route while retaining the existing QuickOSM adapter only as an explicit
+  compatibility fallback.
+- Adds a safe `layer_extent` binding, so requests can use the extent of a named
+  live project layer instead of being limited to the current canvas.
+- Treats configured Processing defaults as optional Agent inputs. Algorithms
+  such as PlanX Network Centrality can now bind only the requested layer while
+  QGIS supplies its own `RADIUS`, `SAMPLES`, and other default values.
+
 ## [0.14.0] - 2026-07-29
 
 ### Separate token counters and reviewed cross-plugin actions

@@ -135,14 +135,19 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   left unset unless they are the requested output. For example, **Extract by
   attribute** adds the matching temporary layer without also cluttering the
   project with an unrequested `FAIL_OUTPUT` layer.
-- QuickOSM has one deliberately narrow network adapter: “OSM data in the
-  current map view” can use plain key/value tags such as `building`, the live
-  canvas extent, a pinned Overpass endpoint and a QGIS-owned temporary
-  GeoPackage. It cannot accept a raw query, arbitrary URL or user path. The
-  approval card shows this as a high-risk network action; Undo can remove the
-  added layer but cannot undo the completed request or temporary download.
-  Every other plugin UI/network action remains unavailable unless it receives
-  its own reviewed adapter.
+- SmartModeler now ships its own dependency-free OSM Processing provider.
+  Geometry-specific point, line, and polygon algorithms accept a plain key/value
+  tag such as `highway=bus_stop`, `highway=*`, or `building=*` plus the live
+  canvas extent. They try three pinned Overpass mirrors, enforce area/response/
+  feature limits, honor QGIS proxy settings and cancellation, and create one
+  temporary vector layer without QuickOSM. Raw queries, endpoints, URLs and
+  paths are not exposed. The older QuickOSM adapter remains an explicit fallback.
+  Every OSM request is shown as a high-risk approval; Undo removes the result
+  layer but cannot undo a completed network request.
+- Extent inputs can safely reference either the current canvas or the extent of
+  a named project layer. Processing parameters with configured defaults are
+  omitted unless the user explicitly asks to override them, so plugin algorithms
+  run with their real QGIS defaults instead of triggering unnecessary questions.
 
 ## AI providers
 
@@ -169,8 +174,9 @@ meanings and safe defaults keep choice indices unambiguous. Feature values are
 not included. Returned JSON must pass the shipped schema, installed-algorithm,
 parameter, socket-type, and DAG checks. `null` means deliberately unconfigured.
 AI output cannot request Python, shell commands, arbitrary downloads,
-user-selected filesystem changes, or arbitrary network actions. The bounded
-QuickOSM adapter is application-owned and separately approved.
+user-selected filesystem changes, or arbitrary network actions. SmartModeler's
+bounded point/line/polygon OSM algorithms and the legacy QuickOSM fallback are
+application-owned and separately approved.
 
 The auditable instruction set lives in [`ai_context/`](ai_context/):
 

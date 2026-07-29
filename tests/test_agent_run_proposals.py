@@ -166,6 +166,10 @@ class ProcessingRunParseTests(unittest.TestCase):
         bindings = dict(proposal.inputs)
         self.assertEqual(bindings["KEY"].value, "building")
         self.assertIs(bindings["EXTENT"].value, True)
+        data["inputs"]["VALUE"] = {"osm_tag": "*"}
+        proposal = _parse_pr(data)
+        self.assertEqual(dict(proposal.inputs)["VALUE"].value, "*")
+        del data["inputs"]["VALUE"]
         for bad in ("building;out body", "https://example.test", "a/b"):
             data["inputs"]["KEY"] = {"osm_tag": bad}
             with self.assertRaises(ProposalError):
@@ -174,6 +178,21 @@ class ProcessingRunParseTests(unittest.TestCase):
         data["inputs"]["EXTENT"] = {"map_extent": False}
         with self.assertRaises(ProposalError):
             _parse_pr(data)
+
+    def test_layer_extent_uses_only_a_project_layer_id(self) -> None:
+        data = _valid_processing_run()
+        data["inputs"] = {
+            "KEY": {"osm_tag": "building"},
+            "EXTENT": {"layer_extent": "network_edges_123"},
+        }
+        proposal = _parse_pr(data)
+        extent = dict(proposal.inputs)["EXTENT"]
+        self.assertEqual(extent.tag, "layer_extent")
+        self.assertEqual(extent.value, "network_edges_123")
+        for bad in ("C:/roads.gpkg", "../roads", "https://example.test/roads"):
+            data["inputs"]["EXTENT"] = {"layer_extent": bad}
+            with self.subTest(value=bad), self.assertRaises(ProposalError):
+                _parse_pr(data)
 
     def test_non_finite_number_rejected(self) -> None:
         raw = json.dumps(_valid_processing_run()).replace('"number": 5', '"number": 1e400')

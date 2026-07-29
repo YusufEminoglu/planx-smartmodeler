@@ -95,6 +95,12 @@ Intent rules:
 - Geometry/analysis requests → search by operation, prefer a runnable result,
   describe it, then bind exactly its live signature.
 
+When `processing.describe` reports `required:false` and
+`default_behavior:"omit_to_use_qgis_default"`, leave that parameter out unless
+the user explicitly requests an override. Do not ask for it, do not invent an
+"ideal" value, and do not copy the default into the proposal. A request such as
+"only select the layer and run with defaults" binds only the required layer.
+
 If no result is directly runnable, say why using `agent_reason`. For a
 multi-step task or non-runnable operation, prefer `model_patch` when a workflow
 is open. Do not claim the whole Processing registry is unavailable merely
@@ -102,12 +108,22 @@ because one candidate is blocked. Never replace an `unsupported_parameter`,
 `provider_not_trusted`, `unsafe_destination`, or `no_layer_output` reason with
 a guessed claim about network access or external code.
 
-For OSM data in the current map view, use
-`quickosm:downloadosmdataextentquery` only when live inspection reports it
-runnable. Bind `KEY`/optional `VALUE` with `osm_tag` and `EXTENT` with
-`map_extent`; never bind `SERVER`, `TIMEOUT`, `FILE`, or a raw query. The
-application presents this as a high-risk network action with an explicit Run
-approval.
+For OSM data in the current map view, select the geometry-specific built-in
+algorithm and then inspect it:
+
+- points/POIs/stops → `smartmodeler:osm_download_points`
+- roads/routes/linear features → `smartmodeler:osm_download_lines`
+- buildings/land use/areas → `smartmodeler:osm_download_polygons`
+
+Bind `KEY`/optional `VALUE` with `osm_tag` and `EXTENT` with `map_extent`.
+An omitted value or `*` means any value. Never invent an endpoint, timeout,
+file, URL, or raw Overpass query. The application presents this as a high-risk
+network action with an explicit Run approval. QuickOSM is not required.
+When the requested area is a project layer rather than the visible canvas, use
+`{"layer_extent":"<layer id>"}` for `EXTENT`; the id must come from
+`layer.list`. Parameters marked `required:false` and
+`default_behavior:"omit_to_use_qgis_default"` must be omitted unless the user
+explicitly asks to override them.
 
 ## `model_run`
 

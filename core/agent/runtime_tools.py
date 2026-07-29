@@ -471,12 +471,19 @@ def _tool_processing_describe_factory(
         # which tagged binding form. Without this the provider tried to bind a
         # reviewed-but-unbindable parameter (e.g. reprojectlayer's OPERATION)
         # and the run failed with "This parameter cannot be set by a proposal".
+        param_specs = build_param_specs(algorithm)
         run_decision = default_policy().is_runnable(
             algorithm.id(),
-            build_param_specs(algorithm),
+            param_specs,
             build_output_specs(algorithm),
         )
         run_record = run_decision.record if run_decision.allowed else None
+        specs_by_name = {spec.name: spec for spec in param_specs}
+        required_names = (
+            set(run_record.required_layer_params) | set(run_record.required_params)
+            if run_record is not None
+            else set()
+        )
 
         def _binding_of(name: str) -> str:
             if run_record is None:
@@ -485,21 +492,41 @@ def _tool_processing_describe_factory(
             return _KIND_BINDING_FORM.get(kind, "") if kind else ""
 
         # The safe *contract* of each parameter: enough to explain and to fill
-        # in correctly, and deliberately never ``defaultValue()``, which for a
-        # third-party algorithm can be a file path or a connection string.
-        parameters = (
-            {
-                "name": agent_context.bound_text(definition.name(), 128),
+        # in correctly, and deliberately never the raw ``defaultValue()``,
+        # which for a third-party algorithm can be a file path or connection.
+        # "required" means required in an Agent proposal, not merely that QGIS
+        # marks the definition non-optional. A configured QGIS default is
+        # intentionally omitted unless the user asks to override it.
+        def _parameter_row(definition: Any) -> Dict[str, Any]:
+            name = agent_context.bound_text(definition.name(), 128)
+            spec = specs_by_name.get(name)
+            binding = _binding_of(name)
+            return {
+                "name": name,
                 "type": agent_context.bound_text(definition.type(), 64),
-                "required": not _param_is_optional(definition),
+                "required": name in required_names,
+                "has_default": bool(spec is not None and spec.has_default),
+                "default_behavior": (
+                    "omit_to_use_qgis_default"
+                    if spec is not None and spec.has_default and binding
+                    else ""
+                ),
                 "destination": bool(definition.isDestination()),
                 "multiple": _param_allows_multiple(definition),
                 "enum_options": _param_options(definition),
                 "minimum": _param_bound(definition, "minimum"),
                 "maximum": _param_bound(definition, "maximum"),
                 # "" means a processing_run may not set this parameter at all.
-                "proposal_binding": _binding_of(definition.name()),
+                "proposal_binding": binding,
+                "alternative_binding": (
+                    "layer_extent"
+                    if binding == "map_extent"
+                    else ""
+                ),
             }
+
+        parameters = (
+            _parameter_row(definition)
             for definition in algorithm.parameterDefinitions()
         )
         bounded, truncated = agent_context.bound_list(parameters, limit)

@@ -146,6 +146,12 @@ QUICKOSM_PARAMS = [
     spec("SERVER", STRING_PARAM, default=True),
     spec("FILE", FILE_DEST, destination=True, optional=True),
 ]
+SMARTMODELER_OSM_PARAMS = [
+    spec("KEY", STRING_PARAM),
+    spec("VALUE", STRING_PARAM, optional=True, default=True),
+    spec("EXTENT", EXTENT_PARAM),
+    spec("OUTPUT", SINK, destination=True),
+]
 
 VEC = LayerView("L_vec", "Roads", VECTOR, frozenset({"name", "class"}))
 VEC2 = LayerView("L_vec2", "Districts", VECTOR, frozenset({"code"}))
@@ -259,6 +265,38 @@ class ProcessingRunPlannerTests(unittest.TestCase):
             dict(plan.fixed_values)["SERVER"],
             "https://overpass-api.de/api/interpreter",
         )
+
+    def test_builtin_osm_plan_needs_no_file_or_plugin(self):
+        plan = self.plan(
+            "smartmodeler:osm_download_polygons",
+            {
+                "KEY": {"osm_tag": "building"},
+                "VALUE": {"osm_tag": "*"},
+                "EXTENT": {"map_extent": True},
+            },
+            SMARTMODELER_OSM_PARAMS,
+        )
+        self.assertEqual(plan.destinations, ("OUTPUT",))
+        self.assertEqual(plan.parameter_destinations, ("OUTPUT",))
+        self.assertEqual(plan.internal_destinations, ())
+        self.assertTrue(plan.network_access)
+        self.assertFalse(plan.temporary_file)
+        self.assertEqual(plan.binding_for("KEY").value, "building")
+        self.assertIs(plan.binding_for("EXTENT").value, True)
+
+    def test_builtin_osm_plan_accepts_a_live_layer_extent(self):
+        plan = self.plan(
+            "smartmodeler:osm_download_polygons",
+            {
+                "KEY": {"osm_tag": "building"},
+                "EXTENT": {"layer_extent": "L_vec"},
+            },
+            SMARTMODELER_OSM_PARAMS,
+        )
+        extent = plan.binding_for("EXTENT")
+        self.assertEqual(extent.tag, "layer_extent")
+        self.assertEqual(extent.layer_ids, ("L_vec",))
+        self.assertEqual(plan.input_layer_ids, ("L_vec",))
 
     def test_quickosm_plan_requires_key_and_extent(self):
         self.assert_rejects(

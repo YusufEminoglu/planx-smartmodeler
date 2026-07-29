@@ -509,6 +509,35 @@ def _alg(
 
 
 _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
+    # SmartModeler's own direct OSM acquisition algorithms.  Each algorithm
+    # fixes its geometry family in code and exposes only a plain key/value pair
+    # plus a QGIS-owned canvas or project-layer extent. Endpoints, Overpass QL,
+    # timeout and output
+    # destination are not parameters, and OUTPUT is always forced temporary.
+    "smartmodeler:osm_download_points": AllowedAlgorithm(
+        algorithm_id="smartmodeler:osm_download_points",
+        bindable={"KEY": OSM_TAG, "VALUE": OSM_TAG, "EXTENT": MAP_EXTENT},
+        required_layer_params=(),
+        required_params=("KEY", "EXTENT"),
+        destinations=("OUTPUT",),
+        network_access=True,
+    ),
+    "smartmodeler:osm_download_lines": AllowedAlgorithm(
+        algorithm_id="smartmodeler:osm_download_lines",
+        bindable={"KEY": OSM_TAG, "VALUE": OSM_TAG, "EXTENT": MAP_EXTENT},
+        required_layer_params=(),
+        required_params=("KEY", "EXTENT"),
+        destinations=("OUTPUT",),
+        network_access=True,
+    ),
+    "smartmodeler:osm_download_polygons": AllowedAlgorithm(
+        algorithm_id="smartmodeler:osm_download_polygons",
+        bindable={"KEY": OSM_TAG, "VALUE": OSM_TAG, "EXTENT": MAP_EXTENT},
+        required_layer_params=(),
+        required_params=("KEY", "EXTENT"),
+        destinations=("OUTPUT",),
+        network_access=True,
+    ),
     # Reviewed QuickOSM adapter. The provider may supply only a plain OSM
     # key/value pair and request the *current map canvas extent*. The endpoint,
     # timeout and download destination are application-owned; arbitrary

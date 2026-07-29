@@ -65,7 +65,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 18)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 21)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
         self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))
@@ -76,7 +76,30 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertIsNotNone(
             self.policy.record_for("quickosm:downloadosmdataextentquery")
         )
+        for geometry in ("points", "lines", "polygons"):
+            self.assertIsNotNone(
+                self.policy.record_for(f"smartmodeler:osm_download_{geometry}")
+            )
         self.assertIsNone(self.policy.record_for("native:refactorfields"))
+
+    def test_builtin_osm_algorithms_are_narrow_network_adapters(self) -> None:
+        params = (
+            _p("KEY", {"QgsProcessingParameterString"}),
+            _p("VALUE", {"QgsProcessingParameterString"}, optional=True, default=True),
+            _p("EXTENT", {"QgsProcessingParameterExtent"}),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        for geometry in ("points", "lines", "polygons"):
+            algorithm_id = f"smartmodeler:osm_download_{geometry}"
+            with self.subTest(algorithm_id=algorithm_id):
+                decision = self.policy.is_runnable(algorithm_id, params)
+                self.assertTrue(decision.allowed)
+                self.assertTrue(decision.record.network_access)
+                self.assertEqual(decision.record.destinations, ("OUTPUT",))
+                self.assertEqual(
+                    decision.record.required_params,
+                    ("KEY", "EXTENT"),
+                )
 
     def test_quickosm_extent_adapter_is_narrow_and_signature_pinned(self) -> None:
         params = (

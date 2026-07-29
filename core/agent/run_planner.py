@@ -99,6 +99,7 @@ _TAG_KINDS: Mapping[str, FrozenSet[str]] = {
     "text": frozenset({STRING_TEXT}),
     "crs": frozenset({CRS}),
     "map_extent": frozenset({MAP_EXTENT}),
+    "layer_extent": frozenset({MAP_EXTENT}),
     "osm_tag": frozenset({OSM_TAG}),
 }
 
@@ -294,10 +295,14 @@ def plan_processing_run(
     # Pass 1 -- layer bindings only, so a later field binding can be checked
     # against the layer it names without depending on dict ordering.
     for param, binding in proposal.inputs:
-        if binding.tag not in ("layer", "layers"):
+        if binding.tag not in ("layer", "layers", "layer_extent"):
             continue
         kind, _spec = _check_common(param, binding.tag, policy, record, params_by_name)
-        ids = (binding.value,) if binding.tag == "layer" else tuple(binding.value)
+        ids = (
+            (binding.value,)
+            if binding.tag in ("layer", "layer_extent")
+            else tuple(binding.value)
+        )
         if len(ids) > MAX_PLAN_INPUT_LAYERS:
             _reject("Too many input layers were bound.", ProposalReason.LIMIT_EXCEEDED)
         views = tuple(_resolve_layer(layer_id, layer_lookup, kind) for layer_id in ids)
@@ -312,11 +317,12 @@ def plan_processing_run(
         )
         input_layer_ids.extend(view.layer_id for view in views)
         names = ", ".join(_preview_value(view.name) for view in views)
-        preview.append(f"{param}: layer {names}")
+        label = "layer extent" if binding.tag == "layer_extent" else "layer"
+        preview.append(f"{param}: {label} {names}")
 
     # Pass 2 -- every other tagged binding.
     for param, binding in proposal.inputs:
-        if binding.tag in ("layer", "layers"):
+        if binding.tag in ("layer", "layers", "layer_extent"):
             continue
         kind, spec = _check_common(param, binding.tag, policy, record, params_by_name)
         if binding.tag == "field":
@@ -353,6 +359,13 @@ def plan_processing_run(
     if require_active_layer:
         primary = record.required_layer_params[0] if record.required_layer_params else ""
         views = layers_by_param.get(primary, ())
+        if not primary:
+            views = tuple(
+                view
+                for param, binding in proposal.inputs
+                if binding.tag == "layer_extent"
+                for view in layers_by_param.get(param, ())
+            )
         if not active_layer_id or not views or views[0].layer_id != active_layer_id:
             _reject(
                 "The run's primary input is not the current active layer.",
