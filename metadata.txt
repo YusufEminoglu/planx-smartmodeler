@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.15.1
+version=0.15.2
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    0.15.2 - Add optional reviewed integration with 02Agent OSM Downloader thematic presets and custom-tag Processing algorithms.
     0.15.1 - Recover blank proposal display notes, expose the live active layer explicitly, and preserve the requested operation across short clarification replies.
     0.15.0 - Add a built-in dependency-free OSM provider with reviewed current-extent point, line, and polygon downloads, pinned mirror fallback, strict request limits, cancellation, and temporary outputs.
     0.14.0 - Show input and output tokens separately, resolve plugins by visible name or safe alias, add a general explicitly reviewed plugin-action approval contract, and integrate 02viz's offline smart chart suggestion for selected project layers.

@@ -2,6 +2,17 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.15.2] - 2026-07-29
+
+### Optional 02Agent OSM Downloader integration
+
+- Recognizes the separately installed 02Agent OSM Downloader's exact preset
+  and custom-tag Processing signatures as reviewed network adapters.
+- Lets Agent Workspace select curated network, morphology, green-blue, public
+  transport, religious, tourism, sport, bike, car, traffic, health, education
+  and emergency packs with map or layer extents and temporary outputs.
+- Keeps SmartModeler's built-in OSM algorithms as the dependency-free fallback.
+
 ## [0.15.1] - 2026-07-29
 
 ### Reliable active-layer OSM proposals

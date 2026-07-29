@@ -151,6 +151,10 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 - `layer.list` marks and prioritizes the live active layer. Active-layer extent
   requests therefore use its exact id directly, and a missing display note on
   an otherwise valid proposal is repaired locally without another paid AI turn.
+- When the optional 02Agent OSM Downloader is installed, Agent Workspace can
+  run its curated thematic preset or custom-tag Processing algorithms with the
+  same temporary-output and explicit network-approval boundary. The built-in
+  SmartModeler OSM provider remains the standalone fallback.
 
 ## AI providers
 

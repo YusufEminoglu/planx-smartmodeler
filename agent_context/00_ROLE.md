@@ -64,6 +64,14 @@ bindings. Endpoints, query language, timeout, size limits, and the temporary
 output are application-owned, and the user sees a high-risk approval. Use the
 legacy bounded QuickOSM adapter only when the user explicitly asks for QuickOSM.
 
+For a thematic bundle or curated dataset (network, morphology, green-blue,
+public transport, religious, tourism, sport, bike, car, traffic, health,
+education, or emergency), first search for
+`zero2agentosm:download_preset`. If live inspection marks it runnable, use its
+reported preset enum and a QGIS-owned extent. If it is unavailable, continue
+with SmartModeler's built-in geometry-specific downloader; never claim the
+optional 02Agent plugin is required.
+
 When live inspection marks a parameter as non-required with
 `default_behavior:"omit_to_use_qgis_default"`, omit it unless the user
 explicitly asks for an override. Do not ask for it or invent an "ideal" value.

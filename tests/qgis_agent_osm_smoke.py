@@ -138,6 +138,37 @@ class SmartModelerAgentOsmSmoke(QgsProcessingAlgorithm):
             if parameters["EXTENT"].get("alternative_binding") != "layer_extent":
                 raise RuntimeError("The extent parameter does not expose layer_extent.")
 
+            curated = controller.execute(
+                AgentToolCall(
+                    call_id="curated_osm_describe",
+                    tool_name="processing.describe",
+                    arguments={
+                        "algorithm_id": "zero2agentosm:download_preset"
+                    },
+                ),
+                AgentMode.PLAN,
+                AgentScope.PROJECT,
+            )
+            if (
+                curated.status != AgentResultStatus.SUCCESS
+                or not curated.data.get("agent_runnable")
+            ):
+                raise RuntimeError(
+                    "02Agent OSM preset is not available to SmartModeler."
+                )
+            curated_parameters = {
+                row["name"]: row
+                for row in curated.data.get("parameters", [])
+            }
+            if (
+                curated_parameters["PRESET"]["proposal_binding"] != "enum"
+                or curated_parameters["EXTENT"]["alternative_binding"]
+                != "layer_extent"
+            ):
+                raise RuntimeError(
+                    "02Agent OSM Agent bindings do not match the live signature."
+                )
+
             planx_algorithm = QgsApplication.processingRegistry().algorithmById(
                 "planx:networkcentrality"
             )

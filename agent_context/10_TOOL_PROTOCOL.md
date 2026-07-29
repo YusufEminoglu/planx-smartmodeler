@@ -133,6 +133,13 @@ When the requested area is a project layer rather than the visible canvas, use
 `default_behavior:"omit_to_use_qgis_default"` must be omitted unless the user
 explicitly asks to override them.
 
+For a curated thematic pack, prefer
+`zero2agentosm:download_preset` when `processing.search` and
+`processing.describe` report it live and runnable. Bind `PRESET` with the exact
+reported enum index and `EXTENT` with `map_extent` or `layer_extent`. Its point,
+line and polygon destinations are application-forced temporary. The optional
+plugin is not a prerequisite for ordinary single-tag OSM requests.
+
 ## `model_run`
 
 Requires `model.describe`:

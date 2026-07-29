@@ -65,7 +65,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 21)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 23)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
         self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))
@@ -80,7 +80,31 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
             self.assertIsNotNone(
                 self.policy.record_for(f"smartmodeler:osm_download_{geometry}")
             )
+        self.assertIsNotNone(
+            self.policy.record_for("zero2agentosm:download_preset")
+        )
+        self.assertIsNotNone(
+            self.policy.record_for("zero2agentosm:download_custom_tag")
+        )
         self.assertIsNone(self.policy.record_for("native:refactorfields"))
+
+    def test_zero2agent_osm_signatures_are_narrow_network_adapters(self) -> None:
+        preset_params = (
+            _p("PRESET", {"QgsProcessingParameterEnum"}, default=True),
+            _p("EXTENT", {"QgsProcessingParameterExtent"}),
+            _p("OUTPUT_POINTS", {"QgsProcessingParameterFeatureSink"}, dest=True),
+            _p("OUTPUT_LINES", {"QgsProcessingParameterFeatureSink"}, dest=True),
+            _p("OUTPUT_POLYGONS", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        decision = self.policy.is_runnable(
+            "zero2agentosm:download_preset", preset_params
+        )
+        self.assertTrue(decision.allowed)
+        self.assertTrue(decision.record.network_access)
+        self.assertEqual(
+            decision.record.destinations,
+            ("OUTPUT_POINTS", "OUTPUT_LINES", "OUTPUT_POLYGONS"),
+        )
 
     def test_builtin_osm_algorithms_are_narrow_network_adapters(self) -> None:
         params = (

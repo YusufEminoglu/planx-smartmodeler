@@ -509,6 +509,38 @@ def _alg(
 
 
 _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
+    # Optional 02Agent OSM Downloader integration. These exact Processing
+    # signatures are accepted only while the separately installed provider
+    # reports them live. Every output is application-forced temporary.
+    "zero2agentosm:download_preset": AllowedAlgorithm(
+        algorithm_id="zero2agentosm:download_preset",
+        bindable={"PRESET": ENUM, "EXTENT": MAP_EXTENT},
+        required_layer_params=(),
+        required_params=("PRESET", "EXTENT"),
+        destinations=(
+            "OUTPUT_POINTS",
+            "OUTPUT_LINES",
+            "OUTPUT_POLYGONS",
+        ),
+        network_access=True,
+    ),
+    "zero2agentosm:download_custom_tag": AllowedAlgorithm(
+        algorithm_id="zero2agentosm:download_custom_tag",
+        bindable={
+            "KEY": OSM_TAG,
+            "VALUE": OSM_TAG,
+            "GEOMETRY": ENUM,
+            "EXTENT": MAP_EXTENT,
+        },
+        required_layer_params=(),
+        required_params=("KEY", "GEOMETRY", "EXTENT"),
+        destinations=(
+            "OUTPUT_POINTS",
+            "OUTPUT_LINES",
+            "OUTPUT_POLYGONS",
+        ),
+        network_access=True,
+    ),
     # SmartModeler's own direct OSM acquisition algorithms.  Each algorithm
     # fixes its geometry family in code and exposes only a plain key/value pair
     # plus a QGIS-owned canvas or project-layer extent. Endpoints, Overpass QL,
