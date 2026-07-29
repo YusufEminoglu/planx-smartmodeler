@@ -242,11 +242,21 @@ class WorkflowStudioRequestUnchangedTests(unittest.TestCase):
         self.assertEqual(payload["tools"][0]["input_schema"], GRAPH_SCHEMA)
 
     def test_gemini(self) -> None:
-        _, _, payload = AiNetworkClient.build_request(
-            make_profile("gemini"), "key", "sys", "user"
-        )
+        profile = make_profile("gemini")
+        _, _, payload = AiNetworkClient.build_request(profile, "key", "sys", "user")
         self.assertEqual(
             payload["generationConfig"]["responseJsonSchema"], GRAPH_SCHEMA
+        )
+        self.assertEqual(profile.model, "gemini-3.6-flash")
+        self.assertNotIn("temperature", payload["generationConfig"])
+
+    def test_older_gemini_profile_keeps_temperature(self) -> None:
+        profile = make_profile("gemini")
+        profile.model = "gemini-3.5-flash"
+        _, _, payload = AiNetworkClient.build_request(profile, "key", "sys", "user")
+        self.assertEqual(
+            payload["generationConfig"]["temperature"],
+            profile.temperature,
         )
 
     def test_deepseek(self) -> None:

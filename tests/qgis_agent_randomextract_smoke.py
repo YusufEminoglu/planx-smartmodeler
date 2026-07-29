@@ -100,6 +100,48 @@ class SmartModelerAgentRandomExtractSmoke(QgsProcessingAlgorithm):
             ):
                 raise RuntimeError("native:randomextract is not agent-runnable.")
 
+            searched = controller.execute(
+                AgentToolCall(
+                    call_id="randomextract_search",
+                    tool_name="processing.search",
+                    arguments={"query": "random extract"},
+                ),
+                AgentMode.PLAN,
+                AgentScope.PROJECT,
+            )
+            rows = searched.data.get("algorithms", [])
+            if (
+                searched.status != AgentResultStatus.SUCCESS
+                or not rows
+                or rows[0].get("algorithm_id") != "native:randomextract"
+                or not rows[0].get("agent_runnable")
+                or len(rows) > 8
+            ):
+                raise RuntimeError("Processing search did not prioritize a compact runnable result.")
+
+            dynamic_safe = controller.execute(
+                AgentToolCall(
+                    call_id="boundary_describe",
+                    tool_name="processing.describe",
+                    arguments={"algorithm_id": "native:boundary"},
+                ),
+                AgentMode.PLAN,
+                AgentScope.PROJECT,
+            )
+            if not dynamic_safe.data.get("agent_runnable"):
+                raise RuntimeError("A structurally safe native algorithm was not admitted.")
+            opaque = controller.execute(
+                AgentToolCall(
+                    call_id="fieldcalc_describe",
+                    tool_name="processing.describe",
+                    arguments={"algorithm_id": "native:fieldcalculator"},
+                ),
+                AgentMode.PLAN,
+                AgentScope.PROJECT,
+            )
+            if opaque.data.get("agent_runnable"):
+                raise RuntimeError("An opaque-expression algorithm was admitted to Agent runs.")
+
             proposal = parse_proposal(
                 PROPOSAL_KIND_PROCESSING_RUN,
                 json.dumps(

@@ -199,9 +199,65 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertIsNotNone(decision.record)
 
     def test_unknown_algorithm_denied(self) -> None:
-        decision = self.policy.is_runnable("native:refactorfields", _buffer_params())
+        decision = self.policy.is_runnable("thirdparty:refactorfields", _buffer_params())
         self.assertFalse(decision.allowed)
         self.assertEqual(decision.reason_code, ProposalReason.ALGORITHM_NOT_ALLOWED)
+
+    def test_structurally_safe_native_algorithm_is_runnable(self) -> None:
+        params = (
+            _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        decision = self.policy.is_runnable("native:boundary", params)
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.record.bindable, {"INPUT": VECTOR_LAYER})
+        self.assertEqual(decision.record.destinations, ("OUTPUT",))
+
+    def test_structurally_safe_qgis_and_planx_algorithms_are_runnable(self) -> None:
+        params = (
+            _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+            _p("DISTANCE", {"QgsProcessingParameterNumber"}, default=True),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        self.assertTrue(self.policy.is_runnable("qgis:somevectoroperation", params).allowed)
+        self.assertTrue(
+            self.policy.is_runnable("planx_cartolab:safeoperation", params).allowed
+        )
+
+    def test_external_provider_is_not_structurally_trusted(self) -> None:
+        self.assertFalse(
+            self.policy.is_runnable("gdal:buffervectors", _buffer_params()).allowed
+        )
+
+    def test_structural_policy_rejects_opaque_input(self) -> None:
+        params = (
+            _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+            _p("EXPRESSION", {"QgsProcessingParameterExpression"}, optional=True),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        decision = self.policy.is_runnable("native:fieldcalculator", params)
+        self.assertFalse(decision.allowed)
+
+    def test_structural_policy_rejects_file_destination(self) -> None:
+        params = (
+            _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+            _p("OUTPUT", {"QgsProcessingParameterFileDestination"}, dest=True),
+        )
+        decision = self.policy.is_runnable("native:package", params)
+        self.assertFalse(decision.allowed)
+
+    def test_structural_policy_rejects_no_output_and_network_ids(self) -> None:
+        no_output = (_p("INPUT", {"QgsProcessingParameterFeatureSource"}),)
+        self.assertFalse(
+            self.policy.is_runnable("native:randomselection", no_output).allowed
+        )
+        network = (
+            _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        self.assertFalse(
+            self.policy.is_runnable("native:batchnominatimgeocoder", network).allowed
+        )
 
     def test_blocked_term_denied_even_if_listed(self) -> None:
         # A hostile allowlist entry whose id carries a blocked term still denies.

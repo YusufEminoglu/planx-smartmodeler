@@ -50,7 +50,7 @@ PROVIDERS: Dict[str, ProviderDefinition] = {
         "gemini",
         "Google Gemini API",
         "https://generativelanguage.googleapis.com/v1beta",
-        "gemini-3.5-flash",
+        "gemini-3.6-flash",
         "Gemini generateContent with JSON Schema output.",
     ),
     "deepseek": ProviderDefinition(

@@ -86,10 +86,10 @@ _KIND_SCOPES = {
 # the reviewed signature, so a probing provider learns nothing from a rejection.
 _POLICY_MESSAGES = {
     ProposalReason.ALGORITHM_NOT_ALLOWED: (
-        "That algorithm is not on the reviewed list the agent may run."
+        "That algorithm does not pass the local safe-run policy."
     ),
     ProposalReason.SIGNATURE_MISMATCH: (
-        "That algorithm changed since it was reviewed, so it cannot be run here."
+        "That algorithm's live signature is not safe for an Agent run."
     ),
     ProposalReason.UNSAFE_PARAMETER: (
         "One of the requested settings is not something a run proposal may set."
@@ -172,7 +172,7 @@ class RuntimeProposalValidator:
         self._active_layer_provider = active_layer_provider or (lambda: None)
         self._catalog = catalog
         self._clone_fn = clone_fn or _serializer_clone
-        # The shipped, deny-by-default allowlist. Injectable only so a test can
+        # The shipped deny-by-default policy. Injectable only so a test can
         # narrow it; nothing reachable from a provider, project, setting, or
         # user message can widen or replace it.
         self._policy = policy or default_policy()
@@ -476,8 +476,8 @@ class RuntimeProposalValidator:
             )
         specs = build_param_specs(algorithm)
         # Deny by default *before* anything else is considered, so an algorithm
-        # outside the reviewed allowlist is refused without its parameters,
-        # bindings, or freshness receipt ever being examined.
+        # outside the pinned/structural policy is refused before its bindings
+        # or freshness receipt are examined.
         decision = self._policy.is_runnable(proposal.algorithm_id, specs)
         if not decision.allowed:
             return ProposalValidation.failure(

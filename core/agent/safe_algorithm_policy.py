@@ -1,8 +1,10 @@
-"""Application-owned, deny-by-default safe-algorithm policy for Phase 05.
+"""Application-owned, deny-by-default safe-algorithm policy for Agent runs.
 
-A `processing_run` / `model_run` may execute an algorithm **only** if it is in
-this shipped, hardcoded allowlist *and* its live signature still matches the
-reviewed record. Provider output and user text can never extend the allowlist.
+A `processing_run` / `model_run` may execute either a signature-pinned reviewed
+algorithm or a first-party QGIS/PlanX algorithm whose *live* signature passes
+the structural policy: constrained tagged inputs only, temporary map-layer
+destinations only, and no known network/project/database side effects.
+Provider output and user text can never extend these rules.
 
 The policy is deliberately QGIS-free: it reasons over a small immutable
 :class:`ParamSpec` view of each live parameter definition (name, destination
@@ -56,7 +58,47 @@ _KIND_CLASS_NAMES: Mapping[str, FrozenSet[str]] = {
 
 # Blocked id terms mirrored from AlgorithmCatalog.AI_BLOCKED_ID_TERMS so the
 # policy can fail closed without importing the QGIS-bound catalog.
-_BLOCKED_ID_TERMS = ("command", "download", "executesql", "execute_sql", "shell")
+_BLOCKED_ID_TERMS = (
+    "command",
+    "download",
+    "executesql",
+    "execute_sql",
+    "shell",
+    "upload",
+    "nominatim",
+    "geocoder",
+    "postgis",
+    "spatialite",
+)
+_BLOCKED_ALGORITHM_IDS = frozenset(
+    {
+        "native:createdirectory",
+        "native:layertobookmarks",
+        "native:loadlayer",
+        "native:setlayerstyle",
+        "native:setprojectvariable",
+        "qgis:setstyleforrasterlayer",
+        "qgis:setstyleforvectorlayer",
+    }
+)
+
+# First-party providers whose live signatures may be admitted by the structural
+# safe-run policy below. External command providers (GDAL/GRASS/PDAL), arbitrary
+# third-party plugins, and scripts remain deny-by-default.
+_STRUCTURALLY_TRUSTED_PREFIXES = (
+    "native:",
+    "qgis:",
+    "planx:",
+    "planx_",
+)
+
+_SAFE_DESTINATION_CLASS_NAMES = frozenset(
+    {
+        "QgsProcessingParameterFeatureSink",
+        "QgsProcessingParameterRasterDestination",
+        "QgsProcessingParameterVectorDestination",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -123,13 +165,86 @@ def kind_matches(kind: str, param: ParamSpec) -> bool:
 
 def _id_has_blocked_term(algorithm_id: str) -> bool:
     normalized = algorithm_id.lower().replace("-", "_")
-    return any(term in normalized for term in _BLOCKED_ID_TERMS)
+    return (
+        normalized in _BLOCKED_ALGORITHM_IDS
+        or any(term in normalized for term in _BLOCKED_ID_TERMS)
+    )
+
+
+def _structural_kind(param: ParamSpec) -> Optional[str]:
+    """Return the narrow tagged-binding kind for a safe live input."""
+    # Order matters: Distance subclasses Number, and the two multiple-layer
+    # kinds share one QGIS class but differ by their live layerType.
+    for kind in (
+        DISTANCE,
+        MULTI_RASTER,
+        MULTI_VECTOR,
+        VECTOR_LAYER,
+        RASTER_LAYER,
+        FIELD,
+        NUMBER,
+        BOOL,
+        ENUM,
+        CRS,
+    ):
+        if kind_matches(kind, param):
+            return kind
+    return None
+
+
+def _structural_record(
+    algorithm_id: str,
+    params: Sequence[ParamSpec],
+) -> Optional[AllowedAlgorithm]:
+    """Build a safe record from a trusted provider's *live* signature.
+
+    This broadens useful QGIS coverage without creating a "run anything" path:
+    every input must have a constrained tagged representation, every output
+    must be an application-owned temporary map-layer destination, algorithms
+    with project/network/database side effects are blocked by id, and the same
+    live structure is re-evaluated at the human's Run click.
+    """
+    if not algorithm_id.startswith(_STRUCTURALLY_TRUSTED_PREFIXES):
+        return None
+    if _id_has_blocked_term(algorithm_id):
+        return None
+
+    bindable = {}
+    required_layers = []
+    destinations = []
+    layer_kinds = frozenset(
+        {VECTOR_LAYER, RASTER_LAYER, MULTI_VECTOR, MULTI_RASTER}
+    )
+    for param in params:
+        if param.is_destination:
+            if not (_SAFE_DESTINATION_CLASS_NAMES & param.type_names):
+                return None
+            destinations.append(param.name)
+            continue
+        kind = _structural_kind(param)
+        if kind is None:
+            # Even an optional opaque string/file/database parameter is not
+            # silently inherited: its default may carry a path or side effect.
+            return None
+        bindable[param.name] = kind
+        if kind in layer_kinds and not param.is_optional and not param.has_default:
+            required_layers.append(param.name)
+
+    if not destinations:
+        return None
+    return AllowedAlgorithm(
+        algorithm_id=algorithm_id,
+        bindable=bindable,
+        required_layer_params=tuple(required_layers),
+        destinations=tuple(destinations),
+    )
 
 
 class SafeAlgorithmPolicy:
-    """Deny-by-default gate over a fixed, reviewed native-algorithm allowlist."""
+    """Deny-by-default gate over pinned and structurally safe algorithms."""
 
     def __init__(self, allowlist: Optional[Mapping[str, AllowedAlgorithm]] = None) -> None:
+        self._allow_structural = allowlist is None
         self._allowed: Mapping[str, AllowedAlgorithm] = (
             dict(allowlist) if allowlist is not None else dict(_DEFAULT_ALLOWLIST)
         )
@@ -154,6 +269,8 @@ class SafeAlgorithmPolicy:
         registry. Deny reasons never leak parameter detail.
         """
         record = self._allowed.get(algorithm_id)
+        if record is None and self._allow_structural:
+            record = _structural_record(algorithm_id, params)
         if record is None:
             return _deny(ProposalReason.ALGORITHM_NOT_ALLOWED)
         if _id_has_blocked_term(algorithm_id):
@@ -356,4 +473,4 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
 
 
 def default_policy() -> SafeAlgorithmPolicy:
-    return SafeAlgorithmPolicy(_DEFAULT_ALLOWLIST)
+    return SafeAlgorithmPolicy()

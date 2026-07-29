@@ -88,11 +88,11 @@ class ConfirmedMappingTests(unittest.TestCase):
         self.assertEqual(len(result["algorithms"]), 5)
         self.assertTrue(result["algorithms_truncated"])
 
-    def test_a_confirmed_plugin_algorithm_is_still_not_agent_executable(self):
+    def test_confirmed_plugin_requires_per_algorithm_safe_run_check(self):
         plugin = PluginView("planx_suitability_lab", declares_processing_provider=True)
         result = build_capabilities(plugin, [SUITABILITY])
         self.assertFalse(result["agent_executable"])
-        self.assertIn("not available", result["guidance"])
+        self.assertIn("processing.describe", result["guidance"])
 
 
 class UnprovedMappingTests(unittest.TestCase):

@@ -84,7 +84,12 @@ class AiContractTests(unittest.TestCase):
         from planx_smartmodeler.core.agent.safe_algorithm_policy import default_policy
 
         self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("native:randomextract"))
+        self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("native:boundary"))
+        self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("qgis:buffer"))
         self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("planx:preparenetwork"))
+        self.assertTrue(
+            AlgorithmCatalog.ai_algorithm_allowed("planx_cartolab:quick_style")
+        )
         self.assertTrue(AlgorithmCatalog.ai_algorithm_allowed("planx:serviceareas"))
         self.assertFalse(AlgorithmCatalog.ai_algorithm_allowed("thirdparty:unreviewed"))
         self.assertIsNotNone(default_policy().record_for("native:randomextract"))

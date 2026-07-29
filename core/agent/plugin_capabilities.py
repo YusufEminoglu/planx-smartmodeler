@@ -50,9 +50,9 @@ _GUIDANCE = {
     ),
     CONFIRMED_PROVIDER: (
         "This plugin registers Processing algorithms, listed below. They can be "
-        "searched and explained here, but running one is not available in this "
-        "version: the agent may only run its own reviewed list of core QGIS "
-        "algorithms. Run them yourself from the Processing Toolbox."
+        "searched and explained here. A specific algorithm can be proposed only "
+        "when processing.describe confirms that its live inputs, outputs, and "
+        "side-effect profile pass the local safe-run policy."
     ),
     DECLARED_UNCONFIRMED: (
         "This plugin's metadata says it provides Processing algorithms, but no "
@@ -268,9 +268,8 @@ def _report(
         "providers": providers,
         "algorithms": algorithms,
         "algorithms_truncated": bool(truncated),
-        # Owner decision 2026-07-24: the reviewed run allowlist stays at the
-        # twelve core QGIS algorithms, so no plugin algorithm is ever runnable
-        # by the agent in V1. Reported here rather than discovered by failure.
+        # This field refers to invoking/driving the plugin itself. Individual
+        # Processing algorithms are evaluated later by processing.describe.
         "agent_executable": False,
         "guidance": _GUIDANCE[status],
     }

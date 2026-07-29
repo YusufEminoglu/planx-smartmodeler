@@ -34,6 +34,8 @@ ModelProvider = Callable[[], Optional[Any]]
 
 DEFAULT_LIST_LIMIT = agent_context.DEFAULT_LIST_LIMIT
 MAX_LIST_LIMIT = agent_context.MAX_LIST_ITEMS
+DEFAULT_PROCESSING_SEARCH_LIMIT = 8
+DEFAULT_PROCESSING_DESCRIBE_LIMIT = 40
 
 _QUERY_MAX_LENGTH = 200
 _ID_MAX_LENGTH = 200
@@ -107,12 +109,12 @@ class ToolExecutionError(RuntimeError):
     """Raised by a handler for a controlled failure; the controller sanitizes it."""
 
 
-def _clamp_limit(value: Any) -> int:
+def _clamp_limit(value: Any, default: int = DEFAULT_LIST_LIMIT) -> int:
     """Defensive fallback: the controller already enforces ``_LIMIT_PROPERTY``
     (an integer between 1 and ``MAX_LIST_LIMIT``) via each tool's schema
     before a handler is ever invoked; this only guards direct handler calls."""
     if value is None:
-        return DEFAULT_LIST_LIMIT
+        return default
     if isinstance(value, bool) or not isinstance(value, int):
         raise ToolExecutionError("limit must be an integer.")
     return max(1, min(value, MAX_LIST_LIMIT))
@@ -178,7 +180,10 @@ def _tool_project_summary(_call: AgentToolCall) -> Dict[str, Any]:
 
 
 def _tool_layer_list(call: AgentToolCall) -> Dict[str, Any]:
-    limit = _clamp_limit(call.arguments.get("limit"))
+    limit = _clamp_limit(
+        call.arguments.get("limit"),
+        DEFAULT_PROCESSING_SEARCH_LIMIT,
+    )
     project = QgsProject.instance()
     layers = project.mapLayers().values() if project is not None else ()
     summaries = (_layer_summary(layer) for layer in layers)
@@ -227,11 +232,16 @@ def _tool_processing_search(call: AgentToolCall) -> Dict[str, Any]:
     registry = QgsApplication.processingRegistry()
     terms = [term for term in query.lower().split() if term]
     matches: list = []
+    policy = default_policy()
     if registry is not None:
         for algorithm in registry.algorithms():
             haystack = f"{algorithm.id()} {algorithm.displayName()}".lower()
             if terms and not all(term in haystack for term in terms):
                 continue
+            decision = policy.is_runnable(
+                algorithm.id(),
+                build_param_specs(algorithm),
+            )
             matches.append(
                 {
                     "algorithm_id": agent_context.bound_text(algorithm.id(), 200),
@@ -242,11 +252,17 @@ def _tool_processing_search(call: AgentToolCall) -> Dict[str, Any]:
                         algorithm.group(), agent_context.MAX_DISPLAY_NAME
                     ),
                     "provider_id": _algorithm_provider_id(algorithm),
+                    "agent_runnable": decision.allowed,
                 }
             )
     # Relevance ranking requires the full match set before truncation; this
     # is inherent to "search", not a laziness gap in bound_list() itself.
-    matches.sort(key=lambda item: item["algorithm_id"])
+    matches.sort(
+        key=lambda item: (
+            not item["agent_runnable"],
+            item["algorithm_id"],
+        )
+    )
     bounded, truncated = agent_context.bound_list(matches, limit)
     return {"algorithms": bounded, "count": len(bounded), "truncated": truncated}
 
@@ -401,7 +417,10 @@ def _tool_processing_describe_factory(
         algorithm_id = call.arguments.get("algorithm_id")
         if not isinstance(algorithm_id, str) or not algorithm_id.strip():
             raise ToolExecutionError("algorithm_id must be a non-empty string.")
-        limit = _clamp_limit(call.arguments.get("limit"))
+        limit = _clamp_limit(
+            call.arguments.get("limit"),
+            DEFAULT_PROCESSING_DESCRIBE_LIMIT,
+        )
         registry = QgsApplication.processingRegistry()
         algorithm = registry.algorithmById(algorithm_id) if registry is not None else None
         if algorithm is None:
@@ -413,7 +432,11 @@ def _tool_processing_describe_factory(
         # which tagged binding form. Without this the provider tried to bind a
         # reviewed-but-unbindable parameter (e.g. reprojectlayer's OPERATION)
         # and the run failed with "This parameter cannot be set by a proposal".
-        run_record = default_policy().record_for(algorithm.id())
+        run_decision = default_policy().is_runnable(
+            algorithm.id(),
+            build_param_specs(algorithm),
+        )
+        run_record = run_decision.record if run_decision.allowed else None
 
         def _binding_of(name: str) -> str:
             if run_record is None:
@@ -462,10 +485,8 @@ def _tool_processing_describe_factory(
             "parameters_truncated": truncated,
             "outputs": outputs,
             "outputs_truncated": outputs_truncated,
-            # A membership *test* for this one id, not an enumerator: it stops
-            # the provider proposing a run that would certainly be refused. The
-            # allowlist itself remains non-enumerable and cannot be extended.
-            "agent_runnable": default_policy().record_for(algorithm.id()) is not None,
+            "agent_runnable": run_decision.allowed,
+            "agent_reason": "" if run_decision.allowed else run_decision.reason_code,
             # The freshness receipt for a later processing_run proposal. It
             # authorizes nothing: the deny-by-default SafeAlgorithmPolicy is the
             # only thing that decides whether this algorithm may ever run, and

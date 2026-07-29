@@ -202,9 +202,9 @@ class AgentWorkspaceDock(QDockWidget):
             "Inspections are read-only. A model, style, or run proposal takes "
             "effect only after you explicitly click Apply or Run on its approval "
             "card, and the last such action can be undone. A run is limited to a "
-            "reviewed list of safe algorithms or your current workflow, always "
-            "writes to temporary layers, and never invokes a plugin or writes a "
-            "file."
+            "locally verified safe Processing algorithm or your current workflow, "
+            "always writes to temporary layers, and never drives plugin UI or "
+            "accepts a destination path."
         )
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet("color: #9AAAC2;")

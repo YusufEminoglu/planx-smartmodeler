@@ -2,6 +2,26 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.11.0] - 2026-07-29
+
+### Broad live algorithm intelligence
+
+- Replaces Agent Chat's narrow fixed execution list with a deny-by-default
+  structural policy for first-party QGIS and PlanX algorithms. Live signatures
+  qualify only when every input has a constrained tagged binding, every
+  destination is a temporary map layer, and no opaque file/folder/database/
+  expression or known network/project side effect is present.
+- Audits 694 live QGIS/PlanX algorithms: all remain searchable and explainable,
+  while 318 currently qualify for reviewed one-step temporary-layer runs.
+- Processing search now reports and ranks runnable matches, defaults to eight
+  results instead of twenty-five, and describe returns a stable rejection
+  reason so the provider can try the next safe alternative rather than stop.
+- Compresses the repeated Agent instruction context by about 52% while keeping
+  exact proposal schemas, binding rules, recovery behavior, and guardrails.
+- Updates new Gemini profiles to `gemini-3.6-flash` and omits its deprecated
+  temperature parameter, preventing future request failures while using the
+  lower-token agentic Flash generation. Existing model selections are retained.
+
 ## [0.10.2] - 2026-07-29
 
 ### Agent random extraction

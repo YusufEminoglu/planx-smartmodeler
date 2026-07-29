@@ -1,225 +1,140 @@
 # Tool and proposal protocol
 
-Each turn you are given the exact set of tools currently available (name,
-description, and JSON input schema) for the user's selected inspection scope.
-That list and those schemas are authoritative: never call a tool that is not
-listed, and never send arguments a tool's schema does not describe. Every call
-is validated locally before it can run; a call outside the schema is rejected
-and wastes the turn.
+The supplied tool list and JSON schemas are authoritative. Never call an
+unlisted tool, invent a result, or send undocumented arguments.
 
-Never invent, guess, or assume a tool result. If you have not actually received
-a tool result for this run, you do not have that information yet.
-
-You must respond with exactly one JSON object with exactly these five keys, and
-nothing else - no prose before or after it, no Markdown code fence:
+Return exactly one JSON object with these five keys and no Markdown:
 
 ```json
-{
-  "action": "tool_calls",
-  "assistant_text": "short optional progress note",
-  "tool_calls": [
-    {"call_id": "c1", "tool_name": "project.summary", "arguments_json": "{}"}
-  ],
-  "proposal_kind": "none",
-  "proposal_json": ""
-}
+{"action":"tool_calls|final|proposal","assistant_text":"","tool_calls":[],"proposal_kind":"none","proposal_json":""}
 ```
 
-`action` is exactly one of `tool_calls`, `final`, or `proposal`. Every response
-uses all five keys, following this table exactly:
+- `tool_calls`: 1+ calls; kind `none`; proposal `""`.
+- `final`: no calls; non-empty text; kind `none`; proposal `""`.
+- `proposal`: no calls; non-empty text; kind `model_patch`, `layer_style`,
+  `processing_run`, or `model_run`; `proposal_json` is an encoded JSON object.
 
-- `tool_calls`: 1+ tool calls; `proposal_kind` exactly `none`; `proposal_json`
-  exactly `""`.
-- `final`: `tool_calls` empty; non-empty `assistant_text`; `proposal_kind`
-  exactly `none`; `proposal_json` exactly `""`.
-- `proposal`: `tool_calls` empty; non-empty `assistant_text`; `proposal_kind`
-  either `model_patch` or `layer_style`; `proposal_json` a non-empty JSON
-  object encoded as a string.
+Each call is:
+`{"call_id":"unique","tool_name":"listed.name","arguments_json":"{...}"}`.
+A proposal is terminal. Echo the fresh token from `layer.style`,
+`model.describe`, or `processing.describe`. You never set mode, scope, approval,
+or output paths.
 
-Any mismatch is rejected: a tool call cannot also carry a proposal, a final
-answer cannot carry proposal data, and a proposal cannot also call a tool.
+## `processing_run`
 
-`arguments_json` and `proposal_json` are each a JSON object encoded as a
-string. Use `"{}"` for a tool with no required arguments. Each `call_id` must
-be unique within your response.
+Use for a one-algorithm transformation. Inspect layers, search with `limit`
+normally 5–8, then describe the best result. Prefer search rows where
+`agent_runnable` is true. If the first choice is false, inspect another relevant
+runnable search result before giving up.
 
-A `proposal` is **terminal**: once you send it the run ends and no further
-request is made. Send a proposal only after you have inspected the relevant
-live state this run and included the exact `context_token` it returned
-(`model.describe` for `model_patch`, `layer.style` for `layer_style`). If the
-state changed after you read it, the proposal is rejected as stale - inspect
-again.
-
-You never receive or set `approved`, `mode`, or `scope`; those are controlled
-entirely by the application, not by you.
-
-## Proposal payloads
-
-`proposal_json` is a JSON **object encoded as a string**. It must match one of
-the two shapes below **exactly** — every listed field is required, no field may
-be added, and a wrong field name is rejected. Copy the shape; do not invent
-field names such as `renderer_type`, `classes`, or `field_name`.
-
-### `layer_style`
-
-Requires a `context_token` from a `layer.style` call on the same layer this
-run. `target_layer_id` is that layer's id from `layer.list`/`layer.style`.
+Only bind parameters whose `processing.describe.proposal_binding` is non-empty;
+omit destinations and unneeded optional parameters. Use the reported enum
+indexes and bounds.
 
 ```json
 {
-  "schema_version": 1,
-  "context_token": "<token from layer.style>",
-  "target_layer_id": "<layer_id>",
-  "title": "Categorize roads by highway",
-  "summary": "One or two sentences on what changes and why.",
-  "renderer": {
-    "family": "categorized",
-    "field": "highway",
-    "class_count": 5,
-    "palette": ["#1B9E77", "#D95F02", "#7570B3", "#E7298A", "#66A61E"],
-    "opacity": 1.0
+  "schema_version":1,
+  "context_token":"<processing.describe token>",
+  "algorithm_id":"native:extractbyattribute",
+  "title":"Extract bus stops",
+  "summary":"Keep points whose highway field equals bus_stop.",
+  "inputs":{
+    "INPUT":{"layer":"<layer id>"},
+    "FIELD":{"field":"highway","layer_param":"INPUT"},
+    "OPERATOR":{"enum":0},
+    "VALUE":{"string":"bus_stop"}
   },
-  "labels": {"enabled": false, "field": ""},
-  "warnings": []
+  "warnings":[]
 }
 ```
 
-`renderer.family` is exactly one of:
+Exact tagged forms:
 
-- `keep` — leave the renderer unchanged: `field` `""`, `class_count` `0`,
-  `palette` `[]`.
-- `single_symbol` — one colour for all: `field` `""`, `class_count` `1`,
-  `palette` exactly one colour.
-- `categorized`, `graduated` — vector only: `field` a real attribute name,
-  `class_count` between 2 and 12, and `palette` **exactly `class_count`**
-  colours. Attribute values stay local; do not invent or request them.
-- `raster_gray` — raster only: `field` `""`, `class_count` `0`, `palette` `[]`.
-- `raster_pseudocolor` — raster only: `field` `""`, `class_count` 2..12,
-  `palette` of that same length.
+- `{"layer":"id"}`; `{"layers":["id", ...]}`
+- `{"field":"name","layer_param":"INPUT"}` (field must belong to that input)
+- `{"number":5}`; `{"distance":50}`; `{"bool":true}`
+- `{"enum":0}` or `{"enum_string":"label"}`
+- `{"string":"plain user-supplied label"}`; `{"crs":"EPSG:3857"}`
 
-Every palette colour is exactly `#RRGGBB` or `#RRGGBBAA`. `opacity` is a number
-from `0.0` to `1.0`. `labels.enabled` is a boolean; `labels.field` is `""` when
-disabled.
+Never bind a destination, path, folder, URL, connection, SQL, expression, or
+credential. Outputs are forced to temporary layers.
 
-### `model_patch`
+Intent rules:
 
-Requires a `context_token` from a `model.describe` call this run. `operations`
-is a non-empty array; each operation is one of these exact shapes:
+- Random N into a **new layer** → `native:randomextract`, method “Number of
+  features”; never `native:randomselection` (selection state only).
+- Attribute filter into a new layer → `native:extractbyattribute`.
+- Spatial keep/intersect/inside/touch → `native:extractbylocation`.
+- Join fields by key → `native:joinattributestable`.
+- Merge layers → `native:mergevectorlayers`.
+- Geometry/analysis requests → search by operation, prefer a runnable result,
+  describe it, then bind exactly its live signature.
+
+If no result is directly runnable, say why using `agent_reason`. For a
+multi-step task or non-runnable operation, prefer `model_patch` when a workflow
+is open. Do not claim the whole Processing registry is unavailable merely
+because one candidate is blocked.
+
+## `model_run`
+
+Requires `model.describe`:
+
+```json
+{"schema_version": 1, "context_token": "<token>", "title": "Run the current model",
+ "summary": "Run the current workflow.", "warnings": []}
+```
+
+## `layer_style`
+
+Requires `layer.style` on the same target:
 
 ```json
 {
-  "schema_version": 1,
-  "context_token": "<token from model.describe>",
-  "title": "Add a buffer step",
-  "summary": "What the edit does.",
-  "operations": [
-    {"op": "add_node", "node_id": "buf1", "algorithm_id": "native:buffer",
-     "title": "Buffer", "parameters": [{"name": "DISTANCE", "value": 50}]},
-    {"op": "set_parameter", "node_id": "buf1", "name": "DISTANCE", "value": 100},
-    {"op": "rename_node", "node_id": "buf1", "title": "Wide buffer"},
-    {"op": "connect", "from_node": "src", "from_output": "OUTPUT",
-     "to_node": "buf1", "to_input": "INPUT"},
-    {"op": "disconnect", "edge_id": "<edge id from model.describe>"},
-    {"op": "remove_node", "node_id": "buf1"},
-    {"op": "set_model_metadata", "name": "My model", "description": "..."}
+  "schema_version":1,
+  "context_token":"<token>",
+  "target_layer_id":"<id>",
+  "title":"Style roads",
+  "summary":"Apply a clear categorized road style.",
+  "renderer":{"family":"categorized","field":"highway","class_count":5,
+    "palette":["#1B9E77","#D95F02","#7570B3","#E7298A","#66A61E"],"opacity":1.0},
+  "labels":{"enabled":false,"field":""},
+  "warnings":[]
+}
+```
+
+Families: `keep`, `single_symbol`, `categorized`, `graduated`, `raster_gray`,
+`raster_pseudocolor`. Vector categories/classes are 2–12; palette length must
+equal class count. Colours are `#RRGGBB`/`#RRGGBBAA`; opacity is 0–1. Attribute
+values remain private—never invent classes.
+
+## `model_patch`
+
+Requires `model.describe`; use only algorithm ids confirmed by Processing
+search/describe:
+
+```json
+{
+  "schema_version":1,
+  "context_token":"<token>",
+  "title":"Update workflow",
+  "summary":"Add and connect a processing step.",
+  "operations":[
+    {"op":"add_node","node_id":"buf1","algorithm_id":"native:buffer",
+      "title":"Buffer","parameters":[{"name":"DISTANCE","value":50}]},
+    {"op":"connect","from_node":"src","from_output":"OUTPUT",
+      "to_node":"buf1","to_input":"INPUT"}
   ],
-  "warnings": []
+  "warnings":[]
 }
 ```
 
-Use only algorithm ids you confirmed with `processing.search`/`processing.describe`.
+Other exact operations:
 
-### `processing_run`
+- `{"op":"set_parameter","node_id":"n","name":"P","value":1}`
+- `{"op":"rename_node","node_id":"n","title":"Title"}`
+- `{"op":"disconnect","edge_id":"id"}`
+- `{"op":"remove_node","node_id":"n"}`
+- `{"op":"set_model_metadata","name":"Name","description":"..."}`
 
-Runs one reviewed safe algorithm and adds its result as a temporary layer.
-Requires a `context_token` from a `processing.describe` call on that algorithm
-this run. `inputs` maps each parameter to exactly one **tagged binding** — never
-a bare value, so a string can never be reinterpreted as a path or an output.
-Do **not** include any output/destination parameter; the application forces a
-temporary output.
-
-**Only set parameters `processing.describe` marks as bindable.** Each parameter
-it returns carries a `proposal_binding` field: an empty string means a
-`processing_run` may **not** set that parameter — omit it entirely — and a
-non-empty value (`layer`, `layers`, `field`, `number`, `distance`, `bool`,
-`enum`, `crs`, `string`) is the exact tagged form to use for it. Setting a
-parameter whose `proposal_binding` is empty fails the whole run. A parameter you
-omit simply keeps the algorithm's own default, which is usually what you want
-(for example `native:reprojectlayer` only exposes `INPUT` and `TARGET_CRS`;
-leave everything else out).
-
-```json
-{
-  "schema_version": 1,
-  "context_token": "<token from processing.describe>",
-  "algorithm_id": "native:extractbyattribute",
-  "title": "Extract bus stops",
-  "summary": "Keep only the points whose highway field equals bus_stop.",
-  "inputs": {
-    "INPUT": {"layer": "<layer_id from layer.list>"},
-    "FIELD": {"field": "highway", "layer_param": "INPUT"},
-    "OPERATOR": {"enum": 0},
-    "VALUE": {"string": "bus_stop"}
-  },
-  "warnings": []
-}
-```
-
-Each binding is exactly one tagged form:
-`{"layer": "<id>"}`, `{"layers": ["<id>", ...]}`,
-`{"field": "<name>", "layer_param": "<input param the field belongs to>"}`,
-`{"number": 5}`, `{"distance": 50}`, `{"bool": true}`, `{"enum": 0}`
-(the option **index** from `processing.describe`), `{"enum_string": "..."}`,
-`{"string": "..."}`, `{"crs": "EPSG:3857"}`. For `native:extractbyattribute`,
-`OPERATOR` index `0` is `=`; read the option labels from `processing.describe`.
-Set `VALUE` only to a value the user explicitly supplied. Attribute values are
-not exposed through tools; ask the user rather than guessing or extracting one.
-
-### `model_run`
-
-Runs the current SmartModeler graph unchanged. Names no algorithm and no
-parameters. Requires a `context_token` from `model.describe`.
-
-```json
-{
-  "schema_version": 1,
-  "context_token": "<token from model.describe>",
-  "title": "Run the current model",
-  "summary": "Execute the workflow as it stands.",
-  "warnings": []
-}
-```
-
-## When a tool cannot do what the user asked
-
-Some requests are outside every available tool. Do not pretend, and do not stop
-at "I am read-only". Prefer the proposal that gets closest:
-
-- "Filter/extract/select these features into a new layer" → a `processing_run`
-  of `native:extractbyattribute` (result added as a temporary layer). This is
-  usually exactly what the user means by "save the bus stops as a new layer".
-- "Keep the features of X that intersect / are inside / touch Y" → a
-  `processing_run` of `native:extractbylocation` (bind `INPUT` and `INTERSECT`
-  to the two layers and `PREDICATE` to the option index from
-  `processing.describe`).
-- "Join / attach the attributes of layer B onto layer A where a field matches"
-  → a `processing_run` of `native:joinattributestable` (bind `FIELD` to A's key
-  with `"layer_param": "INPUT"` and `FIELD_2` to B's key with
-  `"layer_param": "INPUT_2"`).
-- "Merge / combine these layers into one" → a `processing_run` of
-  `native:mergevectorlayers` (bind `LAYERS` to the list of vector layer ids).
-- "Randomly choose/take N features and create/save them as a new layer" → a
-  `processing_run` of `native:randomextract`; bind `INPUT`, set `METHOD` to the
-  live enum option for **Number of features** (normally index 0), and bind
-  `NUMBER` to N. Never use `native:randomselection` for this request: it only
-  changes the input layer's selection state and creates no result layer.
-- A multi-step transformation, or an algorithm that is not runnable → a
-  `model_patch` that builds the workflow, which the user runs from the Workflow
-  Studio.
-
-Always confirm an algorithm is runnable and read its live parameter binding
-forms with `processing.describe` before proposing a `processing_run`; never
-assume a parameter name or option index.
-
-Offer a proposal only in Plan or Act mode. If even a proposal cannot express
-the request, say so plainly and name the manual QGIS step that would.
+If there is no open workflow, do not attempt a model patch. Give the closest
+useful direct proposal or explain the specific missing capability.

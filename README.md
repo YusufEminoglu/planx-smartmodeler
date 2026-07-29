@@ -83,11 +83,13 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   approval. Apply re-checks the live state and proposal integrity at the click,
   commits one atomic change (rolling back on any failure), and records the
   outcome in a bounded in-session action ledger.
-- An approved **run** executes either one algorithm from a shipped, hardcoded
-  list of seventeen reviewed native algorithms -- and only while its live signature
-  still matches the reviewed one -- or your current workflow, whose every step
-  must independently pass the same check. There is no "run any algorithm" path,
-  and neither the AI nor your prompt can extend the list. Runs show progress, can
+- An approved **run** executes either a signature-pinned reviewed algorithm or a
+  first-party QGIS/PlanX algorithm whose live signature passes the local
+  structural policy: constrained typed inputs, temporary map-layer destinations,
+  and no opaque file/folder/database/expression or known network/project side
+  effects. The same policy checks every workflow step again at Run time. There
+  is no "run any algorithm" path, and neither the AI nor a prompt can weaken
+  these rules. Runs show progress, can
   be **cancelled**, and always write to **temporary layers**: no file, folder,
   database, or network output can even be expressed. Agent results are accepted
   only from the exact engine/result ledger; missing, duplicate, scalar,
@@ -105,9 +107,9 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   asking the provider registry which Python package defined it, then lists that
   provider's algorithms. It never imports, instantiates, or reads the plugin --
   not even one attribute -- so a mapping is either proved or reported as
-  unproved; a look-alike name is never presented as a confirmation. Running a
-  plugin's algorithm is not available in this version, and the panel says so up
-  front instead of letting you find out by failing.
+  unproved; a look-alike name is never presented as a confirmation. Each
+  Processing algorithm is independently marked runnable or blocked from its
+  live signature; SmartModeler never drives a plugin's buttons or dialogs.
 - A chat session can carry a task across several steps: after an action finishes,
   a short sanitized note of what happened stays in the conversation so you can
   say "now style the result". The agent never continues on its own -- you ask
@@ -123,7 +125,7 @@ The profile-based AI settings screen supports:
 
 - OpenAI Responses API
 - Anthropic Messages API
-- Google Gemini API
+- Google Gemini API (`gemini-3.6-flash` preset)
 - DeepSeek API (`deepseek-v4-flash` preset)
 - Ollama
 - OpenAI-compatible services and local runtimes
@@ -132,7 +134,17 @@ The profile-based AI settings screen supports:
 
 Models, timeouts, endpoints where appropriate, project context, and algorithm-catalog limits are configurable per profile. API keys are never written to plugin JSON or ordinary `QgsSettings`. Session-only memory storage works without a password; optionally, the QGIS Authentication Database can encrypt the key across restarts. Its master password is a QGIS password—not the provider API key—and SmartModeler opens it only after the explicit **Unlock vault** action. Legacy plaintext settings are migrated and removed.
 
-AI is a planner, not an execution authority. The provider receives Markdown instructions plus an optional metadata-only description of project layers and a bounded list of installed algorithms. Workflow Studio can plan with the application-owned PlanX Processing provider and reviewed native graph-building steps; this does not expand Agent Chat's separate, deny-by-default execution allowlist. Live enum meanings and safe defaults are included so numeric choice indices remain unambiguous. Feature values are not included. Returned JSON must pass the shipped schema, installed-algorithm, parameter, socket-type, and DAG checks before it can modify the canvas. `null` means deliberately unconfigured, so connected or optional inputs can remain empty while required unconnected inputs still fail validation. AI output cannot request Python, shell commands, downloads, filesystem changes, or arbitrary network actions.
+AI is a planner, not an execution authority. The provider receives compact
+Markdown instructions plus metadata-only project layers and an on-demand,
+bounded search of the live Processing registry. Runnable matches are ranked
+first; only the chosen algorithm's typed signature is described. Workflow
+Studio can plan with safe native/QGIS and PlanX algorithms, while Agent Chat
+independently rechecks its stricter structural execution policy. Live enum
+meanings and safe defaults keep choice indices unambiguous. Feature values are
+not included. Returned JSON must pass the shipped schema, installed-algorithm,
+parameter, socket-type, and DAG checks. `null` means deliberately unconfigured.
+AI output cannot request Python, shell commands, downloads, filesystem changes,
+or arbitrary network actions.
 
 The auditable instruction set lives in [`ai_context/`](ai_context/):
 

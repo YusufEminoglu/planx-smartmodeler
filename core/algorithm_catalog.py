@@ -58,7 +58,7 @@ class AlgorithmCatalog:
             "native:randomextract",
         }
     )
-    AI_WORKFLOW_TRUSTED_PREFIXES = ("planx:",)
+    AI_WORKFLOW_TRUSTED_PREFIXES = ("native:", "qgis:", "planx:", "planx_")
     AI_BLOCKED_ID_TERMS = (
         "command",
         "download",
@@ -66,13 +66,20 @@ class AlgorithmCatalog:
         "execute_sql",
         "shell",
         "upload",
+        "nominatim",
+        "geocoder",
+        "postgis",
+        "spatialite",
     )
     AI_BLOCKED_ALGORITHM_IDS = frozenset(
         {
             "native:createdirectory",
+            "native:layertobookmarks",
             "native:loadlayer",
             "native:setlayerstyle",
             "native:setprojectvariable",
+            "qgis:setstyleforrasterlayer",
+            "qgis:setstyleforvectorlayer",
         }
     )
 

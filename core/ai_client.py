@@ -280,9 +280,17 @@ class AiNetworkClient(QObject):
             if ":generateContent" not in endpoint:
                 endpoint += f"/models/{quote(profile.model, safe='-._')}:generateContent"
             generation_config: Dict[str, Any] = {
-                "temperature": profile.temperature,
                 "responseMimeType": "application/json",
             }
+            # Gemini 3.6 Flash and 3.5 Flash-Lite deprecated sampling
+            # parameters. Omitting temperature avoids a future HTTP 400 and
+            # lets these token-efficient models use their native thinking
+            # defaults; older Gemini profiles retain their configured value.
+            if not (
+                profile.model.startswith("gemini-3.6-")
+                or profile.model.startswith("gemini-3.5-flash-lite")
+            ):
+                generation_config["temperature"] = profile.temperature
             if not compatible_fallback:
                 generation_config["responseJsonSchema"] = schema
             payload = {
