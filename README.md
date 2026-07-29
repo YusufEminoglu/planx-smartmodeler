@@ -148,6 +148,9 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   a named project layer. Processing parameters with configured defaults are
   omitted unless the user explicitly asks to override them, so plugin algorithms
   run with their real QGIS defaults instead of triggering unnecessary questions.
+- `layer.list` marks and prioritizes the live active layer. Active-layer extent
+  requests therefore use its exact id directly, and a missing display note on
+  an otherwise valid proposal is repaired locally without another paid AI turn.
 
 ## AI providers
 

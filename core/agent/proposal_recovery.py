@@ -7,6 +7,7 @@ mechanical mistakes without asking the provider for another paid turn:
 * restore a freshness receipt from a trusted read-only inspection result;
 * request the one missing read-only inspection needed for that receipt;
 * make a layer-style class count agree with its bounded palette/family.
+* replace a missing or blank proposal display note with a fixed safe note.
 
 It never changes a proposal target, algorithm, input binding, field, value,
 operation, output destination, mode, scope, or approval state.  The recovered
@@ -180,7 +181,13 @@ def recover_agent_turn(
         _normalize_style(proposal)
 
     repaired = dict(outer)
-    repaired.setdefault("assistant_text", "A validated proposal is ready.")
+    assistant_text = repaired.get("assistant_text")
+    if assistant_text is None or (
+        isinstance(assistant_text, str) and not assistant_text.strip()
+    ):
+        # Display text carries no authority; proposal target, inputs and token
+        # remain unchanged and are still parsed and live-validated below.
+        repaired["assistant_text"] = "A validated proposal is ready."
     repaired["tool_calls"] = []
     repaired["proposal_json"] = json.dumps(
         proposal, ensure_ascii=False, separators=(",", ":")

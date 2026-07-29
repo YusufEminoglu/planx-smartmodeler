@@ -112,6 +112,31 @@ class PureRecoveryTests(unittest.TestCase):
         self.assertEqual(dict(recovered.inputs)["NUMBER"].value, 3)
         self.assertEqual(recovered.algorithm_id, "native:randomextract")
 
+    def test_blank_proposal_note_is_filled_without_changing_authority(self) -> None:
+        proposal = _processing_proposal(token="trusted")
+        raw = json.loads(_turn(PROPOSAL_KIND_PROCESSING_RUN, proposal))
+        raw["assistant_text"] = "   "
+        outcome = recover_agent_turn(json.dumps(raw), 4, {})
+        self.assertIsNotNone(outcome.turn)
+        self.assertEqual(
+            outcome.turn.assistant_text,
+            "A validated proposal is ready.",
+        )
+        recovered = outcome.turn.proposal
+        self.assertEqual(recovered.algorithm_id, "native:randomextract")
+        self.assertEqual(dict(recovered.inputs)["NUMBER"].value, 3)
+
+    def test_non_string_proposal_note_is_not_repaired(self) -> None:
+        raw = json.loads(
+            _turn(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                _processing_proposal(token="trusted"),
+            )
+        )
+        raw["assistant_text"] = 7
+        outcome = recover_agent_turn(json.dumps(raw), 4, {})
+        self.assertIsNone(outcome.turn)
+
     def test_style_count_tracks_palette_and_safe_defaults_are_filled(self) -> None:
         outcome = recover_agent_turn(
             _turn(

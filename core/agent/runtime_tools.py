@@ -31,6 +31,7 @@ from .registry import AgentToolRegistry
 # .validate()) or None when no studio/model is open. Implemented as a
 # callback owned by the plugin so the registry never holds a stale copy.
 ModelProvider = Callable[[], Optional[Any]]
+ActiveLayerProvider = Callable[[], Optional[Any]]
 
 DEFAULT_LIST_LIMIT = agent_context.DEFAULT_LIST_LIMIT
 MAX_LIST_LIMIT = agent_context.MAX_LIST_ITEMS
@@ -158,7 +159,9 @@ def _layer_is_visible(layer: Any) -> bool:
     return bool(node.itemVisibilityChecked()) if node is not None else True
 
 
-def _layer_summary(layer: Any) -> agent_context.LayerSummary:
+def _layer_summary(
+    layer: Any, active_layer_id: str = ""
+) -> agent_context.LayerSummary:
     crs_authid = ""
     crs = layer.crs()
     if crs is not None and crs.isValid():
@@ -176,6 +179,7 @@ def _layer_summary(layer: Any) -> agent_context.LayerSummary:
         crs=crs_authid,
         visible=_layer_is_visible(layer),
         provider_key=provider_key,
+        active=bool(active_layer_id and layer.id() == active_layer_id),
     )
 
 
@@ -191,15 +195,38 @@ def _tool_project_summary(_call: AgentToolCall) -> Dict[str, Any]:
     return agent_context.build_project_summary(title, crs_authid, len(project.mapLayers()))
 
 
-def _tool_layer_list(call: AgentToolCall) -> Dict[str, Any]:
+def _tool_layer_list(
+    call: AgentToolCall,
+    active_layer_provider: Optional[ActiveLayerProvider] = None,
+) -> Dict[str, Any]:
     limit = _clamp_limit(
         call.arguments.get("limit"),
         DEFAULT_PROCESSING_SEARCH_LIMIT,
     )
     project = QgsProject.instance()
-    layers = project.mapLayers().values() if project is not None else ()
-    summaries = (_layer_summary(layer) for layer in layers)
+    layers = list(project.mapLayers().values()) if project is not None else []
+    active_layer = None
+    if active_layer_provider is not None:
+        with contextlib.suppress(Exception):
+            active_layer = active_layer_provider()
+    active_layer_id = ""
+    with contextlib.suppress(Exception):
+        active_layer_id = active_layer.id() if active_layer is not None else ""
+    if active_layer_id:
+        # Keep the active row inside even a small bounded response and make it
+        # the unambiguous first candidate for "active layer" requests.
+        layers.sort(key=lambda layer: layer.id() != active_layer_id)
+    summaries = (
+        _layer_summary(layer, active_layer_id)
+        for layer in layers
+    )
     return agent_context.build_layer_list(summaries, limit)
+
+
+def _tool_layer_list_factory(
+    active_layer_provider: Optional[ActiveLayerProvider],
+) -> Callable[[AgentToolCall], Dict[str, Any]]:
+    return lambda call: _tool_layer_list(call, active_layer_provider)
 
 
 def _tool_layer_describe(call: AgentToolCall) -> Dict[str, Any]:
@@ -1348,6 +1375,7 @@ def _tool_plugin_describe(call: AgentToolCall) -> Dict[str, Any]:
 def build_default_registry(
     model_provider: ModelProvider,
     token_service: Optional[ContextTokenService] = None,
+    active_layer_provider: Optional[ActiveLayerProvider] = None,
 ) -> AgentToolRegistry:
     """Build and return the twelve-tool read-only Agent Workspace registry.
 
@@ -1379,13 +1407,14 @@ def build_default_registry(
             title="List layers",
             description=(
                 "Lists project layers with id, bounded name, kind, geometry "
-                "type, CRS, visibility, and provider key."
+                "type, CRS, visibility, provider key, and an exact active-layer "
+                "marker. The active layer is returned first when available."
             ),
             risk=AgentRisk.READ_ONLY,
             input_schema=_object_schema({"limit": _LIMIT_PROPERTY}),
             allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
         ),
-        _tool_layer_list,
+        _tool_layer_list_factory(active_layer_provider),
     )
     registry.register(
         AgentToolSpec(

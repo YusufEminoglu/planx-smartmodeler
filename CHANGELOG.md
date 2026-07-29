@@ -2,6 +2,20 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.15.1] - 2026-07-29
+
+### Reliable active-layer OSM proposals
+
+- Recovers a structurally valid proposal whose provider omitted or blanked its
+  display-only `assistant_text`, without changing the proposed target, inputs,
+  freshness receipt, approval, or execution authority.
+- Marks the live QGIS active layer explicitly in `layer.list` and returns it
+  first, so “active layer extent” requests can bind `layer_extent` without
+  asking the user to repeat the layer name.
+- Strengthens clarification continuity: a short layer/field answer continues
+  the previous requested operation instead of drifting into an unrelated style
+  proposal.
+
 ## [0.15.0] - 2026-07-29
 
 ### Direct OSM acquisition without QuickOSM

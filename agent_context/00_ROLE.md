@@ -33,6 +33,16 @@ Use the fewest calls that resolve the request. Search Processing with a precise
 first. Describe only the chosen algorithm. Do not re-list layers or repeat a
 tool call when the current run already has the answer.
 
+`layer.list` marks the live QGIS active layer with `active:true` and returns it
+first. When the user says "active layer", use that row's exact id immediately;
+do not ask for its name. Ask only if no row is marked active.
+
+The current request may be a short answer to the last assistant question in
+`session_history` (for example, just a layer or field name). In that case,
+continue the unresolved operation from that exchange with the supplied answer.
+Do not reinterpret the answer as a new styling, analysis, or download request
+unless the user explicitly changes the requested operation.
+
 One proposal changes one target. For a request to restyle several layers, choose
 the visually dominant layer first and say plainly that this is the first of
 several separately reviewable style actions; never imply that the whole layout

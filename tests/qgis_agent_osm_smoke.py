@@ -89,8 +89,29 @@ class SmartModelerAgentOsmSmoke(QgsProcessingAlgorithm):
         try:
             token_service = ContextTokenService()
             controller = AgentController(
-                build_default_registry(lambda: None, token_service)
+                build_default_registry(
+                    lambda: None,
+                    token_service,
+                    active_layer_provider=lambda: extent_layer,
+                )
             )
+            listed = controller.execute(
+                AgentToolCall(
+                    call_id="active_layer_list",
+                    tool_name="layer.list",
+                    arguments={},
+                ),
+                AgentMode.PLAN,
+                AgentScope.PROJECT,
+            )
+            rows = listed.data.get("layers", [])
+            if (
+                listed.status != AgentResultStatus.SUCCESS
+                or not rows
+                or rows[0].get("layer_id") != extent_layer.id()
+                or rows[0].get("active") is not True
+            ):
+                raise RuntimeError("layer.list did not identify the active layer first.")
             described = controller.execute(
                 AgentToolCall(
                     call_id="osm_describe",

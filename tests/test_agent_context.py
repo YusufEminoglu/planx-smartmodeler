@@ -122,10 +122,12 @@ class LayerSummaryTests(unittest.TestCase):
             crs="EPSG:4326",
             visible=True,
             provider_key="ogr",
+            active=True,
         )
         data = layer.to_dict()
         forbidden = {"source", "uri", "path", "feature", "value", "attribute"}
         self.assertFalse(forbidden & set(data))
+        self.assertTrue(data["active"])
 
     def test_build_layer_list_is_bounded_and_truncation_is_explicit(self) -> None:
         layers = [

@@ -122,7 +122,11 @@ class AgentWorkspaceDock(QDockWidget):
         # for model.describe/layer.style and verifies them at the proposal
         # boundary. New chat rotates its secret, invalidating every open token.
         self.token_service = ContextTokenService()
-        self.registry = build_default_registry(model_provider, self.token_service)
+        self.registry = build_default_registry(
+            model_provider,
+            self.token_service,
+            active_layer_provider=self._active_layer,
+        )
         self.controller = AgentController(self.registry)
         self._proposal_validator = RuntimeProposalValidator(
             model_provider,

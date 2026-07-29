@@ -170,6 +170,7 @@ class LayerSummary:
     crs: str = ""
     visible: bool = True
     provider_key: str = ""
+    active: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -180,6 +181,7 @@ class LayerSummary:
             "crs": bound_text(self.crs, 32),
             "visible": bool(self.visible),
             "provider_key": bound_text(self.provider_key, MAX_SHORT_TEXT),
+            "active": bool(self.active),
         }
 
 
