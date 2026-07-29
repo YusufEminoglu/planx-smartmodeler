@@ -23,6 +23,7 @@ from .identifiers import (
     MODEL_PROPOSAL_KIND,
     MODEL_RUN_KIND,
     PROCESSING_PROPOSAL_KIND,
+    PLUGIN_ACTION_KIND,
     STYLE_PROPOSAL_KIND,
 )
 
@@ -111,6 +112,16 @@ def assess_risk(
                 "data and files are not written to"
             ),
             reversible=True,
+        )
+    if kind == PLUGIN_ACTION_KIND:
+        return RiskAssessment(
+            level=RISK_MEDIUM,
+            label=_LABELS[RISK_MEDIUM],
+            reason=(
+                "opens one reviewed plugin surface and creates a temporary "
+                "visual from the selected layer"
+            ),
+            reversible=False,
         )
     return RiskAssessment(
         level=RISK_HIGH,

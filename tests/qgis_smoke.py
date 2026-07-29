@@ -1103,7 +1103,7 @@ def run_checks() -> str:
                 raise RuntimeError("Hiding the studio window destroyed it instead of hiding it.")
             lifecycle_plugin.window.show()
             lifecycle_plugin.window._on_token_usage(AiTokenUsage(100, 20, 125))
-            if lifecycle_plugin.window.token_usage_label.text() != "Tokens 125":
+            if lifecycle_plugin.window.token_usage_label.text() != "Input 100 · Output 20":
                 raise RuntimeError("Workflow Studio did not render provider token usage.")
             if lifecycle_plugin._current_graph() is None:
                 raise RuntimeError(
@@ -2320,7 +2320,14 @@ def run_checks() -> str:
             ):
                 raise RuntimeError(f"{package} produced an unknown status.")
             if report["agent_executable"]:
-                raise RuntimeError("A plugin was reported as agent-executable.")
+                if (
+                    not report.get("agent_actions")
+                    or not report.get("context_token")
+                    or not report.get("enabled")
+                ):
+                    raise RuntimeError(
+                        "A plugin was executable without a ready reviewed adapter."
+                    )
             if report["status"] == "confirmed_provider":
                 confirmed_seen += 1
                 if package not in by_package:
@@ -2375,7 +2382,9 @@ def run_checks() -> str:
         for row in confirmed_report["algorithms"]:
             if row["algorithm_id"] not in live_ids:
                 raise RuntimeError("A confirmed listing contained a foreign algorithm.")
-        if confirmed_report["agent_executable"]:
+        if confirmed_report["agent_executable"] and not confirmed_report.get(
+            "agent_actions"
+        ):
             raise RuntimeError("A confirmed provider was reported as agent-executable.")
 
         # The same providers must NOT confirm a package that did not define them.
@@ -2656,7 +2665,7 @@ def run_checks() -> str:
         if "tool call" not in final_status or "turn" not in final_status.lower():
             raise RuntimeError("Agent Chat did not render turn/tool-call usage in its status.")
         chat_dock._on_token_usage(AiTokenUsage(80, 12, 95))
-        if chat_dock.token_usage_label.text() != "Tokens 95":
+        if chat_dock.token_usage_label.text() != "Input 80 · Output 12":
             raise RuntimeError("Agent Workspace did not render provider token usage.")
         if chat_dock._active_api_key != "" or chat_dock._active_profile is not None:
             raise RuntimeError("Agent Chat did not clear its transient key/profile after finishing.")

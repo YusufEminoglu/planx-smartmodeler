@@ -28,6 +28,7 @@ from .proposals import (
     PROPOSAL_KIND_MODEL_PATCH,
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PROCESSING_RUN,
+    PROPOSAL_KIND_PLUGIN_ACTION,
     ProposalReason,
     ProposalValidation,
 )
@@ -46,6 +47,7 @@ _PROPOSAL_SCOPES = {
     PROPOSAL_KIND_LAYER_STYLE: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
     PROPOSAL_KIND_PROCESSING_RUN: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
     PROPOSAL_KIND_MODEL_RUN: (AgentScope.CURRENT_MODEL,),
+    PROPOSAL_KIND_PLUGIN_ACTION: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
 }
 
 # Bound on the preview text kept in bounded session memory after a proposal.

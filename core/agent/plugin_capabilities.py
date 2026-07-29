@@ -2,9 +2,9 @@
 
 The hard problem this module solves is answering "does this installed plugin
 register Processing algorithms, and which ones?" **without ever touching the
-plugin**. Importing it, constructing it, or even reading an attribute off a
-loaded plugin instance can execute third-party code (an attribute may be a
-property), so none of that is allowed.
+plugin**. Separately, ``plugin_actions.py`` may advertise a small
+application-owned reviewed adapter. Capability inspection still never touches
+the loaded instance; only a later explicit Apply may invoke that exact adapter.
 
 The trick is to derive the mapping entirely from the **provider side**. QGIS has
 already loaded and registered every live Processing provider; the class of each

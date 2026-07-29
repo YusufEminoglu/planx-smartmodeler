@@ -156,7 +156,7 @@ class SmartModelerWindow(QMainWindow):
         self.progress.setFixedWidth(160)
         self.progress.hide()
         self.statusBar().addWidget(self.status_label, 1)
-        self.token_usage_label = QLabel("Tokens -")
+        self.token_usage_label = QLabel("Input - · Output -")
         self.token_usage_label.setAccessibleName("AI token usage")
         self.token_usage_label.setStyleSheet("color: #70849F;")
         self.token_usage_label.setToolTip(
@@ -357,7 +357,9 @@ class SmartModelerWindow(QMainWindow):
         self._token_input += usage.input_tokens
         self._token_output += usage.output_tokens
         self._token_total += usage.total_tokens
-        self.token_usage_label.setText(f"Tokens {self._token_total:,}")
+        self.token_usage_label.setText(
+            f"Input {self._token_input:,} · Output {self._token_output:,}"
+        )
         self.token_usage_label.setToolTip(
             "Provider-reported usage in this window: "
             f"{self._token_input:,} input + {self._token_output:,} output; "

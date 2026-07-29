@@ -32,14 +32,18 @@ from .identifiers import (
     MODEL_TARGET_ID,
     STYLE_PROPOSAL_KIND,
     STYLE_STATE_LIMIT,
+    PLUGIN_ACTION_KIND,
 )
+from .plugin_actions import capability_state as plugin_capability_state
 from .proposals import (
     LayerStyleProposal,
     ModelPatchProposal,
+    PluginActionProposal,
     PROPOSAL_KIND_LAYER_STYLE,
     PROPOSAL_KIND_MODEL_PATCH,
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PROCESSING_RUN,
+    PROPOSAL_KIND_PLUGIN_ACTION,
     ProposalError,
     ProposalReason,
     apply_model_patch_to_clone,
@@ -269,11 +273,92 @@ class RuntimeApplyCoordinator:
                 pending.proposal, LayerStyleProposal
             ):
                 return self._apply_layer_style(pending)
+            if pending.kind == PROPOSAL_KIND_PLUGIN_ACTION and isinstance(
+                pending.proposal, PluginActionProposal
+            ):
+                return self._apply_plugin_action(pending)
         except ProposalError as error:
             return ApplyResult(False, error.reason_code, _sanitize(str(error)))
         except Exception:  # noqa: BLE001 - any apply failure must be sanitized
             return ApplyResult(False, ApplyReason.FAILED, "The action could not be applied.")
         return ApplyResult(False, ProposalReason.UNKNOWN_KIND, "Unknown or mismatched action kind.")
+
+    def _apply_plugin_action(self, pending: PendingAction) -> ApplyResult:
+        """Invoke one exact reviewed adapter after freshness re-validation."""
+        proposal: PluginActionProposal = pending.proposal
+        if (
+            proposal.package_name != "zero2viz"
+            or proposal.action_id != "suggest_chart"
+        ):
+            return ApplyResult(
+                False,
+                ApplyReason.UNSUPPORTED,
+                "That plugin action has no reviewed adapter.",
+            )
+        try:
+            import qgis.utils as qgis_utils
+            from qgis.core import QgsVectorLayer
+        except ImportError:
+            return ApplyResult(
+                False, ApplyReason.TARGET_MISSING, "The QGIS plugin registry is unavailable."
+            )
+        active = set(getattr(qgis_utils, "active_plugins", []) or [])
+        plugins = dict(getattr(qgis_utils, "plugins", {}) or {})
+        instance = plugins.get(proposal.package_name)
+        if proposal.package_name not in active or instance is None:
+            return ApplyResult(
+                False,
+                ApplyReason.TARGET_MISSING,
+                "The reviewed plugin is no longer enabled and loaded.",
+            )
+        version = ""
+        with contextlib.suppress(Exception):
+            version = str(
+                qgis_utils.pluginMetadata(proposal.package_name, "version") or ""
+            )
+        state = plugin_capability_state(
+            proposal.package_name, version, True, True
+        )
+        if not self._token_service.verify(
+            pending.context_token,
+            PLUGIN_ACTION_KIND,
+            proposal.package_name,
+            state,
+        ):
+            return ApplyResult(
+                False,
+                ProposalReason.STALE_CONTEXT,
+                "The plugin capability changed since this action was prepared.",
+            )
+        project = self._project()
+        layer = (
+            project.mapLayer(proposal.target_layer_id)
+            if project is not None
+            else None
+        )
+        if not isinstance(layer, QgsVectorLayer):
+            return ApplyResult(
+                False,
+                ApplyReason.TARGET_MISSING,
+                "The target vector layer is no longer available.",
+            )
+        # This is the sole reviewed cross-plugin invocation. No dynamic method
+        # name comes from the provider and no arbitrary attribute is called.
+        method = getattr(instance, "smartmodeler_suggest_chart", None)
+        if not callable(method):
+            return ApplyResult(
+                False,
+                ApplyReason.UNSUPPORTED,
+                "The installed 02viz version does not expose its reviewed adapter.",
+            )
+        outcome = method(layer.id())
+        if not isinstance(outcome, dict) or not outcome.get("ok"):
+            return ApplyResult(
+                False,
+                ApplyReason.FAILED,
+                "02viz could not create a chart for this layer.",
+            )
+        return ApplyResult(True, message="02viz created a smart chart.")
 
     def _apply_model_patch(self, pending: PendingAction) -> ApplyResult:
         graph = self._model_adapter.current_graph()

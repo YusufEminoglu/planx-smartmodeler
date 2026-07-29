@@ -47,6 +47,7 @@ else:
 
 from planx_smartmodeler.core.agent import runtime_tools  # noqa: E402
 from planx_smartmodeler.core.agent.contracts import AgentToolCall  # noqa: E402
+from planx_smartmodeler.core.agent.context_tokens import ContextTokenService  # noqa: E402
 
 
 class FakeQgisUtils(types.ModuleType):
@@ -229,6 +230,28 @@ class PluginDescribeTests(unittest.TestCase):
         self.assertEqual(result["display_name"], "Nice Plugin")
         self.assertTrue(result["has_processing_provider"])
 
+    def test_visible_plugin_name_and_specific_alias_resolve_to_package(self) -> None:
+        fake = FakeQgisUtils(available=["zero2viz"], active=["zero2viz"], plugins={})
+        fake.set_metadata(
+            "zero2viz", "name", "02viz - Geospatial Visualization Studio"
+        )
+        full = runtime_tools.build_plugin_describe(
+            fake, "02viz - Geospatial Visualization Studio"
+        )
+        short = runtime_tools.build_plugin_view(fake, "02viz studio")
+        self.assertTrue(full["available"])
+        self.assertEqual(full["package_name"], "zero2viz")
+        self.assertIsNotNone(short)
+        self.assertEqual(short.package_name, "zero2viz")
+
+    def test_ambiguous_visible_name_alias_fails_closed(self) -> None:
+        fake = FakeQgisUtils(available=["one", "two"], active=[], plugins={})
+        fake.set_metadata("one", "name", "Shared Chart Studio One")
+        fake.set_metadata("two", "name", "Shared Chart Studio Two")
+        self.assertEqual(
+            runtime_tools.resolve_plugin_package(fake, "Chart Studio"), ""
+        )
+
     def test_description_and_about_are_bounded(self) -> None:
         fake = FakeQgisUtils(available=["pkg"], active=["pkg"], plugins={})
         fake.set_metadata("pkg", "description", "d" * 5000)
@@ -346,6 +369,43 @@ class PluginDescribeTests(unittest.TestCase):
         fake = FakeQgisUtils(available=["pkg"], active=["pkg"], plugins={"pkg": Watched()})
         runtime_tools.build_plugin_describe(fake, "pkg")
         self.assertEqual(invoked, [])
+
+    def test_zero2viz_visible_name_reports_reviewed_action_and_token(self) -> None:
+        fake = FakeQgisUtils(
+            available=["zero2viz"],
+            active=["zero2viz"],
+            plugins={"zero2viz": object()},
+        )
+        fake.set_metadata(
+            "zero2viz", "name", "02viz - Geospatial Visualization Studio"
+        )
+        fake.set_metadata("zero2viz", "version", "0.13.0")
+        _install_fake_utils(fake)
+        original = getattr(runtime_tools.QgsApplication, "processingRegistry", None)
+        runtime_tools.QgsApplication.processingRegistry = staticmethod(lambda: None)
+        try:
+            result = runtime_tools._tool_plugin_capabilities(
+                AgentToolCall(
+                    call_id="viz",
+                    tool_name="plugin.capabilities",
+                    arguments={
+                        "package_name": "02viz - Geospatial Visualization Studio"
+                    },
+                ),
+                ContextTokenService(secret=b"z" * 32),
+            )
+        finally:
+            if original is None:
+                delattr(runtime_tools.QgsApplication, "processingRegistry")
+            else:
+                runtime_tools.QgsApplication.processingRegistry = staticmethod(original)
+        self.assertEqual(result["package_name"], "zero2viz")
+        self.assertTrue(result["agent_executable"])
+        self.assertEqual(
+            [row["action_id"] for row in result["agent_actions"]],
+            ["suggest_chart"],
+        )
+        self.assertTrue(result["context_token"])
 
 
 class BoundedSymbolExtractionTests(unittest.TestCase):

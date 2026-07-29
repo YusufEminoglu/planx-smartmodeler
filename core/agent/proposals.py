@@ -31,18 +31,21 @@ PROPOSAL_KIND_MODEL_PATCH = "model_patch"
 PROPOSAL_KIND_LAYER_STYLE = "layer_style"
 PROPOSAL_KIND_PROCESSING_RUN = "processing_run"
 PROPOSAL_KIND_MODEL_RUN = "model_run"
+PROPOSAL_KIND_PLUGIN_ACTION = "plugin_action"
 ALL_PROPOSAL_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_NONE,
     PROPOSAL_KIND_MODEL_PATCH,
     PROPOSAL_KIND_LAYER_STYLE,
     PROPOSAL_KIND_PROCESSING_RUN,
     PROPOSAL_KIND_MODEL_RUN,
+    PROPOSAL_KIND_PLUGIN_ACTION,
 )
 PROPOSABLE_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_MODEL_PATCH,
     PROPOSAL_KIND_LAYER_STYLE,
     PROPOSAL_KIND_PROCESSING_RUN,
     PROPOSAL_KIND_MODEL_RUN,
+    PROPOSAL_KIND_PLUGIN_ACTION,
 )
 
 
@@ -1354,6 +1357,73 @@ def _parse_model_run(data: Dict[str, Any]) -> ModelRunProposal:
     )
 
 
+@dataclass(frozen=True)
+class PluginActionProposal:
+    """A bounded request for one explicitly reviewed cross-plugin action."""
+
+    context_token: str
+    package_name: str
+    action_id: str
+    target_layer_id: str
+    title: str
+    summary: str
+    warnings: Tuple[str, ...] = field(default_factory=tuple)
+    schema_version: int = 1
+
+    @property
+    def kind(self) -> str:
+        return PROPOSAL_KIND_PLUGIN_ACTION
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "kind": PROPOSAL_KIND_PLUGIN_ACTION,
+            "package_name": self.package_name,
+            "action_id": self.action_id,
+            "target_layer_id": self.target_layer_id,
+            "title": self.title,
+            "summary": self.summary,
+            "warnings": list(self.warnings),
+        }
+
+
+_PLUGIN_ACTION_KEYS = {
+    "schema_version",
+    "context_token",
+    "package_name",
+    "action_id",
+    "target_layer_id",
+    "title",
+    "summary",
+    "warnings",
+}
+
+
+def _parse_plugin_action(data: Dict[str, Any]) -> PluginActionProposal:
+    _require_exact_keys(data, _PLUGIN_ACTION_KEYS, "plugin_action")
+    package_name = _safe_id_text(
+        data["package_name"], 128, "plugin package name"
+    )
+    action_id = _safe_id_text(data["action_id"], 128, "plugin action id")
+    target_layer_id = _safe_id_text(
+        data["target_layer_id"], MAX_LAYER_ID_CHARS, "layer id"
+    )
+    return PluginActionProposal(
+        schema_version=_schema_version(data["schema_version"]),
+        context_token=_token(data["context_token"]),
+        package_name=package_name,
+        action_id=action_id,
+        target_layer_id=target_layer_id,
+        title=_bounded_text(
+            data["title"], "title", MIN_TITLE_CHARS, MAX_TITLE_CHARS
+        ),
+        summary=_bounded_text(
+            data["summary"], "summary", MIN_SUMMARY_CHARS, MAX_SUMMARY_CHARS
+        ),
+        warnings=_warnings(data["warnings"]),
+    )
+
+
 # -- public entry point -----------------------------------------------------
 
 
@@ -1383,7 +1453,9 @@ def parse_proposal(kind: str, proposal_json: str):
         return _parse_layer_style(data)
     if kind == PROPOSAL_KIND_PROCESSING_RUN:
         return _parse_processing_run(data)
-    return _parse_model_run(data)
+    if kind == PROPOSAL_KIND_MODEL_RUN:
+        return _parse_model_run(data)
+    return _parse_plugin_action(data)
 
 
 # -- detached model-patch application/preview -------------------------------

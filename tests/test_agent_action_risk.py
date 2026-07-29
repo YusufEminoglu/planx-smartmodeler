@@ -124,6 +124,10 @@ class KindConstantAgreementTests(unittest.TestCase):
             identifiers.PROCESSING_PROPOSAL_KIND, proposals.PROPOSAL_KIND_PROCESSING_RUN
         )
         self.assertEqual(identifiers.MODEL_RUN_KIND, proposals.PROPOSAL_KIND_MODEL_RUN)
+        self.assertEqual(
+            identifiers.PLUGIN_ACTION_KIND,
+            proposals.PROPOSAL_KIND_PLUGIN_ACTION,
+        )
 
     def test_risk_covers_every_proposable_kind_without_the_fallback(self) -> None:
         """No proposable kind may reach the unknown-kind fallback.

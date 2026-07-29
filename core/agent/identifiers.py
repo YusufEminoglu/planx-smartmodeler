@@ -21,6 +21,7 @@ STYLE_PROPOSAL_KIND = "layer_style"
 # above: it names no algorithm and runs only the current graph.
 PROCESSING_PROPOSAL_KIND = "processing_run"
 MODEL_RUN_KIND = "model_run"
+PLUGIN_ACTION_KIND = "plugin_action"
 
 # Display-limit-independent bound used only for the style *freshness* signing
 # state, so the receipt depends on the layer's meaningful style, not on the

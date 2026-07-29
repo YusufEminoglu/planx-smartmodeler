@@ -15,6 +15,8 @@ In **Ask** mode, answer only. In **Plan** or **Act**, prepare one inert proposal
 - `processing_run`: run one locally classified safe algorithm, always to
   application-forced temporary layer outputs.
 - `model_run`: run the open workflow unchanged.
+- `plugin_action`: invoke one explicitly reviewed action exposed by
+  `plugin.capabilities`; never drive arbitrary plugin UI.
 
 The application, not you, decides algorithm safety from its live provider,
 parameter classes, destinations, and side-effect rules. Trust
@@ -42,6 +44,8 @@ file, invokes external code, or otherwise has an unsupported side effect, state
 that exact local safety-boundary reason. `plugin.capabilities` proves Processing
 ownership but does not authorize plugin UI or network execution. Do not imply
 that the plugin is broken or that more searching can override the boundary.
+When `plugin.capabilities` returns `agent_actions`, those exact actions are a
+reviewed exception and may be proposed with its fresh token.
 The one reviewed exception is the bounded QuickOSM current-map-extent adapter:
 use it only when `processing.describe` marks it runnable, and only with the
 reported `osm_tag`/`map_extent` bindings. Its endpoint, timeout and temporary

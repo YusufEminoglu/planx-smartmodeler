@@ -36,15 +36,22 @@ from .proposals import (
     LayerStyleProposal,
     ModelPatchProposal,
     ModelRunProposal,
+    PluginActionProposal,
     PROPOSAL_KIND_LAYER_STYLE,
     PROPOSAL_KIND_MODEL_PATCH,
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PROCESSING_RUN,
+    PROPOSAL_KIND_PLUGIN_ACTION,
     ProcessingRunProposal,
     ProposalError,
     ProposalReason,
     ProposalValidation,
     build_model_patch_preview,
+)
+from .plugin_actions import (
+    PLUGIN_ACTION_KIND,
+    capability_state as plugin_capability_state,
+    reviewed_actions,
 )
 from .run_planner import (
     LayerView,
@@ -82,6 +89,7 @@ _KIND_SCOPES = {
     PROPOSAL_KIND_LAYER_STYLE: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
     PROPOSAL_KIND_PROCESSING_RUN: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
     PROPOSAL_KIND_MODEL_RUN: (AgentScope.CURRENT_MODEL,),
+    PROPOSAL_KIND_PLUGIN_ACTION: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
 }
 
 # Stable, detail-free sentences for each policy denial. The reason code carries
@@ -244,6 +252,10 @@ class RuntimeProposalValidator:
                 return self._validate_processing_run(proposal, scope)
             if kind == PROPOSAL_KIND_MODEL_RUN and isinstance(proposal, ModelRunProposal):
                 return self._validate_model_run(proposal)
+            if kind == PROPOSAL_KIND_PLUGIN_ACTION and isinstance(
+                proposal, PluginActionProposal
+            ):
+                return self._validate_plugin_action(proposal, scope)
         except ProposalError as error:
             return ProposalValidation.failure(error.reason_code, _sanitize(str(error)))
         except Exception:  # noqa: BLE001 - a validator failure must be sanitized
@@ -296,6 +308,103 @@ class RuntimeProposalValidator:
             "proposal": proposal,
             "preview": preview,
             "target_identity": MODEL_TARGET_ID,
+            "context_token": proposal.context_token,
+        }
+        return ProposalValidation.success(preview)
+
+    # -- reviewed cross-plugin action ------------------------------------
+
+    def _validate_plugin_action(
+        self, proposal: PluginActionProposal, scope: str
+    ) -> ProposalValidation:
+        actions = reviewed_actions(proposal.package_name)
+        definition = actions.get(proposal.action_id)
+        if definition is None:
+            return ProposalValidation.failure(
+                ProposalReason.ALGORITHM_NOT_ALLOWED,
+                "That plugin action has no reviewed SmartModeler adapter.",
+            )
+        try:
+            import qgis.utils as qgis_utils
+        except ImportError:
+            return ProposalValidation.failure(
+                ProposalReason.TARGET_MISSING,
+                "The QGIS plugin registry is unavailable.",
+            )
+        available = set(getattr(qgis_utils, "available_plugins", []) or [])
+        active = set(getattr(qgis_utils, "active_plugins", []) or [])
+        loaded_plugins = dict(getattr(qgis_utils, "plugins", {}) or {})
+        if (
+            proposal.package_name not in available | active | set(loaded_plugins)
+            or proposal.package_name not in active
+            or proposal.package_name not in loaded_plugins
+        ):
+            return ProposalValidation.failure(
+                ProposalReason.TARGET_MISSING,
+                "The reviewed plugin must be installed, enabled, and loaded.",
+            )
+        version = ""
+        with _suppress():
+            version = str(
+                qgis_utils.pluginMetadata(proposal.package_name, "version") or ""
+            )
+        state = plugin_capability_state(
+            proposal.package_name, version, True, True
+        )
+        if not self._token_service.verify(
+            proposal.context_token,
+            PLUGIN_ACTION_KIND,
+            proposal.package_name,
+            state,
+        ):
+            return ProposalValidation.failure(
+                ProposalReason.STALE_CONTEXT,
+                "The plugin capability changed since inspection. Inspect it again.",
+            )
+        project = QgsProject.instance()
+        layer = (
+            project.mapLayer(proposal.target_layer_id)
+            if project is not None
+            else None
+        )
+        if not isinstance(layer, QgsVectorLayer):
+            return ProposalValidation.failure(
+                ProposalReason.TARGET_MISSING,
+                "The requested project vector layer is no longer available.",
+            )
+        if scope == AgentScope.ACTIVE_LAYER:
+            active_layer = self._active_layer_provider()
+            if active_layer is None or active_layer.id() != layer.id():
+                return ProposalValidation.failure(
+                    ProposalReason.TARGET_MISSING,
+                    "The target is not the current active layer.",
+                )
+        preview = {
+            "kind": PROPOSAL_KIND_PLUGIN_ACTION,
+            "title": proposal.title,
+            "target": "02viz - " + agent_context.bound_text(
+                layer.name(), agent_context.MAX_DISPLAY_NAME
+            ),
+            "summary": proposal.summary,
+            "warnings": list(proposal.warnings),
+            "applied": False,
+            "destructive": False,
+            "changes": [
+                "Open the installed 02viz Studio dock",
+                "Select the inspected project layer",
+                "Use 02viz's offline assistant to choose and render one chart",
+            ],
+            "network_access": False,
+            "temporary_file": True,
+        }
+        self._last_validated = {
+            "kind": PROPOSAL_KIND_PLUGIN_ACTION,
+            "proposal": proposal,
+            "preview": preview,
+            "target_identity": (
+                f"{proposal.package_name}:{proposal.action_id}:"
+                f"{proposal.target_layer_id}"
+            ),
             "context_token": proposal.context_token,
         }
         return ProposalValidation.success(preview)

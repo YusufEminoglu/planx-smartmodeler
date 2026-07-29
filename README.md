@@ -71,9 +71,10 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   metadata-only (no feature values, source URIs, style/label expressions,
   baseline model parameter values, or credentials). Quick inspections keep
   working with the `offline` profile, which is not treated as a language model.
-- In Plan or Act mode the Agent Workspace can show four kinds of **validated
+- In Plan or Act mode the Agent Workspace can show five kinds of **validated
   proposals**: a model-workflow patch, a vector/raster symbology-and-labeling
-  intent, a single reviewed Processing run, and a run of your current workflow.
+  intent, a single reviewed Processing run, a run of your current workflow, and
+  one explicitly reviewed cross-plugin action.
   A proposal is inert data validated locally (a model patch only on a
   detached graph clone; a style proposal only against the live layer's fields).
   In **Plan** it stays review-only with a **Not applied** status. In **Act** it
@@ -111,7 +112,11 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   not even one attribute -- so a mapping is either proved or reported as
   unproved; a look-alike name is never presented as a confirmation. Each
   Processing algorithm is independently marked runnable or blocked from its
-  live signature; SmartModeler never drives a plugin's buttons or dialogs.
+  live signature. UI-only plugins are resolved by package or visible name.
+  SmartModeler drives no arbitrary button or method; a plugin can be controlled
+  only through an application-reviewed `plugin_action` adapter shown on its own
+  approval card. The first adapter opens 02viz on one selected vector layer and
+  renders 02viz's offline smart chart suggestion.
 - A chat session can carry a task across several steps: after an action finishes,
   a short sanitized note of what happened stays in the conversation so you can
   say "now style the result". The agent never continues on its own -- you ask
@@ -122,9 +127,10 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   locally with one bounded read-only inspection, avoiding another provider turn
   while preserving the normal strict validation and approval boundary.
 - A compact **Tokens** label shows exact usage metadata reported by the active
-  provider. Agent Workspace totals the current chat and Workflow Studio totals
-  the current window; hover for input/output detail. It remains `Tokens -`
-  instead of inventing an estimate when a provider sends no usage metadata.
+  provider as separate `Input … · Output …` counts. Agent Workspace totals the
+  current chat and Workflow Studio totals the current window; hover for the
+  provider-reported total. It remains `Input - · Output -` instead of inventing
+  an estimate when a provider sends no usage metadata.
 - Reviewed optional Processing result sinks remain signature-checked but are
   left unset unless they are the requested output. For example, **Extract by
   attribute** adds the matching temporary layer without also cluttering the

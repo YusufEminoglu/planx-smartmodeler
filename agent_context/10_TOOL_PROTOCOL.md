@@ -12,7 +12,8 @@ Return exactly one JSON object with these five keys and no Markdown:
 - `tool_calls`: 1+ calls; kind `none`; proposal `""`.
 - `final`: no calls; non-empty text; kind `none`; proposal `""`.
 - `proposal`: no calls; non-empty text; kind `model_patch`, `layer_style`,
-  `processing_run`, or `model_run`; `proposal_json` is an encoded JSON object.
+  `processing_run`, `model_run`, or `plugin_action`; `proposal_json` is an
+  encoded JSON object.
 
 Each call is:
 `{"call_id":"unique","tool_name":"listed.name","arguments_json":"{...}"}`.
@@ -115,6 +116,26 @@ Requires `model.describe`:
 ```json
 {"schema_version": 1, "context_token": "<token>", "title": "Run the current model",
  "summary": "Run the current workflow.", "warnings": []}
+```
+
+## `plugin_action`
+
+Use only an exact reviewed action returned by `plugin.capabilities` with
+`agent_executable:true`. Copy its real package/action ids and fresh token; use a
+layer id returned by `layer.list`. A UI-only plugin without `agent_actions`
+cannot be driven. Never invent a button, method, action id, or plugin alias.
+
+```json
+{
+  "schema_version":1,
+  "context_token":"<plugin.capabilities token>",
+  "package_name":"zero2viz",
+  "action_id":"suggest_chart",
+  "target_layer_id":"<vector layer id>",
+  "title":"Create a smart 02viz chart",
+  "summary":"Open 02viz and render its offline chart suggestion for this layer.",
+  "warnings":[]
+}
 ```
 
 ## `layer_style`

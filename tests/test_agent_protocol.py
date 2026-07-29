@@ -394,7 +394,14 @@ class ProposalProtocolTests(unittest.TestCase):
         )
         self.assertEqual(
             set(schema["properties"]["proposal_kind"]["enum"]),
-            {"none", "model_patch", "layer_style", "processing_run", "model_run"},
+            {
+                "none",
+                "model_patch",
+                "layer_style",
+                "processing_run",
+                "model_run",
+                "plugin_action",
+            },
         )
 
     def test_valid_proposal_turn_parses(self) -> None:

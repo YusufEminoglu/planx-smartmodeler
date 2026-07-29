@@ -97,6 +97,11 @@ from .plugin_capabilities import (  # noqa: E402 - same grouping
     ProviderView,
     build_capabilities,
 )
+from .plugin_actions import (  # noqa: E402
+    PLUGIN_ACTION_KIND,
+    capability_state as plugin_capability_state,
+    public_actions as public_plugin_actions,
+)
 
 _LIMIT_PROPERTY = {"type": "integer", "minimum": 1, "maximum": MAX_LIST_LIMIT}
 
@@ -1073,6 +1078,51 @@ def _plugin_union(qgis_utils: Any) -> set:
     return available | active | loaded
 
 
+def resolve_plugin_package(qgis_utils: Any, requested_name: str) -> str:
+    """Resolve a package id, visible plugin name, or specific visible-name alias.
+
+    QGIS' registry is keyed by Python package names (for example ``zero2viz``),
+    while users naturally quote the metadata name (for example
+    ``02viz - Geospatial Visualization Studio``). Resolution is conservative:
+    an exact package wins, and a metadata/alias match is accepted only when it
+    identifies exactly one installed package.
+    """
+    requested = str(requested_name or "").strip()
+    packages = sorted(_plugin_union(qgis_utils))
+    if requested in packages:
+        return requested
+    folded = requested.casefold()
+    exact_packages = [name for name in packages if name.casefold() == folded]
+    if len(exact_packages) == 1:
+        return exact_packages[0]
+    normalized = re.sub(r"[^a-z0-9]+", "", folded)
+    requested_tokens = set(re.findall(r"[a-z0-9]+", folded))
+    if len(normalized) < 5:
+        return ""
+    exact = []
+    aliases = []
+    for package in packages:
+        display = ""
+        with contextlib.suppress(Exception):
+            display = str(qgis_utils.pluginMetadata(package, "name") or "")
+        display_norm = re.sub(r"[^a-z0-9]+", "", display.casefold())
+        package_norm = re.sub(r"[^a-z0-9]+", "", package.casefold())
+        if normalized in (display_norm, package_norm):
+            exact.append(package)
+        elif len(normalized) >= 6 and normalized in display_norm:
+            aliases.append(package)
+        elif (
+            len(normalized) >= 6
+            and requested_tokens
+            and requested_tokens.issubset(
+                set(re.findall(r"[a-z0-9]+", display.casefold()))
+            )
+        ):
+            aliases.append(package)
+    matches = exact or aliases
+    return matches[0] if len(matches) == 1 else ""
+
+
 def build_plugin_describe(qgis_utils: Any, package_name: str) -> Dict[str, Any]:
     """Return bounded, allowlisted metadata for one installed plugin.
 
@@ -1081,8 +1131,10 @@ def build_plugin_describe(qgis_utils: Any, package_name: str) -> Dict[str, Any]:
     follows any URL. Plugin metadata is untrusted data and is bounded here
     before serialization.
     """
-    if package_name not in _plugin_union(qgis_utils):
+    resolved = resolve_plugin_package(qgis_utils, package_name)
+    if not resolved:
         return {"available": False, "package_name": agent_context.bound_text(package_name, 128)}
+    package_name = resolved
     active = set(getattr(qgis_utils, "active_plugins", []) or [])
 
     def _meta(key: str) -> str:
@@ -1117,8 +1169,10 @@ def build_plugin_view(qgis_utils: Any, package_name: str) -> Optional[PluginView
     never touches ``qgis.utils.plugins[name]`` -- the loaded plugin *instance* --
     because even reading an attribute off it can execute third-party code.
     """
-    if package_name not in _plugin_union(qgis_utils):
+    resolved = resolve_plugin_package(qgis_utils, package_name)
+    if not resolved:
         return None
+    package_name = resolved
     active = set(getattr(qgis_utils, "active_plugins", []) or [])
 
     def _meta(key: str) -> str:
@@ -1192,7 +1246,10 @@ def build_provider_views(
     return views
 
 
-def _tool_plugin_capabilities(call: AgentToolCall) -> Dict[str, Any]:
+def _tool_plugin_capabilities(
+    call: AgentToolCall,
+    token_service: Optional[ContextTokenService] = None,
+) -> Dict[str, Any]:
     package_name = call.arguments.get("package_name")
     if not isinstance(package_name, str) or not package_name.strip():
         raise ToolExecutionError("package_name must be a non-empty string.")
@@ -1211,12 +1268,43 @@ def _tool_plugin_capabilities(call: AgentToolCall) -> Dict[str, Any]:
     providers = build_provider_views(
         QgsApplication.processingRegistry(), for_package=plugin.package_name
     )
-    return build_capabilities(
+    result = build_capabilities(
         plugin,
         providers,
         limit=limit,
         algorithm_allowed=AlgorithmCatalog.ai_algorithm_allowed,
     )
+    actions = public_plugin_actions(plugin.package_name)
+    if actions:
+        loaded = plugin.package_name in set(
+            getattr(qgis_utils, "plugins", {}) or {}
+        )
+        ready = bool(plugin.enabled and loaded)
+        state = plugin_capability_state(
+            plugin.package_name, plugin.version, plugin.enabled, loaded
+        )
+        result["agent_actions"] = actions
+        result["agent_executable"] = ready
+        result["guidance"] = (
+            "This plugin has explicitly reviewed Agent actions listed below. "
+            "They require a separate plugin_action approval card."
+            if ready
+            else "This plugin has reviewed Agent actions, but it must be enabled "
+            "and loaded before they can be proposed."
+        )
+        if ready and token_service is not None:
+            result["context_token"] = token_service.issue(
+                PLUGIN_ACTION_KIND, plugin.package_name, state
+            )
+    else:
+        result["agent_actions"] = []
+    return result
+
+
+def _tool_plugin_capabilities_factory(
+    token_service: ContextTokenService,
+) -> Callable[[AgentToolCall], Dict[str, Any]]:
+    return lambda call: _tool_plugin_capabilities(call, token_service)
 
 
 def _tool_plugin_describe(call: AgentToolCall) -> Dict[str, Any]:
@@ -1474,8 +1562,9 @@ def build_default_registry(
                 "its live Processing provider(s) when that can be proved from "
                 "the provider registry, a bounded list of their algorithms, and "
                 "an honest status when no reliable mapping exists. Never "
-                "imports, instantiates, or calls the plugin, and never claims an "
-                "unproved mapping."
+                "imports, instantiates, or calls the plugin. It also lists any "
+                "application-reviewed Agent adapter without invoking it, and "
+                "never claims an unproved mapping."
             ),
             risk=AgentRisk.READ_ONLY,
             input_schema=_object_schema(
@@ -1491,6 +1580,6 @@ def build_default_registry(
             ),
             allowed_scopes=(AgentScope.PLUGINS, AgentScope.PROJECT),
         ),
-        _tool_plugin_capabilities,
+        _tool_plugin_capabilities_factory(token_service),
     )
     return registry

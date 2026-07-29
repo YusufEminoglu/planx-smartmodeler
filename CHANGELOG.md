@@ -2,6 +2,30 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.14.0] - 2026-07-29
+
+### Separate token counters and reviewed cross-plugin actions
+
+- Shows provider-reported input and output usage separately in both Agent
+  Workspace and Workflow Studio (`Input … · Output …`), while keeping the
+  provider total—including any reasoning/cache difference—in the tooltip.
+- Resolves installed plugins by package id, exact visible metadata name, or one
+  unambiguous specific alias. Requests for `02viz Studio` and
+  `02viz - Geospatial Visualization Studio` now correctly resolve to the
+  installed `zero2viz` package instead of being reported as not installed.
+- Introduces the general `plugin_action` approval contract for explicitly
+  reviewed cross-plugin adapters. Capability inspection lists only
+  application-owned package/action ids and signs the plugin's live
+  version/enabled/loaded state; Apply verifies all of it again and never calls
+  a method named by the provider.
+- Ships the first adapter with 02viz: select a live project vector layer, open
+  02viz Studio, and invoke its offline smart chart suggestion/render path.
+  Feature values remain local to QGIS/02viz and no export path, custom code,
+  expression, URL, or network input is exposed to the AI.
+- Expands pure regression coverage to 738 passing tests, including visible-name
+  ambiguity, capability receipts, strict plugin-action parsing, path rejection,
+  risk classification, and the split token display.
+
 ## [0.13.0] - 2026-07-29
 
 ### General QGIS agent execution and reviewed OSM acquisition
@@ -36,8 +60,8 @@ All notable changes to SmartModeler GIS are documented here. The project follows
 ### Honest token usage and clearer capability boundaries
 
 - Adds a compact provider-reported token counter to Agent Workspace and
-  Workflow Studio. The visible label shows the session/window total; its
-  tooltip separates input and output counts. OpenAI, Anthropic, Gemini,
+  Workflow Studio. The original visible label showed the session/window total;
+  its tooltip separated input and output counts. OpenAI, Anthropic, Gemini,
   DeepSeek/OpenAI-compatible/Azure and Ollama response shapes are normalized.
   No count is estimated when a provider omits or malforms usage metadata.
 - Makes multi-layer styling requests explicit: one approval card still changes

@@ -394,7 +394,7 @@ class AgentWorkspaceDock(QDockWidget):
         self.status_label = QLabel("Ready.")
         self.status_label.setStyleSheet("color: #9AAAC2;")
         status_row.addWidget(self.status_label, 1)
-        self.token_usage_label = QLabel("Tokens -")
+        self.token_usage_label = QLabel("Input - · Output -")
         self.token_usage_label.setAccessibleName("AI token usage")
         self.token_usage_label.setStyleSheet("color: #70849F;")
         self.token_usage_label.setToolTip(
@@ -766,7 +766,9 @@ class AgentWorkspaceDock(QDockWidget):
         self._token_input += usage.input_tokens
         self._token_output += usage.output_tokens
         self._token_total += usage.total_tokens
-        self.token_usage_label.setText(f"Tokens {self._token_total:,}")
+        self.token_usage_label.setText(
+            f"Input {self._token_input:,} · Output {self._token_output:,}"
+        )
         self.token_usage_label.setToolTip(
             "Provider-reported usage for this chat: "
             f"{self._token_input:,} input + {self._token_output:,} output; "
@@ -778,7 +780,7 @@ class AgentWorkspaceDock(QDockWidget):
         self._token_input = 0
         self._token_output = 0
         self._token_total = 0
-        self.token_usage_label.setText("Tokens -")
+        self.token_usage_label.setText("Input - · Output -")
         self.token_usage_label.setToolTip(
             "Provider-reported token use for this chat. No estimate is shown "
             "when the provider omits usage metadata."
@@ -851,12 +853,18 @@ class AgentWorkspaceDock(QDockWidget):
             if not issues:
                 lines.append("")
                 lines.append("Candidate validation issues: none")
-        elif kind in ("layer_style", "processing_run", "model_run"):
+        elif kind in (
+            "layer_style",
+            "processing_run",
+            "model_run",
+            "plugin_action",
+        ):
             lines.append("")
             heading = {
                 "layer_style": "Intended style (not applied):",
                 "processing_run": "Reviewed run inputs (nothing has run):",
                 "model_run": "Current workflow to run (nothing has run):",
+                "plugin_action": "Reviewed plugin action (nothing has run):",
             }[kind]
             lines.append(heading)
             for change in preview.get("changes", [])[:40]:
@@ -970,6 +978,8 @@ class AgentWorkspaceDock(QDockWidget):
                 "the network request and temporary download cannot be undone; "
                 "result layers can be removed"
             )
+        if pending.kind == "plugin_action":
+            note = "opens and renders in the reviewed plugin; not reversible here"
         self.approval_status_label.setText(
             f"Explicit approval required for this {card['kind']} action ({note}). "
             f"Nothing happens until you click {verb}."
