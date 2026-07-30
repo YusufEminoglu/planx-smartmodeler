@@ -2,6 +2,39 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.19.0] - 2026-07-30
+
+### Added
+
+- Route connected-provider requests from the Workflow Studio prompt bar through
+  the same multi-turn Agent Workspace orchestrator used by `Current model`
+  requests. Workflow generation and improvement now share live model tools,
+  proposal validation, explicit approval, run limits, and recovery behavior.
+- Show visible strategy-recovery notices in Agent Workspace when a provider
+  repeats an already successful read-only inspection.
+
+### Changed
+
+- Replace the two-repeat terminal circuit breaker with three staged recovery
+  interventions: finish from existing evidence, try a materially different
+  advertised tool or argument, then report the exact blocker. Repeated calls
+  remain cached and are not re-executed or charged against the tool-call quota.
+- Stop only after a fourth consecutive fully reused turn ignores all three
+  strategy changes; the existing bounded turn and tool-call limits remain in
+  force.
+- Keep deterministic Offline workflow generation local while connected
+  providers use the shared agentic path.
+
+### Testing
+
+- Cover recovery progression, successful completion after intervention,
+  strategy reset after new evidence, and the terminal unresponsive-provider
+  boundary in pure tests.
+- Verify Workflow Studio to Agent Workspace routing and explicit `Current
+  model`/`Act` semantics on QGIS 3.44 and 4.2.
+- Re-run the provider-free `built_intensity_bin = low` acceptance scenario on
+  both QGIS runtimes.
+
 ## [0.18.9] - 2026-07-30
 
 ### Fixed

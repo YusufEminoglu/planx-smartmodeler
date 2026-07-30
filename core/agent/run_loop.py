@@ -61,6 +61,13 @@ TOTAL_TOKEN_WARNING_START = 300_000
 TOTAL_TOKEN_WARNING_STEP = 100_000
 SINGLE_TURN_WARNING_TOKENS = 100_000
 
+# Repeating an already successful read-only inspection yields no new evidence,
+# but it should trigger strategy recovery rather than an immediate terminal
+# failure. The provider gets three increasingly explicit chances to use the
+# cached evidence, choose a materially different route, or report the exact
+# blocker. A fourth consecutive fully reused turn is considered unresponsive.
+MAX_NO_PROGRESS_INTERVENTIONS = 3
+
 # Which application-owned scope each proposal kind is compatible with.
 _PROPOSAL_SCOPES = {
     PROPOSAL_KIND_MODEL_PATCH: (AgentScope.CURRENT_MODEL,),
@@ -603,23 +610,82 @@ class AgentRunLoop:
                     tool_events=tuple(this_turn_events),
                 )
 
-        if call_keys and all(key in cached_before_turn for key in call_keys):
+        fully_reused = bool(call_keys) and all(
+            key in cached_before_turn for key in call_keys
+        )
+        if fully_reused:
             self._consecutive_fully_reused_turns += 1
         else:
             self._consecutive_fully_reused_turns = 0
-        if self._consecutive_fully_reused_turns >= 2:
+        if (
+            self._consecutive_fully_reused_turns
+            > MAX_NO_PROGRESS_INTERVENTIONS
+        ):
             return self._fail(
-                "The AI repeated the same read-only inspections without making "
-                "progress, so this run was stopped before the general turn "
-                "limit. Rephrase the request or use a supported deterministic "
-                "operation.",
+                "The AI kept repeating the same read-only inspections after "
+                "three strategy-change prompts. The run was stopped without "
+                "re-executing those tools. Try again or state the one missing "
+                "input explicitly.",
                 "repeated_inspections_no_progress",
                 tool_events=tuple(this_turn_events),
             )
+        if fully_reused:
+            intervention = self._no_progress_intervention(
+                self._consecutive_fully_reused_turns
+            )
+            self._turn_events.append(intervention)
+            this_turn_events.append(intervention)
 
         return self._advance_turn(
             assistant_text=turn.assistant_text, tool_events=tuple(this_turn_events)
         )
+
+    def _no_progress_intervention(self, level: int) -> Dict[str, Any]:
+        """Return one trusted, mode-aware strategy instruction for the provider."""
+
+        if level == 1:
+            strategy = "finish_from_existing_evidence"
+            instruction = (
+                "The latest calls were exact repeats of successful inspections "
+                "and produced no new information. Do not call them again. Use "
+                "the existing results to answer now"
+            )
+        elif level == 2:
+            strategy = "change_tool_or_arguments"
+            instruction = (
+                "A second repeated inspection still produced no new information. "
+                "Change strategy: use a different advertised tool or materially "
+                "different arguments only when one specific fact is missing"
+            )
+        else:
+            strategy = "terminal_recovery"
+            instruction = (
+                "This is the final strategy-recovery prompt. Do not repeat any "
+                "cached call. Complete the request from the evidence already "
+                "present, or state the exact missing capability or user input"
+            )
+        if self._mode in (AgentMode.PLAN, AgentMode.ACT):
+            completion = (
+                "; return a supported proposal when the evidence is sufficient. "
+                "If completion is impossible, return a concise final answer "
+                "naming the exact blocker. Never infer that Processing or another "
+                "capability is unavailable merely because an inspection is "
+                "read-only."
+            )
+        else:
+            completion = (
+                ". If another fact is truly required, make one materially new "
+                "advertised tool call; otherwise return a concise final answer "
+                "with the exact result or blocker. Never infer that Processing "
+                "or another capability is unavailable merely because an "
+                "inspection is read-only."
+            )
+        return {
+            "kind": "strategy_intervention",
+            "level": level,
+            "strategy": strategy,
+            "instruction": instruction + completion,
+        }
 
     @staticmethod
     def _tool_cache_key(call: AgentToolCall) -> Tuple[str, str]:

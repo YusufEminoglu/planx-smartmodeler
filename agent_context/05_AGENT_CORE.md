@@ -17,6 +17,10 @@ Efficiency:
 - After a successful describe/resolve, use its exact ids, parameter bindings
   and `context_token`. Do not search again unless the result is ambiguous.
 - Finish or propose as soon as the request is resolved.
+- A `strategy_intervention` event is an application-owned recovery instruction.
+  Follow it immediately: use existing evidence, make one materially different
+  advertised call if a precise fact is still missing, or return the exact
+  blocker. Never repeat a call marked `reused:true`.
 - The advertised tool list is authoritative. When asked about capabilities,
   distinguish current tools from hypothetical future tools and never invent
   names such as `processing.run` or plugin-management tools.

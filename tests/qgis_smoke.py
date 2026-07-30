@@ -1138,6 +1138,51 @@ def run_checks() -> str:
                 raise RuntimeError(
                     "Agent Workspace did not report the model again after the studio was reopened."
                 )
+            original_profile = AiSettingsStore().active_profile()
+            routed_profile = AiProfile.create(
+                "openai", "Workflow agent route"
+            )
+            routed_store = AiSettingsStore()
+            saved, _message = routed_store.save_profile(
+                routed_profile, api_key="smoke-workflow-key"
+            )
+            if not saved:
+                raise RuntimeError(
+                    "Could not prepare the isolated Workflow Studio agent profile."
+                )
+            routed_store.set_active(routed_profile.profile_id)
+            routed_requests = []
+            lifecycle_plugin.agent_dock.ai_client.generate_structured = (
+                lambda *args, **_kwargs: routed_requests.append(args)
+            )
+            lifecycle_plugin.window.add_node_by_alg("smart:number")
+            lifecycle_plugin.window.generate_ai_graph(
+                "Add a buffer step after the current node.", "improve"
+            )
+            if (
+                not routed_requests
+                or not lifecycle_plugin.agent_dock.run_loop.is_active()
+                or lifecycle_plugin.agent_dock.run_loop.mode != AgentMode.ACT
+                or lifecycle_plugin.agent_dock.run_loop.scope
+                != AgentScope.CURRENT_MODEL
+                or "Planning in Agent Workspace"
+                not in lifecycle_plugin.window.status_label.text()
+            ):
+                raise RuntimeError(
+                    "Workflow Studio online AI did not route through the "
+                    "shared multi-turn Agent Workspace."
+                )
+            routed_prompt = lifecycle_plugin.agent_dock.run_loop._user_text
+            if (
+                "Preserve all unrelated nodes" not in routed_prompt
+                or "Add a buffer step" not in routed_prompt
+            ):
+                raise RuntimeError(
+                    "Workflow Studio lost its improve semantics while routing "
+                    "to Agent Workspace."
+                )
+            lifecycle_plugin.agent_dock._on_stop_clicked()
+            routed_store.set_active(original_profile.profile_id)
             agent_ticket = lifecycle_plugin.agent_dock.run_coordinator._state.start(
                 "global-lock", "model_run", "Global lock"
             )

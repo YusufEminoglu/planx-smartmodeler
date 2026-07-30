@@ -7,6 +7,7 @@ from qgis.PyQt.QtCore import QTimer, Qt
 from qgis.PyQt.QtGui import QAction, QIcon
 from qgis.core import QgsApplication
 
+from .core.agent.contracts import AgentMode, AgentScope
 from .core.translation import TranslationManager
 from .gui.agent_dock import AgentWorkspaceDock
 from .gui.help_dialog import HelpDialog
@@ -178,6 +179,7 @@ class SmartModelerPlugin:
                 self.iface,
                 self.iface.mainWindow(),
                 external_run_active=self._agent_run_active,
+                agent_request=self._start_model_agent_request,
             )
         self.window.show()
         self.window.raise_()
@@ -190,6 +192,16 @@ class SmartModelerPlugin:
         self.agent_dock.raise_()
         self.agent_dock.prompt_input.setFocus()
         return True
+
+    def _start_model_agent_request(self, request: str) -> bool:
+        """Route Workflow Studio AI through the shared agentic run loop."""
+        if self.agent_dock is None or not self.open_agent_workspace():
+            return False
+        return self.agent_dock.start_request(
+            request,
+            AgentMode.ACT,
+            AgentScope.CURRENT_MODEL,
+        )
 
     def open_ai_connections(self) -> bool:
         """Open the shared AI profile editor for trusted companion plugins."""

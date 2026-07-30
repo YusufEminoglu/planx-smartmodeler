@@ -724,15 +724,44 @@ class AgentWorkspaceDock(QDockWidget):
 
     # -- Agent Chat: sending -------------------------------------------
 
-    def _on_send_clicked(self) -> None:
+    def start_request(self, text: str, mode: str, scope: str) -> bool:
+        """Start one request supplied by another trusted SmartModeler surface.
+
+        Workflow Studio uses this bridge so its online AI entry point shares
+        the same multi-turn orchestration, tool registry, strategy recovery,
+        proposal validation, and explicit-approval boundary as Agent Workspace.
+        """
+        if (
+            not isinstance(text, str)
+            or not text.strip()
+            or mode not in AgentMode.ALL
+            or scope not in AgentScope.ALL
+        ):
+            return False
         if self.run_loop.is_active():
-            return
+            self._append_line(
+                "An Agent Workspace request is already active. Finish or stop "
+                "it before starting another workflow request."
+            )
+            return False
+        mode_index = self.mode_combo.findData(mode)
+        scope_index = self.scope_combo.findData(scope)
+        if mode_index < 0 or scope_index < 0:
+            return False
+        self.mode_combo.setCurrentIndex(mode_index)
+        self.scope_combo.setCurrentIndex(scope_index)
+        self.prompt_input.setPlainText(text.strip())
+        return self._on_send_clicked()
+
+    def _on_send_clicked(self) -> bool:
+        if self.run_loop.is_active():
+            return False
         if self.run_coordinator.is_running() or self._external_run_active():
             self._append_line("A run is in progress. Wait for it to finish or cancel it.")
-            return
+            return False
         text = self.prompt_input.toPlainText().strip()
         if not text:
-            return
+            return False
 
         store = AiSettingsStore()
         profile = store.active_profile()
@@ -742,7 +771,7 @@ class AgentWorkspaceDock(QDockWidget):
                 "Open AI connections to set one up. Quick actions above "
                 "still work without a provider."
             )
-            return
+            return False
         api_key = store.secret(profile.profile_id)
         errors = profile.validate(api_key)
         if errors:
@@ -750,7 +779,7 @@ class AgentWorkspaceDock(QDockWidget):
                 "AI connection is not ready:\n" + "\n".join(errors)
                 + "\n\nOpen AI connections to fix this profile."
             )
-            return
+            return False
 
         mode = self.mode_combo.currentData() or AgentMode.ASK
         scope = self.scope_combo.currentData() or AgentScope.PROJECT
@@ -759,7 +788,7 @@ class AgentWorkspaceDock(QDockWidget):
             self._append_line(
                 f"Your message exceeds the {bound}-character limit; shorten it and try again."
             )
-            return
+            return False
 
         self.prompt_input.clear()
         self._append_line(f"> {text}")
@@ -772,9 +801,10 @@ class AgentWorkspaceDock(QDockWidget):
             event = self.run_loop.start(text, mode, scope)
         except RunLoopError as error:
             self._append_line(f"[error] {error}")
-            return
+            return False
         self._set_controls_active(True)
         self._handle_run_event(event)
+        return True
 
     def _on_stop_clicked(self) -> None:
         self._cancel_active_run()
@@ -836,6 +866,12 @@ class AgentWorkspaceDock(QDockWidget):
                 result = tool_event.get("result", {})
                 self._append_line(
                     f"[tool: {tool_event.get('tool_name', '')}] {result.get('status', '')}"
+                )
+            elif tool_event.get("kind") == "strategy_intervention":
+                level = tool_event.get("level", "")
+                self._append_line(
+                    f"[strategy {level}] Repeated inspection detected; "
+                    "the AI is changing approach."
                 )
 
         if event.kind == RunEventKind.REQUEST_PROVIDER:

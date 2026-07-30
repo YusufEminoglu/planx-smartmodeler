@@ -18,11 +18,18 @@ from planx_smartmodeler.core.agent.controller import AgentController
 from planx_smartmodeler.core.agent.registry import AgentToolRegistry
 from planx_smartmodeler.core.agent.run_loop import (
     AgentRunLoop,
+    MAX_NO_PROGRESS_INTERVENTIONS,
     RunAlreadyActiveError,
     RunEventKind,
 )
 
 EMPTY_SCHEMA = {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+ECHO_SCHEMA = {
+    "type": "object",
+    "properties": {"query": {"type": "string"}},
+    "required": [],
+    "additionalProperties": False,
+}
 STATIC_INSTRUCTIONS = "Static Agent Chat instructions."
 
 
@@ -91,7 +98,7 @@ def build_loop(
             title="Echo",
             description="Echoes its arguments.",
             risk=AgentRisk.READ_ONLY,
-            input_schema=EMPTY_SCHEMA,
+            input_schema=ECHO_SCHEMA,
             allowed_scopes=(AgentScope.PROJECT,),
         ),
         echo_handler,
@@ -336,21 +343,33 @@ class DuplicateCallIdTests(unittest.TestCase):
 
 
 class NoProgressCircuitBreakerTests(unittest.TestCase):
-    def test_two_fully_reused_inspection_turns_stop_before_general_limit(self) -> None:
-        loop, _, echo_handler, _ = build_loop(AgentRunLimits(max_turns=5))
+    def test_reused_inspections_get_three_strategy_changes_before_stop(self) -> None:
+        loop, _, echo_handler, _ = build_loop(AgentRunLimits(max_turns=8))
         first = loop.start("inspect something", AgentMode.ASK, AgentScope.PROJECT)
-        second = loop.submit_provider_response(
+        current = loop.submit_provider_response(
             first.request.request_token,
             tool_calls_turn_json([("c1", "test.echo", "{}")]),
         )
-        third = loop.submit_provider_response(
-            second.request.request_token,
-            tool_calls_turn_json([("c2", "test.echo", "{}")]),
-        )
-        self.assertEqual(third.kind, RunEventKind.REQUEST_PROVIDER)
+        for level in range(1, MAX_NO_PROGRESS_INTERVENTIONS + 1):
+            current = loop.submit_provider_response(
+                current.request.request_token,
+                tool_calls_turn_json(
+                    [(f"repeat-{level}", "test.echo", "{}")]
+                ),
+            )
+            self.assertEqual(current.kind, RunEventKind.REQUEST_PROVIDER)
+            intervention = current.tool_events[-1]
+            self.assertEqual(intervention["kind"], "strategy_intervention")
+            self.assertEqual(intervention["level"], level)
+            payload = json.loads(current.request.user_prompt)
+            self.assertEqual(
+                payload["current_turn_events"][-1]["strategy"],
+                intervention["strategy"],
+            )
+
         stopped = loop.submit_provider_response(
-            third.request.request_token,
-            tool_calls_turn_json([("c3", "test.echo", "{}")]),
+            current.request.request_token,
+            tool_calls_turn_json([("repeat-stop", "test.echo", "{}")]),
         )
         self.assertEqual(stopped.kind, RunEventKind.FAILED)
         self.assertEqual(
@@ -358,6 +377,63 @@ class NoProgressCircuitBreakerTests(unittest.TestCase):
         )
         self.assertEqual(len(echo_handler.calls), 1)
         self.assertLess(loop.turns_used, loop._run_state.limits.max_turns)
+
+    def test_provider_can_finish_after_a_strategy_intervention(self) -> None:
+        loop, _, echo_handler, _ = build_loop(AgentRunLimits(max_turns=6))
+        first = loop.start("inspect something", AgentMode.ASK, AgentScope.PROJECT)
+        second = loop.submit_provider_response(
+            first.request.request_token,
+            tool_calls_turn_json([("c1", "test.echo", "{}")]),
+        )
+        recovery = loop.submit_provider_response(
+            second.request.request_token,
+            tool_calls_turn_json([("c2", "test.echo", "{}")]),
+        )
+        finished = loop.submit_provider_response(
+            recovery.request.request_token,
+            final_turn_json("Completed from the cached inspection."),
+        )
+        self.assertEqual(finished.kind, RunEventKind.FINAL)
+        self.assertEqual(len(echo_handler.calls), 1)
+
+    def test_materially_new_arguments_reset_no_progress_recovery(self) -> None:
+        loop, _, echo_handler, _ = build_loop(AgentRunLimits(max_turns=8))
+        first = loop.start("inspect two things", AgentMode.ASK, AgentScope.PROJECT)
+        second = loop.submit_provider_response(
+            first.request.request_token,
+            tool_calls_turn_json(
+                [("a1", "test.echo", '{"query":"first"}')]
+            ),
+        )
+        first_recovery = loop.submit_provider_response(
+            second.request.request_token,
+            tool_calls_turn_json(
+                [("a2", "test.echo", '{"query":"first"}')]
+            ),
+        )
+        self.assertEqual(
+            first_recovery.tool_events[-1]["level"], 1
+        )
+        new_evidence = loop.submit_provider_response(
+            first_recovery.request.request_token,
+            tool_calls_turn_json(
+                [("b1", "test.echo", '{"query":"second"}')]
+            ),
+        )
+        self.assertEqual(len(echo_handler.calls), 2)
+        self.assertNotIn(
+            "strategy_intervention",
+            [item["kind"] for item in new_evidence.tool_events],
+        )
+        reset_recovery = loop.submit_provider_response(
+            new_evidence.request.request_token,
+            tool_calls_turn_json(
+                [("b2", "test.echo", '{"query":"second"}')]
+            ),
+        )
+        self.assertEqual(
+            reset_recovery.tool_events[-1]["level"], 1
+        )
 
 
 class UnknownToolTests(unittest.TestCase):

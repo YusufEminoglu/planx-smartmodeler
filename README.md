@@ -57,12 +57,13 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   Model Properties, including explicit zero outputs, selected subsets, and
   published intermediate Processing layer results. Smart/scalar/file outputs
   cannot be published, and unavailable mandatory results fail the run.
-- Generates workflows through offline rules or a configured AI provider.
-- Improves the current canvas over repeated AI turns while preserving unrelated
-  nodes and parameters, previews the proposed graph changes, and provides one-step
-  **Undo AI** recovery. Existing parameter values are replaced with a local-only
-  retention token before connected-provider requests and restored only after the
-  response passes application validation.
+- Generates workflows through deterministic offline rules or, for every
+  configured connected provider, the shared multi-turn Agent Workspace.
+  Workflow Studio submits connected requests in `Current model` + `Act` mode,
+  so building and improving a graph use the same live model inspections,
+  validated proposal contract, explicit approval card, recovery logic, and
+  run limits as the assistant dock. Offline generation remains local and keeps
+  its one-step **Undo AI** recovery.
 - Offers a separate **Agent Workspace** dock with bounded, read-only project,
   layer, symbology/labeling, Processing, model, and plugin inspections through
   a fail-closed policy engine, plus a bounded, provider-neutral **Agent Chat**
@@ -160,6 +161,11 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   local estimate. The Agent sends only a compact core prompt plus intent-specific
   expression, OSM, or Power packs, advertises only the relevant tools, retains
   six bounded exchanges, compresses tool traces, and caps structured output.
+  If a provider repeats an already successful inspection, the result is reused
+  without executing the tool again and the orchestrator issues three escalating
+  strategy interventions: finish from existing evidence, make one materially
+  different call, or name the exact blocker. Only a fourth consecutive repeated
+  turn, after all three interventions were ignored, ends the run as unresponsive.
   It never blocks a task solely because of the local estimate. Confirmation is
   requested only when a task crosses 300,000 estimated input tokens, at each
   subsequent 100,000-token milestone, or when one next request alone is

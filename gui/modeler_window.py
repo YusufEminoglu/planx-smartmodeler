@@ -64,10 +64,17 @@ class SmartModelerWindow(QMainWindow):
     RECOVERY_PREFIX = "SmartModelerGIS/Recovery/"
     AUTOSAVE_INTERVAL_MS = 30_000
 
-    def __init__(self, iface, parent=None, external_run_active=None) -> None:
+    def __init__(
+        self,
+        iface,
+        parent=None,
+        external_run_active=None,
+        agent_request=None,
+    ) -> None:
         super().__init__(parent)
         self.iface = iface
         self._external_run_active = external_run_active or (lambda: False)
+        self._agent_request = agent_request
         self.settings = QgsSettings()
         self.setWindowTitle("SmartModeler GIS - QGIS 4 Workflow Studio")
         self.setAccessibleName("SmartModeler GIS Workflow Studio")
@@ -515,6 +522,28 @@ class SmartModelerWindow(QMainWindow):
             return
         store = AiSettingsStore()
         profile = store.active_profile()
+        if profile.provider_id != "offline" and self._agent_request is not None:
+            request = (
+                "Improve the currently open workflow according to this request. "
+                "Preserve all unrelated nodes, parameters, and connections:\n\n"
+                + prompt_text
+                if mode == "improve"
+                else
+                "Replace the currently open workflow with a new workflow for "
+                "this request. Remove existing nodes and connections that are "
+                "not part of the requested result:\n\n"
+                + prompt_text
+            )
+            if self._agent_request(request):
+                self.status_label.setText(
+                    "Planning in Agent Workspace - review and approve the "
+                    "validated model proposal there"
+                )
+            else:
+                self.status_label.setText(
+                    "Agent Workspace could not start the workflow request"
+                )
+            return
         self._ai_canvas_snapshot = Model3Serializer.export_to_json(self.graph)
         self._ai_request_mode = mode
         if profile.provider_id == "offline":
