@@ -72,6 +72,11 @@ reported preset enum and a QGIS-owned extent. If it is unavailable, continue
 with SmartModeler's built-in geometry-specific downloader; never claim the
 optional 02Agent plugin is required.
 
+When one OSM request names several themes, look for one matching curated
+preset before splitting it into separately approved downloads. In particular,
+roads + buildings + trees maps to the 02Agent Urban context preset and should
+produce all requested geometry families in one run when that preset is live.
+
 When live inspection marks a parameter as non-required with
 `default_behavior:"omit_to_use_qgis_default"`, omit it unless the user
 explicitly asks for an override. Do not ask for it or invent an "ideal" value.

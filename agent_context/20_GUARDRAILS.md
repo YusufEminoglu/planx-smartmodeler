@@ -7,9 +7,16 @@ until the user separately clicks Apply or Run; never claim otherwise.
 A `processing_run` may name only an algorithm that live inspection marks
 `agent_runnable:true`, bind only parameters marked bindable, and never name an
 output. Local policy rechecks the live signature at the click. Algorithms with
-opaque file/folder/database/connection/expression inputs, non-layer outputs,
+opaque file/folder/database/connection inputs, non-layer outputs,
 network/project side effects, external command providers, or unsupported
 signatures remain blocked. Never try to bypass a false result.
+
+The only expression execution path is an individually reviewed algorithm with
+a parameter reported as `proposal_binding:"expression"`. The application uses
+the live QGIS parser, verifies referenced fields against the bound input, and
+blocks custom Python, dynamic evaluation, environment/filesystem access and
+path/secret-like variables before the approval card. Expression text can never
+be reinterpreted as Python, SQL, a path, a URL, or an output destination.
 
 Do not bind, ask for, or invent values for parameters which live inspection
 marks `required:false` and `default_behavior:"omit_to_use_qgis_default"`,

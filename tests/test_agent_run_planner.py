@@ -43,6 +43,7 @@ ENUM_PARAM = "QgsProcessingParameterEnum"
 CRS_PARAM = "QgsProcessingParameterCrs"
 STRING_PARAM = "QgsProcessingParameterString"
 EXTENT_PARAM = "QgsProcessingParameterExtent"
+EXPRESSION_PARAM = "QgsProcessingParameterExpression"
 FILE_DEST = "QgsProcessingParameterFileDestination"
 SINK = "QgsProcessingParameterFeatureSink"
 
@@ -152,6 +153,20 @@ SMARTMODELER_OSM_PARAMS = [
     spec("EXTENT", EXTENT_PARAM),
     spec("OUTPUT", SINK, destination=True),
 ]
+FIELD_CALCULATOR_PARAMS = [
+    spec("INPUT", SOURCE),
+    spec("FIELD_NAME", STRING_PARAM),
+    spec(
+        "FIELD_TYPE",
+        ENUM_PARAM,
+        default=True,
+        options=("Float", "Integer", "String", "Date"),
+    ),
+    spec("FIELD_LENGTH", NUMBER_PARAM, default=True),
+    spec("FIELD_PRECISION", NUMBER_PARAM, default=True),
+    spec("FORMULA", EXPRESSION_PARAM),
+    spec("OUTPUT", SINK, destination=True),
+]
 
 VEC = LayerView("L_vec", "Roads", VECTOR, frozenset({"name", "class"}))
 VEC2 = LayerView("L_vec2", "Districts", VECTOR, frozenset({"code"}))
@@ -219,6 +234,23 @@ class ProcessingRunPlannerTests(unittest.TestCase):
     def test_plan_never_contains_a_destination_binding(self):
         plan = self.plan("native:buffer", {"INPUT": {"layer": "L_vec"}}, BUFFER_PARAMS)
         self.assertIsNone(plan.binding_for("OUTPUT"))
+
+    def test_field_calculator_keeps_qgis_expression_as_a_typed_binding(self):
+        plan = self.plan(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_vec"},
+                "FIELD_NAME": {"string": "floors"},
+                "FIELD_TYPE": {"enum_string": "Integer"},
+                "FORMULA": {"expression": "rand(1, 15)"},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        formula = plan.binding_for("FORMULA")
+        self.assertEqual(formula.kind, "expression")
+        self.assertEqual(formula.tag, "expression")
+        self.assertEqual(formula.value, "rand(1, 15)")
+        self.assertEqual(plan.binding_for("FIELD_TYPE").value, 1)
 
     def test_planx_space_syntax_accepts_reviewed_domain_text(self):
         params = [

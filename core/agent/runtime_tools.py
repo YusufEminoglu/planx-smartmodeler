@@ -11,6 +11,7 @@ checks below are defense in depth for direct handler invocation in tests.
 from __future__ import annotations
 
 import contextlib
+import html
 import re
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
@@ -58,6 +59,7 @@ from .safe_algorithm_policy import (  # noqa: E402 - same grouping
     CRS,
     DISTANCE,
     ENUM,
+    EXPRESSION,
     FIELD,
     MULTI_RASTER,
     MULTI_VECTOR,
@@ -91,6 +93,7 @@ _KIND_BINDING_FORM: Dict[str, str] = {
     STRING_TEXT: "text",
     MAP_EXTENT: "map_extent",
     OSM_TAG: "osm_tag",
+    EXPRESSION: "expression",
 }
 from .plugin_capabilities import (  # noqa: E402 - same grouping
     MAX_ALGORITHMS,
@@ -308,6 +311,68 @@ def _tool_processing_search(call: AgentToolCall) -> Dict[str, Any]:
     )
     bounded, truncated = agent_context.bound_list(matches, limit)
     return {"algorithms": bounded, "count": len(bounded), "truncated": truncated}
+
+
+def _expression_help_text(name: str) -> str:
+    """Return bounded plain text from QGIS's built-in function help."""
+
+    from qgis.core import QgsExpression
+
+    raw = ""
+    with contextlib.suppress(Exception):
+        raw = str(QgsExpression.helpText(name) or "")
+    plain = html.unescape(re.sub(r"<[^>]+>", " ", raw))
+    plain = re.sub(r"\s+", " ", plain).strip()
+    return agent_context.bound_text(plain, 1_500)
+
+
+def _tool_expression_search(call: AgentToolCall) -> Dict[str, Any]:
+    """Search the live built-in QGIS expression catalog without evaluation."""
+
+    from qgis.core import QgsExpression
+
+    from .qgis_expression_policy import is_agent_expression_function
+
+    query = call.arguments.get("query", "")
+    if not isinstance(query, str) or not query.strip():
+        raise ToolExecutionError("query must be a non-empty string.")
+    limit = _clamp_limit(call.arguments.get("limit"))
+    terms = tuple(
+        term for term in re.findall(r"[a-z0-9_$]+", query.casefold()) if term
+    )
+    scored = []
+    for function in QgsExpression.Functions():
+        if not is_agent_expression_function(function):
+            continue
+        with contextlib.suppress(Exception):
+            name = str(function.name())
+            group = str(function.group())
+            haystack = f"{name} {group}".casefold()
+            if terms and not all(term in haystack for term in terms):
+                continue
+            score = (
+                0
+                if name.casefold() == query.strip().casefold()
+                else 1
+                if name.casefold().startswith(query.strip().casefold())
+                else 2
+            )
+            scored.append((score, name.casefold(), name, group))
+    scored.sort()
+    selected = scored[:limit]
+    return {
+        "functions": [
+            {
+                "name": agent_context.bound_text(name, 128),
+                "group": agent_context.bound_text(group, 128),
+                "help": _expression_help_text(name),
+                "proposal_binding": "expression",
+            }
+            for _score, _sort_name, name, group in selected
+        ],
+        "count": len(selected),
+        "truncated": len(scored) > len(selected),
+    }
 
 
 def _param_is_optional(definition: Any) -> bool:
@@ -1377,7 +1442,7 @@ def build_default_registry(
     token_service: Optional[ContextTokenService] = None,
     active_layer_provider: Optional[ActiveLayerProvider] = None,
 ) -> AgentToolRegistry:
-    """Build and return the twelve-tool read-only Agent Workspace registry.
+    """Build and return the thirteen-tool read-only Agent Workspace registry.
 
     ``token_service`` issues the opaque freshness tokens for ``model.describe``,
     ``layer.style`` and ``processing.describe``; the dock passes the same
@@ -1499,6 +1564,36 @@ def build_default_registry(
             ),
         ),
         _tool_processing_describe_factory(token_service),
+    )
+    registry.register(
+        AgentToolSpec(
+            name="expression.search",
+            title="Search QGIS expression functions",
+            description=(
+                "Searches the live built-in QGIS expression function catalog "
+                "and returns bounded QGIS help text. It excludes custom, "
+                "dynamic, environment and filesystem functions and never "
+                "evaluates an expression or reads feature values."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "query": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": _QUERY_MAX_LENGTH,
+                    },
+                    "limit": _LIMIT_PROPERTY,
+                },
+                required=["query"],
+            ),
+            allowed_scopes=(
+                AgentScope.PROJECT,
+                AgentScope.ACTIVE_LAYER,
+                AgentScope.CURRENT_MODEL,
+            ),
+        ),
+        _tool_expression_search,
     )
     registry.register(
         AgentToolSpec(

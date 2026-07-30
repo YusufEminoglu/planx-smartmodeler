@@ -144,8 +144,15 @@ class SmartModelerAgentRandomExtractSmoke(QgsProcessingAlgorithm):
                 AgentMode.PLAN,
                 AgentScope.PROJECT,
             )
-            if opaque.data.get("agent_runnable"):
-                raise RuntimeError("An opaque-expression algorithm was admitted to Agent runs.")
+            if not opaque.data.get("agent_runnable"):
+                raise RuntimeError("The reviewed Field Calculator was not admitted.")
+            formula = next(
+                row
+                for row in opaque.data.get("parameters", [])
+                if row.get("name") == "FORMULA"
+            )
+            if formula.get("proposal_binding") != "expression":
+                raise RuntimeError("Field Calculator did not expose its typed expression binding.")
 
             proposal = parse_proposal(
                 PROPOSAL_KIND_PROCESSING_RUN,

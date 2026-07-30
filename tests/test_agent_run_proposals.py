@@ -126,9 +126,21 @@ class ProcessingRunParseTests(unittest.TestCase):
 
     def test_unknown_binding_tag_rejected(self) -> None:
         data = _valid_processing_run()
-        data["inputs"]["INPUT"] = {"expression": "1+1"}
+        data["inputs"]["INPUT"] = {"query": "SELECT *"}
         with self.assertRaises(ProposalError):
             _parse_pr(data)
+
+    def test_expression_binding_is_explicit_non_empty_and_bounded(self) -> None:
+        data = _valid_processing_run()
+        data["inputs"]["FORMULA"] = {"expression": "rand(1, 15)"}
+        proposal = _parse_pr(data)
+        formula = dict(proposal.inputs)["FORMULA"]
+        self.assertEqual(formula.tag, "expression")
+        self.assertEqual(formula.value, "rand(1, 15)")
+        for bad in ("", "   ", "\x00", "x" * 8_001):
+            data["inputs"]["FORMULA"] = {"expression": bad}
+            with self.assertRaises(ProposalError):
+                _parse_pr(data)
 
     def test_layer_id_may_not_be_path_or_uri(self) -> None:
         for bad in ("C:/data/x.gpkg", "../secret", "file:///x", "a/b", "a\\b", "with\nnewline"):

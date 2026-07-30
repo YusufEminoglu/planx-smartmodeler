@@ -33,6 +33,7 @@ from .safe_algorithm_policy import (
     CRS,
     DISTANCE,
     ENUM,
+    EXPRESSION,
     FIELD,
     MULTI_RASTER,
     MULTI_VECTOR,
@@ -101,6 +102,7 @@ _TAG_KINDS: Mapping[str, FrozenSet[str]] = {
     "map_extent": frozenset({MAP_EXTENT}),
     "layer_extent": frozenset({MAP_EXTENT}),
     "osm_tag": frozenset({OSM_TAG}),
+    "expression": frozenset({EXPRESSION}),
 }
 
 # Which layer kind each layer-ish parameter kind demands.
@@ -333,7 +335,7 @@ def plan_processing_run(
             value = bool(binding.value)
         elif binding.tag in ("enum", "enum_string"):
             value = _plan_enum(spec, binding.tag, binding.value)
-        elif binding.tag in ("string", "text", "osm_tag"):
+        elif binding.tag in ("string", "text", "osm_tag", "expression"):
             maximum = (
                 MAX_LABEL_STRING_CHARS
                 if kind == STRING_LABEL

@@ -2,6 +2,32 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.17.0] - 2026-07-30
+
+### Added
+
+- Add a typed `expression` proposal binding and a signature-pinned
+  `native:fieldcalculator` Agent run path.
+- Add live built-in QGIS expression-function search with bounded QGIS help,
+  including the exact `rand()` signature exposed by the installed runtime.
+- Add an auditable expression guide covering literals, field quoting, geometry
+  variables, named parameters, conditionals and calculated-field workflows.
+- Add a dual-runtime real-QGIS acceptance test that parses `rand(1, 15)`,
+  `$area` and composed geometry expressions, executes Field Calculator, and
+  verifies the integer output without modifying its source.
+
+### Changed
+
+- Prefer 02Agent OSM Downloader's combined Urban Context preset when one
+  request asks for roads, buildings and trees, producing all point, line and
+  polygon outputs through one explicit Run approval.
+
+### Security
+
+- Validate expression syntax with the live `QgsExpression` parser, reject
+  unknown input fields, and block custom Python, dynamic evaluation,
+  environment/filesystem functions and sensitive path/secret-like variables.
+
 ## [0.16.2] - 2026-07-30
 
 ### Changed

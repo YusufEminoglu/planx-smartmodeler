@@ -134,8 +134,8 @@ class DefaultRegistryTests(unittest.TestCase):
     schemas after the second-review contract corrections (immutable schemas,
     the stricter shape validator, and serialization-safe results).
 
-    The set grew from eight (Phase 01) to eleven (Phase 03) to twelve
-    (Phase 06's ``plugin.capabilities``). Attribute-value inspection is
+    The set grew from eight (Phase 01) to twelve (Phase 06) to thirteen
+    with live built-in QGIS expression help. Attribute-value inspection is
     deliberately absent because provider tool results are metadata-only.
     It is asserted as an exact set, so an accidental extra tool fails here."""
 
@@ -146,6 +146,7 @@ class DefaultRegistryTests(unittest.TestCase):
             "layer.describe",
             "processing.search",
             "processing.describe",
+            "expression.search",
             "model.summary",
             "model.validate",
             "plugin.list",

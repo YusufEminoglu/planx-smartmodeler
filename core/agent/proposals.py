@@ -109,6 +109,7 @@ MAX_CLASSES = 12
 MAX_RUN_BINDINGS = 30
 MAX_RUN_LAYERS = 25
 MAX_RUN_STRING_CHARS = 2_000
+MAX_EXPRESSION_CHARS = 8_000
 MAX_CRS_CHARS = 64
 MAX_ENUM_INDEX = 255
 MAX_RUN_NUMBER_ABS = 1e12
@@ -1141,7 +1142,7 @@ class RunBinding:
     The mandatory tag keeps a string from ever being reinterpreted as a path or a
     destination: a binding is exactly one of ``layer``/``layers``/``field``/
     ``number``/``bool``/``enum``/``enum_string``/``string``/``text``/``crs``/
-    ``distance``/``map_extent``/``layer_extent``/``osm_tag``.
+    ``distance``/``map_extent``/``layer_extent``/``osm_tag``/``expression``.
     A destination/output binding cannot be expressed at all -- destinations are
     always application-forced to a temporary output downstream.
     """
@@ -1173,6 +1174,7 @@ _BINDING_SINGLE_KEYS = frozenset(
         "map_extent",
         "layer_extent",
         "osm_tag",
+        "expression",
     }
 )
 _FIELD_BINDING_KEYS = {"field", "layer_param"}
@@ -1243,6 +1245,22 @@ def _parse_binding(item: Any) -> RunBinding:
                 ProposalReason.MALFORMED,
             )
         return RunBinding("osm_tag", text)
+    if tag == "expression":
+        if not isinstance(value, str) or not value.strip():
+            raise ProposalError(
+                "A QGIS expression is required.", ProposalReason.MALFORMED
+            )
+        if len(value) > MAX_EXPRESSION_CHARS:
+            raise ProposalError(
+                "The QGIS expression exceeds the safety limit.",
+                ProposalReason.LIMIT_EXCEEDED,
+            )
+        if "\x00" in value:
+            raise ProposalError(
+                "A QGIS expression may not contain NUL characters.",
+                ProposalReason.MALFORMED,
+            )
+        return RunBinding("expression", value)
     return RunBinding("crs", _crs_value(value))
 
 

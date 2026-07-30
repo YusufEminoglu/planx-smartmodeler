@@ -84,16 +84,25 @@ Exact tagged forms:
 - `{"text":"800, n"}` only when `proposal_binding` is `text`. This is
   reviewed first-party domain text, never a path, URI, credential, expression,
   query, server, or file setting.
+- `{"expression":"rand(1, 15)"}` only when `proposal_binding` is
+  `expression`. The application parses it with live `QgsExpression`, checks
+  referenced fields against the bound input, and blocks custom/dynamic,
+  environment and filesystem functions before approval.
 - `{"map_extent":true}` means the current QGIS map canvas extent; never invent
   or copy coordinates into a proposal.
 - `{"osm_tag":"building"}` is a plain OSM key/value tag only. It cannot contain
   an Overpass query, URL, path, expression, credential, or statement syntax.
 
-Never bind a destination, path, folder, URL, connection, SQL, expression, or
-credential. Outputs are forced to temporary layers.
+Never bind a destination, path, folder, URL, connection, SQL, or credential.
+An expression is permitted only through the dedicated `expression` binding on
+an individually reviewed algorithm. Outputs are forced to temporary layers.
 
 Intent rules:
 
+- Add or calculate a field with QGIS syntax (`rand(...)`, `$area`, quoted
+  fields, `CASE`, geometry/string/date functions) → `native:fieldcalculator`;
+  put the formula in `FORMULA` as an `expression` binding. Do not tell the user
+  to open Field Calculator manually when this algorithm is runnable.
 - Random N into a **new layer** → `native:randomextract`, method “Number of
   features”; never `native:randomselection` (selection state only).
 - Attribute filter into a new layer → `native:extractbyattribute`.
@@ -139,6 +148,9 @@ For a curated thematic pack, prefer
 reported enum index and `EXTENT` with `map_extent` or `layer_extent`. Its point,
 line and polygon destinations are application-forced temporary. The optional
 plugin is not a prerequisite for ordinary single-tag OSM requests.
+For a request combining roads, building footprints and trees in the same
+extent, prefer the single **Urban context — roads, buildings & trees** preset;
+it intentionally returns point, line and polygon outputs in one approved run.
 
 ## `model_run`
 

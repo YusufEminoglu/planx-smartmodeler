@@ -11,6 +11,7 @@ from planx_smartmodeler.core.agent.proposals import ProposalReason
 from planx_smartmodeler.core.agent.safe_algorithm_policy import (
     BOOL,
     DISTANCE,
+    EXPRESSION,
     MULTI_VECTOR,
     NUMBER,
     OutputSpec,
@@ -65,7 +66,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 23)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 24)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
         self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))
@@ -73,6 +74,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertIsNotNone(self.policy.record_for("native:joinattributestable"))
         self.assertIsNotNone(self.policy.record_for("native:mergevectorlayers"))
         self.assertIsNotNone(self.policy.record_for("native:randomextract"))
+        self.assertIsNotNone(self.policy.record_for("native:fieldcalculator"))
         self.assertIsNotNone(
             self.policy.record_for("quickosm:downloadosmdataextentquery")
         )
@@ -413,14 +415,28 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
             self.policy.is_runnable("gdal:buffervectors", _buffer_params()).allowed
         )
 
-    def test_structural_policy_rejects_opaque_input(self) -> None:
+    def test_unreviewed_expression_signature_remains_blocked(self) -> None:
         params = (
             _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
             _p("EXPRESSION", {"QgsProcessingParameterExpression"}, optional=True),
             _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
         )
-        decision = self.policy.is_runnable("native:fieldcalculator", params)
+        decision = self.policy.is_runnable("native:extractbyexpression", params)
         self.assertFalse(decision.allowed)
+
+    def test_field_calculator_expression_signature_is_pinned(self) -> None:
+        params = (
+            _p("INPUT", {"QgsProcessingParameterFeatureSource"}),
+            _p("FIELD_NAME", {"QgsProcessingParameterString"}),
+            _p("FIELD_TYPE", {"QgsProcessingParameterEnum"}, default=True),
+            _p("FIELD_LENGTH", {"QgsProcessingParameterNumber"}, default=True),
+            _p("FIELD_PRECISION", {"QgsProcessingParameterNumber"}, default=True),
+            _p("FORMULA", {"QgsProcessingParameterExpression"}),
+            _p("OUTPUT", {"QgsProcessingParameterFeatureSink"}, dest=True),
+        )
+        decision = self.policy.is_runnable("native:fieldcalculator", params)
+        self.assertTrue(decision.allowed)
+        self.assertEqual(decision.record.bindable["FORMULA"], EXPRESSION)
 
     def test_structural_policy_rejects_file_destination(self) -> None:
         params = (

@@ -170,6 +170,61 @@ class SmartModelerAgentOsmSmoke(QgsProcessingAlgorithm):
                 raise RuntimeError(
                     "02Agent OSM Agent bindings do not match the live signature."
                 )
+            urban_index = next(
+                (
+                    index
+                    for index, label in enumerate(
+                        curated_parameters["PRESET"]["enum_options"]
+                    )
+                    if "roads, buildings & trees" in str(label).casefold()
+                ),
+                None,
+            )
+            if urban_index is None:
+                raise RuntimeError(
+                    "02Agent OSM does not expose the combined urban-context preset."
+                )
+            urban_proposal = parse_proposal(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "context_token": curated.data["context_token"],
+                        "algorithm_id": "zero2agentosm:download_preset",
+                        "title": "Download roads, buildings and trees",
+                        "summary": (
+                            "Create temporary point, line and polygon layers "
+                            "from one bounded urban-context request."
+                        ),
+                        "inputs": {
+                            "PRESET": {"enum": urban_index},
+                            "EXTENT": {"layer_extent": extent_layer.id()},
+                        },
+                        "warnings": [],
+                    }
+                ),
+            )
+            urban_validator = RuntimeProposalValidator(lambda: None, token_service)
+            urban_validation = urban_validator.validate(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                urban_proposal,
+                AgentMode.ACT,
+                AgentScope.PROJECT,
+            )
+            if not urban_validation.ok:
+                raise RuntimeError(
+                    "Combined 02Agent OSM proposal validation failed: "
+                    f"{urban_validation.reason_code}"
+                )
+            urban_ingredients = urban_validator.take_last_validated()
+            if (
+                not urban_ingredients
+                or tuple(urban_ingredients.get("destinations", ()))
+                != ("OUTPUT_POINTS", "OUTPUT_LINES", "OUTPUT_POLYGONS")
+            ):
+                raise RuntimeError(
+                    "The urban-context proposal did not retain all geometry outputs."
+                )
 
             planx_algorithm = QgsApplication.processingRegistry().algorithmById(
                 "planx:networkcentrality"

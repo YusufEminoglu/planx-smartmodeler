@@ -60,6 +60,7 @@ from .run_planner import (
     plan_model_run,
     plan_processing_run,
 )
+from .qgis_expression_policy import validate_qgis_expression
 from .safe_algorithm_policy import SafeAlgorithmPolicy, default_policy
 from .runtime_tools import (
     MODEL_TARGET_ID,
@@ -697,6 +698,17 @@ class RuntimeProposalValidator:
             require_active_layer=(scope == AgentScope.ACTIVE_LAYER),
         )
         parameters = self._materialize(plan)
+        for binding in plan.bindings:
+            if binding.tag != "expression":
+                continue
+            expression_check = validate_qgis_expression(
+                binding.value, parameters.get("INPUT")
+            )
+            if not expression_check.ok:
+                return ProposalValidation.failure(
+                    ProposalReason.VALIDATION_FAILED,
+                    expression_check.message,
+                )
         # Validation only: build a throwaway context and ask the algorithm
         # whether the map is acceptable. Nothing is executed here. A raised
         # check fails *closed* -- ``valid`` starts False and is only set by a

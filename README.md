@@ -66,7 +66,7 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 - Offers a separate **Agent Workspace** dock with bounded, read-only project,
   layer, symbology/labeling, Processing, model, and plugin inspections through
   a fail-closed policy engine, plus a bounded, provider-neutral **Agent Chat**
-  conversation over **twelve** read-only tools using any configured non-offline
+  conversation over **thirteen** read-only tools using any configured non-offline
   AI connection (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible,
   Azure OpenAI). Every provider turn is a strict, locally re-validated
   structured envelope; mode, scope, and every tool call's execution stay under
@@ -93,7 +93,7 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   first-party QGIS/PlanX algorithm whose live signature passes the local
   structural policy: constrained typed inputs, temporary map-layer destinations,
   bounded domain text/current-canvas extent bindings, and no opaque
-  file/folder/database/expression or unreviewed network/project side effects.
+  file/folder/database or unreviewed network/project side effects.
   This includes PlanX analyses such as Space Syntax whose radii are safe domain
   text. The same policy checks every workflow step again at Run time. There
   is no "run any algorithm" path, and neither the AI nor a prompt can weaken
@@ -105,6 +105,12 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   verifies cleanup and never claims or removes an unrelated project layer.
   Workflow Studio and Agent Workspace share one execution slot, so they cannot
   run or apply competing changes to the same graph/project concurrently.
+- QGIS expressions are a typed, reviewed capability instead of generic text.
+  Agent Workspace can run `native:fieldcalculator` with formulas such as
+  `rand(1, 15)`, `$area`, quoted field references, `CASE`, and ordinary QGIS
+  math/geometry/string/date functions. The live `QgsExpression` parser checks
+  syntax and referenced fields before approval; custom Python, dynamic
+  evaluation, environment and filesystem functions remain blocked.
 - **Undo last agent action** reverts the most recent applied model or style
   change, or removes the result layers of the most recent run, but only while the
   live target still matches that action's post-state, so it never overwrites or
@@ -165,6 +171,8 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   run its curated thematic preset or custom-tag Processing algorithms with the
   same temporary-output and explicit network-approval boundary. The built-in
   SmartModeler OSM provider remains the standalone fallback.
+  Its combined Urban Context preset obtains roads, building footprints,
+  individual trees and tree rows in one bounded request and one approval card.
 
 ## AI providers
 

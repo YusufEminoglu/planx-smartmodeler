@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import traceback
 from pathlib import Path
 
 from qgis.PyQt.QtCore import QEvent, QMetaType, QPointF, QTimer, Qt
@@ -1214,6 +1215,7 @@ def run_checks() -> str:
             "layer.describe",
             "processing.search",
             "processing.describe",
+            "expression.search",
             "model.summary",
             "model.validate",
             "plugin.list",
@@ -2314,10 +2316,14 @@ def run_checks() -> str:
                 raise RuntimeError(f"plugin.capabilities failed for {package_name}.")
             return outcome.data
 
-        # The V1 registry is exactly twelve metadata-only tools.
+        # The V1 registry is exactly thirteen read-only, value-private tools.
         tool_names = {d["name"] for d in caps_dock.registry.public_tool_descriptions()}
-        if len(tool_names) != 12 or "plugin.capabilities" not in tool_names:
-            raise RuntimeError(f"Expected the twelve-tool V1 registry, got {len(tool_names)}.")
+        if (
+            len(tool_names) != 13
+            or "plugin.capabilities" not in tool_names
+            or "expression.search" not in tool_names
+        ):
+            raise RuntimeError(f"Expected the thirteen-tool V1 registry, got {len(tool_names)}.")
 
         # An unknown package is reported honestly, never invented.
         unknown = _capabilities("definitely_not_a_real_plugin_xyz")
@@ -3508,7 +3514,14 @@ def main() -> int:
         from processing.core.Processing import Processing
 
         Processing.initialize()
-        print(run_checks())
+        try:
+            print(run_checks())
+        except Exception:
+            # Emit the real failed assertion before Qt/QGIS shutdown. Some
+            # failure paths keep a worker alive long enough that waiting for
+            # interpreter-final traceback output hides the actual cause.
+            traceback.print_exc()
+            raise
         return 0
     finally:
         task_deadline = time.monotonic() + 10.0

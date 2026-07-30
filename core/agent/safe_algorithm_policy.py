@@ -40,6 +40,7 @@ STRING_LABEL = "string_label"
 STRING_TEXT = "string_text"
 MAP_EXTENT = "map_extent"
 OSM_TAG = "osm_tag"
+EXPRESSION = "expression"
 
 _KIND_CLASS_NAMES: Mapping[str, FrozenSet[str]] = {
     VECTOR_LAYER: frozenset(
@@ -62,6 +63,7 @@ _KIND_CLASS_NAMES: Mapping[str, FrozenSet[str]] = {
     STRING_TEXT: frozenset({"QgsProcessingParameterString"}),
     MAP_EXTENT: frozenset({"QgsProcessingParameterExtent"}),
     OSM_TAG: frozenset({"QgsProcessingParameterString"}),
+    EXPRESSION: frozenset({"QgsProcessingParameterExpression"}),
 }
 
 # Blocked id terms mirrored from AlgorithmCatalog.AI_BLOCKED_ID_TERMS so the
@@ -706,6 +708,25 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         "native:countpointsinpolygon",
         {"POLYGONS": VECTOR_LAYER, "POINTS": VECTOR_LAYER, "FIELD": STRING_LABEL},
         ("POLYGONS", "POINTS"),
+    ),
+    # QGIS Field Calculator is the reviewed expression execution boundary.
+    # FORMULA is not ordinary text: runtime_proposals validates it with the
+    # live QgsExpression parser, checks referenced columns against INPUT, and
+    # rejects custom/dynamic/environment/filesystem introspection functions
+    # before this signature can reach an approval card.
+    "native:fieldcalculator": AllowedAlgorithm(
+        algorithm_id="native:fieldcalculator",
+        bindable={
+            "INPUT": VECTOR_LAYER,
+            "FIELD_NAME": STRING_LABEL,
+            "FIELD_TYPE": ENUM,
+            "FIELD_LENGTH": NUMBER,
+            "FIELD_PRECISION": NUMBER,
+            "FORMULA": EXPRESSION,
+        },
+        required_layer_params=("INPUT",),
+        required_params=("FIELD_NAME", "FIELD_TYPE", "FORMULA"),
+        destinations=("OUTPUT",),
     ),
     "native:cellstatistics": _alg(
         "native:cellstatistics",
