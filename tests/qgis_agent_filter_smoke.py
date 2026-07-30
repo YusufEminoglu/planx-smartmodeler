@@ -70,7 +70,7 @@ def main() -> int:
         source = QgsVectorLayer(
             "Point?crs=EPSG:4326&field=id:integer&"
             "field=built_intensity_bin:string(20)",
-            "Built intensity",
+            "Audit - DOLDURULACAK",
             "memory",
         )
         features = []
@@ -277,11 +277,11 @@ def main() -> int:
                         context_dir=source_root / "agent_context"
                     ).agent_context(text, scope, power_enabled=power)
                 ),
-                power_enabled_provider=lambda: True,
+                power_enabled_provider=lambda: False,
             )
             local_event = local_loop.start(
-                "active katmandaki sütun adı built_intensity_bin olan "
-                'geometirlerden "low" değerindekileri filtreleyip yeni bir '
+                "Audit - DOLDURULACAK bu katmanda built_intensitiy_bin isimli "
+                'sütun değeri "low" lan geometrileri filtreleyip yeni bir '
                 "katman olarak kaydet",
                 AgentMode.ACT,
                 AgentScope.PROJECT,
@@ -295,6 +295,17 @@ def main() -> int:
                 raise RuntimeError(
                     "The deterministic active-layer filter did not produce "
                     "a one-turn local proposal."
+                )
+            proposal_text = json.dumps(
+                local_event.proposal or {}, ensure_ascii=False
+            )
+            if (
+                "built_intensitiy_bin" not in proposal_text
+                or "built_intensity_bin" not in proposal_text
+            ):
+                raise RuntimeError(
+                    "The unique one-edit field correction was not disclosed "
+                    "in the validated proposal."
                 )
             local_ingredients = validator.take_last_validated()
             if not local_ingredients:

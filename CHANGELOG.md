@@ -2,6 +2,30 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.9] - 2026-07-30
+
+### Fixed
+
+- Resolve an explicitly named project layer from requests such as
+  `Audit - DOLDURULACAK bu katmanda`, instead of requiring the phrase
+  `active layer`.
+- Recognize the `field_name isimli sütun değeri "value"` Turkish word order.
+- Correct a requested field name by one insertion, deletion, or substitution
+  only when exactly one live field matches. The correction is disclosed in the
+  Run-card warnings; missing or ambiguous corrections fail closed.
+- Search all bounded conversation history for the last recognized operation
+  after explicit retries, rather than losing it after three diagnostic turns.
+- Keep native Processing attribute filters independent of Power Mode.
+
+### Testing
+
+- Cover named-layer targeting, unique and ambiguous one-edit field corrections,
+  long diagnostic histories, and Power Mode on/off behavior in pure tests.
+- Run the exact reported `Audit - DOLDURULACAK` request with the misspelled
+  `built_intensitiy_bin` field on QGIS 3.44 and 4.2 while Power Mode is off,
+  confirming the visible correction, two-feature `low` temporary output, and
+  unchanged source layer.
+
 ## [0.18.8] - 2026-07-30
 
 ### Fixed

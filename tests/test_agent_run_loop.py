@@ -630,7 +630,9 @@ def _tool_schema(properties=None, required=()):
     }
 
 
-def build_attribute_filter_loop(*, include_field=True):
+def build_attribute_filter_loop(
+    *, include_field=True, ambiguous_field=False, power_enabled=False
+):
     registry = AgentToolRegistry()
     calls = []
 
@@ -653,12 +655,14 @@ def build_attribute_filter_loop(*, include_field=True):
 
     _register(
         "layer.list",
-        _tool_schema(),
+        _tool_schema(
+            {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}
+        ),
         {
             "layers": [
                 {
                     "layer_id": "active-layer",
-                    "name": "Built intensity",
+                    "name": "Audit - DOLDURULACAK",
                     "kind": "vector",
                     "active": True,
                 }
@@ -689,6 +693,10 @@ def build_attribute_filter_loop(*, include_field=True):
         if include_field
         else [{"name": "other", "field_type": "string"}]
     )
+    if ambiguous_field:
+        fields.append(
+            {"name": "built_intensitiy_bim", "field_type": "string"}
+        )
     _register(
         "layer.describe",
         _tool_schema(
@@ -710,16 +718,18 @@ def build_attribute_filter_loop(*, include_field=True):
         AgentController(registry),
         STATIC_INSTRUCTIONS,
         proposal_validator=validator,
+        power_enabled_provider=lambda: power_enabled,
     )
     return loop, validator, calls
 
 
 class DeterministicAttributeFilterTests(unittest.TestCase):
     REQUEST = (
-        "active katmandaki sütun adı built_intensity_bin olan geometirlerden "
-        '"low" değerindekileri filtreleyip yeni bir katman olarak kaydet'
+        "Audit - DOLDURULACAK bu katmanda built_intensitiy_bin isimli "
+        'sütun değeri "low" lan geometrileri filtreleyip yeni bir katman '
+        "olarak kaydet"
     )
-    PREVIOUS_WORD_ORDER = (
+    ACTIVE_LAYER_WORD_ORDER = (
         'aktif katmanda built_intensity_bin sütununda değeri "low" '
         "olanları yeni katman olarak ver bana"
     )
@@ -745,11 +755,14 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
         self.assertEqual(bindings["FIELD"].value, "built_intensity_bin")
         self.assertEqual(bindings["VALUE"].value, "low")
         self.assertEqual(bindings["OPERATOR"].value, 0)
+        self.assertEqual(len(proposal.warnings), 1)
+        self.assertIn("built_intensitiy_bin", proposal.warnings[0])
+        self.assertIn("built_intensity_bin", proposal.warnings[0])
 
     def test_previous_field_before_column_word_order_remains_supported(self) -> None:
         loop, validator, _calls = build_attribute_filter_loop()
         event = loop.start(
-            self.PREVIOUS_WORD_ORDER, AgentMode.ACT, AgentScope.PROJECT
+            self.ACTIVE_LAYER_WORD_ORDER, AgentMode.ACT, AgentScope.PROJECT
         )
         self.assertEqual(event.kind, RunEventKind.PROPOSAL)
         self.assertEqual(len(validator.proposals), 1)
@@ -765,6 +778,11 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
                 "neden yapamıyorsun sorgula",
                 "The previous attempt reached its turn limit.",
             )
+            for index in range(4):
+                loop.session_memory.append(
+                    f"diagnostic follow-up {index}",
+                    "The operation still did not complete.",
+                )
             event = loop.start(
                 retry_text, AgentMode.ACT, AgentScope.ACTIVE_LAYER
             )
@@ -779,7 +797,17 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
         event = loop.start(self.REQUEST, AgentMode.ACT, AgentScope.PROJECT)
         self.assertEqual(event.kind, RunEventKind.FAILED)
         self.assertEqual(event.reason_code, "attribute_filter_field_missing")
-        self.assertIn("built_intensity_bin", event.text)
+        self.assertIn("built_intensitiy_bin", event.text)
+        self.assertEqual(validator.proposals, [])
+
+    def test_ambiguous_one_edit_field_correction_is_rejected(self) -> None:
+        loop, validator, _calls = build_attribute_filter_loop(
+            ambiguous_field=True
+        )
+        event = loop.start(self.REQUEST, AgentMode.ACT, AgentScope.PROJECT)
+        self.assertEqual(event.kind, RunEventKind.FAILED)
+        self.assertEqual(event.reason_code, "attribute_filter_field_missing")
+        self.assertIn("no unique one-edit correction", event.text)
         self.assertEqual(validator.proposals, [])
 
     def test_ask_mode_does_not_run_the_local_proposal_path(self) -> None:
@@ -790,6 +818,17 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
         self.assertIn("Power Mode", event.text)
         self.assertEqual(calls, [])
         self.assertEqual(validator.proposals, [])
+
+    def test_processing_filter_does_not_depend_on_power_mode(self) -> None:
+        for enabled in (False, True):
+            loop, validator, _calls = build_attribute_filter_loop(
+                power_enabled=enabled
+            )
+            event = loop.start(
+                self.REQUEST, AgentMode.ACT, AgentScope.PROJECT
+            )
+            self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+            self.assertEqual(len(validator.proposals), 1)
 
 
 def build_proposal_loop(validator=None):

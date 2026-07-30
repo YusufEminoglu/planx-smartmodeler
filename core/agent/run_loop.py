@@ -95,11 +95,21 @@ _ATTRIBUTE_FILTER_ALGORITHM = "native:extractbyattribute"
 _ACTIVE_LAYER_RE = re.compile(
     r"\b(?:aktif|active|etkin)\s+katman\w*", re.IGNORECASE
 )
+_NAMED_LAYER_RE = re.compile(
+    r"^\s*(?P<name>.{1,160}?)\s+bu\s+katman\w*", re.IGNORECASE
+)
 _ATTRIBUTE_FIELD_BEFORE_RE = re.compile(
     r"(?:\"(?P<quoted>[^\"\r\n]{1,128})\"|"
     r"(?P<plain>[A-Za-z_][A-Za-z0-9_]{0,127}))\s+"
     r"(?:sütun(?:unda|undaki)?|sutun(?:unda|undaki)?|"
     r"alan(?:ında|inda|daki)?|column|field)\b",
+    re.IGNORECASE,
+)
+_ATTRIBUTE_FIELD_NAMED_RE = re.compile(
+    r"(?:\"(?P<quoted>[^\"\r\n]{1,128})\"|"
+    r"(?P<plain>[A-Za-z_][A-Za-z0-9_]{0,127}))\s+"
+    r"(?:isimli|adlı|adli|named)\s+"
+    r"(?:sütun\w*|sutun\w*|alan\w*|column|field)\b",
     re.IGNORECASE,
 )
 _ATTRIBUTE_FIELD_AFTER_RE = re.compile(
@@ -127,6 +137,8 @@ _ATTRIBUTE_VALUE_BEFORE_RE = re.compile(
 _FILTER_RETRY_TERMS = (
     "tekrar dene",
     "tekrar yap",
+    "işlemi yap",
+    "islemi yap",
     "yeniden dene",
     "bir daha dene",
     "try again",
@@ -138,6 +150,35 @@ _FILTER_RETRY_TERMS = (
 class _AttributeFilterIntent:
     field_name: str
     value: str
+    target_layer_name: str = ""
+
+
+def _within_one_edit(left: str, right: str) -> bool:
+    """Return whether two bounded names differ by at most one edit."""
+
+    left = str(left).casefold()
+    right = str(right).casefold()
+    if left == right:
+        return True
+    if abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        return sum(a != b for a, b in zip(left, right)) <= 1
+    if len(left) > len(right):
+        left, right = right, left
+    short_index = 0
+    long_index = 0
+    edits = 0
+    while short_index < len(left) and long_index < len(right):
+        if left[short_index] == right[long_index]:
+            short_index += 1
+            long_index += 1
+            continue
+        edits += 1
+        if edits > 1:
+            return False
+        long_index += 1
+    return True
 
 
 def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent]:
@@ -146,7 +187,8 @@ def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent
     if not isinstance(text, str) or not text.strip():
         return None
     folded = text.casefold()
-    if _ACTIVE_LAYER_RE.search(text) is None:
+    named_layer_match = _NAMED_LAYER_RE.search(text)
+    if _ACTIVE_LAYER_RE.search(text) is None and named_layer_match is None:
         return None
     if not any(
         term in folded
@@ -163,6 +205,7 @@ def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent
         return None
     field_match = (
         _ATTRIBUTE_FIELD_AFTER_RE.search(text)
+        or _ATTRIBUTE_FIELD_NAMED_RE.search(text)
         or _ATTRIBUTE_FIELD_BEFORE_RE.search(text)
     )
     value_before = _ATTRIBUTE_VALUE_BEFORE_RE.search(text)
@@ -194,7 +237,14 @@ def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent
     ).strip()
     if not field_name or not value or "\x00" in field_name or "\x00" in value:
         return None
-    return _AttributeFilterIntent(field_name=field_name, value=value)
+    target_layer_name = ""
+    if named_layer_match is not None:
+        target_layer_name = named_layer_match.group("name").strip(" \t\"'")
+    return _AttributeFilterIntent(
+        field_name=field_name,
+        value=value,
+        target_layer_name=target_layer_name,
+    )
 
 
 def _attribute_filter_intent(
@@ -210,7 +260,7 @@ def _attribute_filter_intent(
         return None
     # Retry the most recent matching operation, skipping an intervening
     # diagnostic exchange. SessionMemory already bounds this history.
-    for exchange in reversed(session_history[-3:]):
+    for exchange in reversed(session_history):
         previous = getattr(exchange, "user_text", "")
         recovered = _parse_direct_attribute_filter(previous)
         if recovered is not None:
@@ -739,7 +789,7 @@ class AgentRunLoop:
 
         events: List[Dict[str, Any]] = []
         layer_result, layer_events = self._run_recovery_inspection(
-            InspectionRequest("layer.list", {})
+            InspectionRequest("layer.list", {"limit": 100})
         )
         events.extend(layer_events)
         if layer_result is None:
@@ -750,24 +800,44 @@ class AgentRunLoop:
             )
         layer_data = layer_result.get("data")
         layers = layer_data.get("layers") if isinstance(layer_data, dict) else None
-        active = next(
-            (
+        if intent.target_layer_name:
+            named_matches = [
                 item
                 for item in layers or ()
                 if isinstance(item, dict)
-                and item.get("active") is True
+                and isinstance(item.get("name"), str)
+                and item["name"].casefold()
+                == intent.target_layer_name.casefold()
                 and isinstance(item.get("layer_id"), str)
                 and item.get("layer_id")
-            ),
-            None,
-        )
-        if active is None:
-            return self._fail(
-                "No active layer is available for the requested filter.",
-                "attribute_filter_no_active_layer",
-                tool_events=tuple(events),
+            ]
+            if len(named_matches) != 1:
+                return self._fail(
+                    f"The project does not contain exactly one layer named "
+                    f"{intent.target_layer_name!r}.",
+                    "attribute_filter_named_layer_missing",
+                    tool_events=tuple(events),
+                )
+            target_layer = named_matches[0]
+        else:
+            target_layer = next(
+                (
+                    item
+                    for item in layers or ()
+                    if isinstance(item, dict)
+                    and item.get("active") is True
+                    and isinstance(item.get("layer_id"), str)
+                    and item.get("layer_id")
+                ),
+                None,
             )
-        layer_id = active["layer_id"]
+            if target_layer is None:
+                return self._fail(
+                    "No active layer is available for the requested filter.",
+                    "attribute_filter_no_active_layer",
+                    tool_events=tuple(events),
+                )
+        layer_id = target_layer["layer_id"]
 
         resolve_result, resolve_events = self._run_recovery_inspection(
             InspectionRequest(
@@ -820,13 +890,36 @@ class AgentRunLoop:
             if isinstance(describe_data, dict)
             else None
         )
-        if not any(
-            isinstance(item, dict) and item.get("name") == intent.field_name
+        field_names = [
+            item["name"]
             for item in fields or ()
-        ):
+            if isinstance(item, dict)
+            and isinstance(item.get("name"), str)
+            and item.get("name")
+        ]
+        resolved_field_name = (
+            intent.field_name
+            if intent.field_name in field_names
+            else ""
+        )
+        warnings = []
+        if not resolved_field_name:
+            near_matches = [
+                name
+                for name in field_names
+                if _within_one_edit(intent.field_name, name)
+            ]
+            if len(near_matches) == 1:
+                resolved_field_name = near_matches[0]
+                warnings.append(
+                    f"Interpreted requested field {intent.field_name!r} as "
+                    f"{resolved_field_name!r}; review this correction before Run."
+                )
+        if not resolved_field_name:
             return self._fail(
-                f"The active layer does not contain the field "
-                f"{intent.field_name!r}.",
+                f"The target layer does not contain the field "
+                f"{intent.field_name!r}, and there was no unique one-edit "
+                f"correction.",
                 "attribute_filter_field_missing",
                 tool_events=tuple(events),
             )
@@ -835,21 +928,21 @@ class AgentRunLoop:
             "schema_version": 1,
             "context_token": resolved["context_token"],
             "algorithm_id": _ATTRIBUTE_FILTER_ALGORITHM,
-            "title": "Filter active layer by attribute",
+            "title": "Filter layer by attribute",
             "summary": (
-                f"Create a temporary layer where {intent.field_name} equals "
+                f"Create a temporary layer where {resolved_field_name} equals "
                 f"{intent.value}."
             ),
             "inputs": {
                 "INPUT": {"layer": layer_id},
                 "FIELD": {
-                    "field": intent.field_name,
+                    "field": resolved_field_name,
                     "layer_param": "INPUT",
                 },
                 "OPERATOR": {"enum": 0},
                 "VALUE": {"string": intent.value},
             },
-            "warnings": [],
+            "warnings": warnings,
         }
         try:
             proposal = parse_proposal(
@@ -866,7 +959,7 @@ class AgentRunLoop:
             )
         turn = AgentTurn(
             action=ACTION_PROPOSAL,
-            assistant_text="The active-layer attribute filter is ready to review.",
+            assistant_text="The attribute filter is ready to review.",
             proposal_kind=PROPOSAL_KIND_PROCESSING_RUN,
             proposal=proposal,
         )
