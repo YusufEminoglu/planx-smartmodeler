@@ -150,6 +150,22 @@ class ValidTurnParsingTests(unittest.TestCase):
             {"algorithm_id": "native:extractbyattribute"},
         )
 
+    def test_normalizes_function_input_provider_shape(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "function": "layer.describe",
+                    "input": {"layer_id": "active-id"},
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.call_id, "provider_call_1")
+        self.assertEqual(call.tool_name, "layer.describe")
+        self.assertEqual(call.arguments, {"layer_id": "active-id"})
+
     def test_normalizes_kind_marker_provider_shape(self) -> None:
         raw = _turn_json(
             ACTION_TOOL_CALLS,
@@ -497,6 +513,21 @@ class MalformedTurnRejectionTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
+    def test_input_cannot_conflict_with_an_argument_alias(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "name": "layer.list",
+                    "arguments": {},
+                    "input": {},
+                }
+            ],
+        )
+        with self.assertRaises(ProtocolError):
+            parse_agent_turn(raw, 3)
+
     def test_type_and_kind_markers_cannot_both_be_supplied(self) -> None:
         raw = _turn_json(
             ACTION_TOOL_CALLS,
@@ -695,13 +726,27 @@ class ProposalProtocolTests(unittest.TestCase):
         turn = parse_agent_turn(raw, 3)
         self.assertTrue(turn.is_final)
 
-    def test_tool_call_cannot_smuggle_a_proposal(self) -> None:
+    def test_tool_calls_marker_with_complete_proposal_is_normalized(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "The filter is ready.",
+            [{"call_id": "c1", "tool_name": "project.summary", "arguments_json": "{}"}],
+            proposal_kind="processing",
+            proposal_json=VALID_PROCESSING_RUN_JSON,
+        )
+        turn = parse_agent_turn(raw, 3)
+        self.assertTrue(turn.is_proposal)
+        self.assertEqual(turn.tool_calls, ())
+        self.assertEqual(turn.proposal_kind, "processing_run")
+        self.assertEqual(turn.proposal.algorithm_id, "native:extractbyattribute")
+
+    def test_tool_calls_marker_with_partial_proposal_is_rejected(self) -> None:
         raw = _turn_json(
             ACTION_TOOL_CALLS,
             "",
             [{"call_id": "c1", "tool_name": "project.summary", "arguments_json": "{}"}],
             proposal_kind="model_patch",
-            proposal_json=VALID_MODEL_PATCH_JSON,
+            proposal_json="",
         )
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)

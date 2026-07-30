@@ -2,6 +2,21 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.6] - 2026-07-30
+
+### Fixed
+
+- Accept the provider-emitted `input` alias for bounded tool-call arguments,
+  including direct string-function calls, while preserving ambiguity checks.
+- Recover a complete, locally validated terminal proposal when a provider
+  incorrectly labels its response as `tool_calls`; attached calls are discarded
+  and never executed.
+
+### Testing
+
+- Reproduce both reported response shapes in the pure protocol suite and the
+  real QGIS active-layer `built_intensity_bin = low` filter acceptance test.
+
 ## [0.18.5] - 2026-07-30
 
 ### Fixed

@@ -10,7 +10,7 @@ from qgis.core import QgsApplication, QgsFeature, QgsProject, QgsVectorLayer
 
 
 def _tool_turn() -> str:
-    """The three real provider variants reported by the plugin owner."""
+    """Real provider variants reported by the plugin owner."""
     return json.dumps(
         {
             "action": "tool_calls",
@@ -23,7 +23,7 @@ def _tool_turn() -> str:
                 },
                 {
                     "tool": "processing.resolve",
-                    "parameters": {
+                    "input": {
                         "algorithm_id": "native:extractbyattribute",
                     },
                 },
@@ -207,7 +207,7 @@ def main() -> int:
             )
             proposal_turn = json.dumps(
                 {
-                    "action": "proposal",
+                    "action": "tool_calls",
                     "assistant_text": "The active-layer filter is ready to review.",
                     "tool_calls": [
                         {

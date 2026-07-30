@@ -82,6 +82,7 @@ _CALL_ALIAS_KEYS = frozenset(
         "arguments",
         "args",
         "parameters",
+        "input",
         "function",
         "type",
         "kind",
@@ -226,7 +227,7 @@ def _nested_tool_parts(value: Any, index: int, label: str) -> Tuple[Any, Any]:
     if not isinstance(value, dict):
         raise ProtocolError(f"tool_calls[{index}].{label} must be an object.")
     keys = frozenset(value)
-    argument_keys = ("arguments", "arguments_json", "args", "parameters")
+    argument_keys = ("arguments", "arguments_json", "args", "parameters", "input")
     allowed = frozenset(("name",) + argument_keys)
     unknown = keys - allowed
     if unknown or "name" not in keys:
@@ -267,7 +268,7 @@ def _normalize_tool_call(item: Dict[str, Any], index: int) -> Tuple[str, str, An
     ]
     arguments_candidates = [
         (key, item[key])
-        for key in ("arguments_json", "arguments", "args", "parameters")
+        for key in ("arguments_json", "arguments", "args", "parameters", "input")
         if key in item
     ]
     if "function" in item:
@@ -423,6 +424,19 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
         raise ProtocolError(
             f"proposal_json exceeds the {MAX_PROPOSAL_JSON_CHARS}-character safety limit."
         )
+
+    # A few providers use the tool_calls action marker for a terminal response
+    # even though they also populate the complete proposal fields. Treat that
+    # exact, internally consistent shape as a proposal and discard the repeated
+    # calls below. This grants no tool authority: the calls are never parsed or
+    # executed, and the inert proposal still crosses every strict proposal and
+    # live-runtime validation boundary. Partial proposal data remains invalid.
+    if (
+        action == ACTION_TOOL_CALLS
+        and proposal_kind in PROPOSABLE_KINDS
+        and proposal_json.strip()
+    ):
+        action = ACTION_PROPOSAL
 
     if action == ACTION_FINAL:
         _require_no_tool_calls(tool_calls_data, "A final turn must not include tool calls.")
