@@ -16,7 +16,11 @@ def _tool_turn() -> str:
             "action": "tool_calls",
             "assistant_text": "Inspecting the active layer and filter algorithm.",
             "tool_calls": [
-                {"name": "layer.list", "arguments": {}},
+                {
+                    "kind": "function",
+                    "name": "layer.list",
+                    "arguments": {},
+                },
                 {
                     "tool": "processing.resolve",
                     "parameters": {
@@ -93,9 +97,13 @@ def main() -> int:
                 "Use the advertised QGIS tools and return one validated proposal.",
                 proposal_validator=validator.validate,
             )
-            request = loop.start(
+            loop.session_memory.append(
                 '"built_intensity_bin" sütun değeri low olanları filtreleyip '
                 "yeni bir katman olarak üret",
+                "Activate the target layer and tell me when it is ready.",
+            )
+            request = loop.start(
+                "hazır",
                 AgentMode.ACT,
                 AgentScope.ACTIVE_LAYER,
             )
@@ -104,7 +112,7 @@ def main() -> int:
             }
             if not {"layer.list", "layer.describe", "processing.resolve"} <= advertised:
                 raise RuntimeError(
-                    "The Turkish filter request did not advertise its Processing pack."
+                    "The Turkish filter continuation did not preserve its Processing pack."
                 )
 
             inspected = loop.submit_provider_response(
@@ -152,7 +160,7 @@ def main() -> int:
                     "action": "proposal",
                     "assistant_text": "The active-layer filter is ready to review.",
                     "tool_calls": [],
-                    "proposal_kind": "processing_run",
+                    "proposal_kind": "processing",
                     "proposal_json": proposal_json,
                 }
             )

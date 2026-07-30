@@ -117,6 +117,32 @@ class ScopeFilterTests(unittest.TestCase):
         self.assertIn("processing.describe", selected_names)
         self.assertNotIn("layer.style", selected_names)
 
+    def test_short_follow_up_preserves_previous_processing_capability_pack(self) -> None:
+        names = (
+            "project.summary", "layer.list", "layer.describe",
+            "processing.resolve", "processing.search", "processing.describe",
+            "expression.search", "layer.style",
+        )
+        tools = [make_tool(name, [AgentScope.ACTIVE_LAYER]) for name in names]
+        history = (
+            SessionExchange(
+                '"built_intensity_bin" sütun değeri low olanları filtreleyip '
+                "yeni bir katman olarak üret",
+                "Please activate the layer.",
+            ),
+        )
+        for follow_up in ("hazır", "yapsana", "neden yapmıyorsun?"):
+            selected = select_tools_for_request(
+                tools,
+                AgentScope.ACTIVE_LAYER,
+                follow_up,
+                session_history=history,
+            )
+            selected_names = {item.name for item in selected}
+            self.assertIn("processing.resolve", selected_names)
+            self.assertIn("processing.search", selected_names)
+            self.assertIn("processing.describe", selected_names)
+
 
 class DeterminismTests(unittest.TestCase):
     def test_identical_inputs_produce_identical_output(self) -> None:

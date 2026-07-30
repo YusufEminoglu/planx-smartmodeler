@@ -28,6 +28,7 @@ from .proposals import (
     MAX_PROPOSAL_JSON_CHARS,
     PROPOSABLE_KINDS,
     PROPOSAL_KIND_NONE,
+    PROPOSAL_KIND_PROCESSING_RUN,
     ProposalError,
     parse_proposal,
 )
@@ -49,6 +50,13 @@ ACTION_TOOL_CALLS = "tool_calls"
 ACTION_FINAL = "final"
 ACTION_PROPOSAL = "proposal"
 _ACTIONS = (ACTION_TOOL_CALLS, ACTION_FINAL, ACTION_PROPOSAL)
+_PROPOSAL_KIND_ALIASES = {
+    # Some structured-output providers shorten the Processing proposal kind.
+    # This is a spelling-only normalization to the same locally validated,
+    # inert processing_run proposal contract.
+    "processing": PROPOSAL_KIND_PROCESSING_RUN,
+}
+_TOOL_CALL_MARKERS = frozenset({"function", "tool", "tool_call"})
 
 _TURN_TOP_LEVEL_KEYS = frozenset(
     {"action", "assistant_text", "tool_calls", "proposal_kind", "proposal_json"}
@@ -66,6 +74,7 @@ _CALL_ALIAS_KEYS = frozenset(
         "parameters",
         "function",
         "type",
+        "kind",
     }
 )
 
@@ -256,8 +265,14 @@ def _normalize_tool_call(item: Dict[str, Any], index: int) -> Tuple[str, str, An
         )
         tool_candidates.append(("tool.name", nested_name))
         arguments_candidates.append(("tool.arguments", nested_arguments))
-    if "type" in item and item["type"] not in ("function", "tool", "tool_call"):
-        raise ProtocolError(f"tool_calls[{index}] has an invalid type marker.")
+    marker = _one_alias(
+        [(key, item[key]) for key in ("type", "kind") if key in item],
+        index,
+        "call kind",
+        required=False,
+    )
+    if marker is not None and marker not in _TOOL_CALL_MARKERS:
+        raise ProtocolError(f"tool_calls[{index}] has an invalid call kind marker.")
     tool_name = _one_alias(tool_candidates, index, "tool name")
     arguments = _one_alias(arguments_candidates, index, "arguments")
     return call_id, tool_name, arguments
@@ -374,6 +389,8 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
     proposal_kind = data.get("proposal_kind", PROPOSAL_KIND_NONE)
     if proposal_kind is None or proposal_kind == "":
         proposal_kind = PROPOSAL_KIND_NONE
+    if isinstance(proposal_kind, str):
+        proposal_kind = _PROPOSAL_KIND_ALIASES.get(proposal_kind, proposal_kind)
     if proposal_kind not in ALL_PROPOSAL_KINDS:
         raise ProtocolError(f"Unknown proposal_kind: {proposal_kind!r}.")
     proposal_json = data.get("proposal_json", "")

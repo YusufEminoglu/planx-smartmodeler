@@ -2,6 +2,25 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.3] - 2026-07-30
+
+### Fixed
+
+- Normalize provider tool-call `kind` markers and the shortened
+  `proposal_kind: processing` spelling without widening tool or proposal
+  authority; ambiguous or unknown markers still fail closed.
+- Preserve the previous operation's capability pack for short follow-ups such
+  as `hazır`, `yapsana`, a bare field/layer answer, or `neden yapmıyorsun?`, so
+  Processing discovery does not disappear mid-conversation.
+- Explicitly require capability answers to distinguish advertised tools from
+  hypothetical future tools instead of inventing unavailable tool names.
+
+### Testing
+
+- Extend the real QGIS 3.44/4.2 filter acceptance test to reproduce the full
+  activation-follow-up, `kind`, `parameters`, and shortened Processing
+  proposal sequence reported by the plugin owner.
+
 ## [0.18.2] - 2026-07-30
 
 ### Fixed

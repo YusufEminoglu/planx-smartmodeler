@@ -150,6 +150,22 @@ class ValidTurnParsingTests(unittest.TestCase):
             {"algorithm_id": "native:extractbyattribute"},
         )
 
+    def test_normalizes_kind_marker_provider_shape(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "kind": "function",
+                    "name": "layer.list",
+                    "parameters": {},
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.tool_name, "layer.list")
+        self.assertEqual(call.arguments, {})
+
     def test_normalizes_standard_nested_function_shape(self) -> None:
         raw = _turn_json(
             ACTION_TOOL_CALLS,
@@ -443,6 +459,31 @@ class MalformedTurnRejectionTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
+    def test_type_and_kind_markers_cannot_both_be_supplied(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "type": "function",
+                    "kind": "function",
+                    "name": "layer.list",
+                    "arguments": {},
+                }
+            ],
+        )
+        with self.assertRaises(ProtocolError):
+            parse_agent_turn(raw, 3)
+
+    def test_unknown_kind_marker_is_rejected(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [{"kind": "execute", "name": "layer.list", "arguments": {}}],
+        )
+        with self.assertRaises(ProtocolError):
+            parse_agent_turn(raw, 3)
+
     def test_unknown_nested_function_field_is_rejected(self) -> None:
         raw = _turn_json(
             ACTION_TOOL_CALLS,
@@ -545,6 +586,26 @@ VALID_MODEL_PATCH_JSON = json.dumps(
     }
 )
 
+VALID_PROCESSING_RUN_JSON = json.dumps(
+    {
+        "schema_version": 1,
+        "context_token": "tok",
+        "algorithm_id": "native:extractbyattribute",
+        "title": "Filter low values",
+        "summary": "Create a temporary layer containing low values.",
+        "inputs": {
+            "INPUT": {"layer": "active-layer"},
+            "FIELD": {
+                "field": "built_intensity_bin",
+                "layer_param": "INPUT",
+            },
+            "OPERATOR": {"enum": 0},
+            "VALUE": {"string": "low"},
+        },
+        "warnings": [],
+    }
+)
+
 
 class ProposalProtocolTests(unittest.TestCase):
     def test_schema_has_exactly_five_required_fields(self) -> None:
@@ -576,6 +637,18 @@ class ProposalProtocolTests(unittest.TestCase):
         self.assertTrue(turn.is_proposal)
         self.assertEqual(turn.proposal_kind, "model_patch")
         self.assertIsNotNone(turn.proposal)
+
+    def test_processing_proposal_kind_alias_is_normalized(self) -> None:
+        raw = _turn_json(
+            "proposal",
+            "The filter is ready.",
+            proposal_kind="processing",
+            proposal_json=VALID_PROCESSING_RUN_JSON,
+        )
+        turn = parse_agent_turn(raw, 3)
+        self.assertTrue(turn.is_proposal)
+        self.assertEqual(turn.proposal_kind, "processing_run")
+        self.assertEqual(turn.proposal.algorithm_id, "native:extractbyattribute")
 
     def test_a_final_turn_without_proposal_keys_parses(self) -> None:
         # A final answer that omits proposal_kind/proposal_json is normal; the

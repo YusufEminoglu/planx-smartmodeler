@@ -169,10 +169,19 @@ def select_tools_for_request(
     user_text: str,
     *,
     power_enabled: bool = False,
+    session_history: Sequence[SessionExchange] = (),
 ) -> List[AgentToolSpec]:
     """Select the smallest useful deterministic capability pack for a request."""
     scoped = select_tools_for_scope(tool_specs, scope)
     folded = str(user_text or "").casefold()
+    # Short follow-ups such as "hazır", "yapsana", a bare layer/field name,
+    # or "why?" need the latest bounded exchange for capability routing.
+    # The provider already receives that exchange; this merely keeps the same
+    # scope-filtered discovery tools advertised for the continuation.
+    if len(folded.strip()) <= 80 and session_history:
+        previous = session_history[-1]
+        if isinstance(previous, SessionExchange):
+            folded = f"{folded}\n{previous.user_text.casefold()}"
     wanted = set()
     if scope in ("project", "active_layer"):
         wanted.update(("project.summary", "layer.list", "layer.describe"))

@@ -513,6 +513,7 @@ class AgentRunLoop:
             self._scope,
             self._user_text,
             power_enabled=power_enabled,
+            session_history=self.session_memory.exchanges(),
         )
         static_instructions = self.static_instructions
         if self._instruction_provider is not None:
