@@ -181,6 +181,35 @@ class ScopeFilterTests(unittest.TestCase):
             self.assertIn("processing.search", selected_names)
             self.assertIn("processing.describe", selected_names)
 
+    def test_retry_after_diagnostic_exchange_keeps_original_processing_pack(self) -> None:
+        names = (
+            "project.summary", "layer.list", "layer.describe",
+            "processing.resolve", "processing.search", "processing.describe",
+            "expression.search", "layer.style",
+        )
+        tools = [make_tool(name, [AgentScope.ACTIVE_LAYER]) for name in names]
+        history = (
+            SessionExchange(
+                'aktif katmanda built_intensity_bin sütununda değeri "low" '
+                "olanları yeni katman olarak ver",
+                "[Attempt did not complete: invalid call id]",
+            ),
+            SessionExchange(
+                "neden yapamıyorsun sorgula",
+                "The previous attempt reached its turn limit.",
+            ),
+        )
+        selected = select_tools_for_request(
+            tools,
+            AgentScope.ACTIVE_LAYER,
+            "tekrar dene",
+            session_history=history,
+        )
+        selected_names = {item.name for item in selected}
+        self.assertIn("processing.resolve", selected_names)
+        self.assertIn("processing.search", selected_names)
+        self.assertIn("processing.describe", selected_names)
+
 
 class DeterminismTests(unittest.TestCase):
     def test_identical_inputs_produce_identical_output(self) -> None:

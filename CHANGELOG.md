@@ -2,6 +2,28 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.7] - 2026-07-30
+
+### Fixed
+
+- Replace invalid provider correlation ids such as `describe_layer#1` with
+  authority-neutral local ids while keeping tool names and arguments on the
+  unchanged strict validation path.
+- Preserve Processing discovery across an intervening diagnostic exchange
+  before short retries such as `tekrar dene`.
+- Prepare explicit active-layer equality filters deterministically from three
+  controller-gated read-only inspections, bypassing provider call-shape errors,
+  repeated inspection loops, and false claims that Processing is unavailable.
+  The resulting Processing proposal remains inert until the user clicks Run.
+
+### Testing
+
+- Reproduce the complete reported Turkish conversation, invalid call id, retry
+  routing, missing-field failure, and provider-free proposal path in pure tests.
+- Run the exact `built_intensity_bin = low` request end to end on QGIS 3.44 and
+  4.2, producing two matching features in a new temporary layer without
+  modifying the three-feature source layer.
+
 ## [0.18.6] - 2026-07-30
 
 ### Fixed

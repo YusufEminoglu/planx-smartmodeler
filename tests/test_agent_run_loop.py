@@ -577,6 +577,177 @@ class RecordingValidator:
         return self._result
 
 
+class AttributeFilterValidator:
+    def __init__(self) -> None:
+        from planx_smartmodeler.core.agent.proposals import ProposalValidation
+
+        self.proposals = []
+        self._result = ProposalValidation.success(
+            {
+                "kind": "processing_run",
+                "title": "Filter active layer by attribute",
+                "target": "Built intensity",
+                "summary": "Create a temporary filtered layer.",
+            }
+        )
+
+    def __call__(self, kind, proposal, mode, scope):
+        self.proposals.append((kind, proposal, mode, scope))
+        return self._result
+
+
+def _tool_schema(properties=None, required=()):
+    return {
+        "type": "object",
+        "properties": properties or {},
+        "required": list(required),
+        "additionalProperties": False,
+    }
+
+
+def build_attribute_filter_loop(*, include_field=True):
+    registry = AgentToolRegistry()
+    calls = []
+
+    def _register(name, schema, result):
+        def _handler(call):
+            calls.append((call.tool_name, dict(call.arguments)))
+            return result
+
+        registry.register(
+            AgentToolSpec(
+                name=name,
+                title=name,
+                description=name,
+                risk=AgentRisk.READ_ONLY,
+                input_schema=schema,
+                allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
+            ),
+            _handler,
+        )
+
+    _register(
+        "layer.list",
+        _tool_schema(),
+        {
+            "layers": [
+                {
+                    "layer_id": "active-layer",
+                    "name": "Built intensity",
+                    "kind": "vector",
+                    "active": True,
+                }
+            ],
+            "count": 1,
+            "truncated": False,
+        },
+    )
+    _register(
+        "processing.resolve",
+        _tool_schema(
+            {"algorithm_id": {"type": "string", "minLength": 1}},
+            ("algorithm_id",),
+        ),
+        {
+            "resolved": {
+                "available": True,
+                "algorithm_id": "native:extractbyattribute",
+                "agent_runnable": True,
+                "context_token": "trusted-filter-token",
+            },
+            "algorithms": [],
+            "truncated": False,
+        },
+    )
+    fields = (
+        [{"name": "built_intensity_bin", "field_type": "string"}]
+        if include_field
+        else [{"name": "other", "field_type": "string"}]
+    )
+    _register(
+        "layer.describe",
+        _tool_schema(
+            {
+                "layer_id": {"type": "string", "minLength": 1},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            ("layer_id",),
+        ),
+        {
+            "available": True,
+            "layer_id": "active-layer",
+            "fields": fields,
+            "fields_truncated": False,
+        },
+    )
+    validator = AttributeFilterValidator()
+    loop = AgentRunLoop(
+        AgentController(registry),
+        STATIC_INSTRUCTIONS,
+        proposal_validator=validator,
+    )
+    return loop, validator, calls
+
+
+class DeterministicAttributeFilterTests(unittest.TestCase):
+    REQUEST = (
+        'aktif katmanda built_intensity_bin sütununda değeri "low" '
+        "olanları yeni katman olarak ver bana"
+    )
+
+    def test_exact_filter_is_prepared_without_a_provider_turn(self) -> None:
+        loop, validator, calls = build_attribute_filter_loop()
+        event = loop.start(self.REQUEST, AgentMode.ACT, AgentScope.PROJECT)
+        self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+        self.assertIsNone(event.request)
+        self.assertEqual(
+            [name for name, _arguments in calls],
+            ["layer.list", "processing.resolve", "layer.describe"],
+        )
+        self.assertEqual(loop.turns_used, 1)
+        self.assertEqual(loop.tool_calls_used, 3)
+        self.assertEqual(len(validator.proposals), 1)
+        kind, proposal, mode, scope = validator.proposals[0]
+        self.assertEqual(kind, "processing_run")
+        self.assertEqual(mode, AgentMode.ACT)
+        self.assertEqual(scope, AgentScope.PROJECT)
+        bindings = dict(proposal.inputs)
+        self.assertEqual(bindings["INPUT"].value, "active-layer")
+        self.assertEqual(bindings["FIELD"].value, "built_intensity_bin")
+        self.assertEqual(bindings["VALUE"].value, "low")
+        self.assertEqual(bindings["OPERATOR"].value, 0)
+
+    def test_retry_skips_an_intervening_diagnostic_exchange(self) -> None:
+        loop, validator, _calls = build_attribute_filter_loop()
+        loop.session_memory.append(
+            self.REQUEST,
+            "[Attempt did not complete: invalid call id]",
+        )
+        loop.session_memory.append(
+            "neden yapamıyorsun sorgula",
+            "The previous attempt reached its turn limit.",
+        )
+        event = loop.start("tekrar dene", AgentMode.ACT, AgentScope.ACTIVE_LAYER)
+        self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+        self.assertEqual(len(validator.proposals), 1)
+        self.assertEqual(validator.proposals[0][3], AgentScope.ACTIVE_LAYER)
+
+    def test_missing_named_field_fails_before_validation(self) -> None:
+        loop, validator, _calls = build_attribute_filter_loop(include_field=False)
+        event = loop.start(self.REQUEST, AgentMode.ACT, AgentScope.PROJECT)
+        self.assertEqual(event.kind, RunEventKind.FAILED)
+        self.assertEqual(event.reason_code, "attribute_filter_field_missing")
+        self.assertIn("built_intensity_bin", event.text)
+        self.assertEqual(validator.proposals, [])
+
+    def test_ask_mode_does_not_run_the_local_proposal_path(self) -> None:
+        loop, validator, calls = build_attribute_filter_loop()
+        event = loop.start(self.REQUEST, AgentMode.ASK, AgentScope.PROJECT)
+        self.assertEqual(event.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(calls, [])
+        self.assertEqual(validator.proposals, [])
+
+
 def build_proposal_loop(validator=None):
     from planx_smartmodeler.core.agent.run_loop import AgentRunLoop
 

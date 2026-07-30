@@ -308,7 +308,13 @@ def _parse_tool_calls(tool_calls_data, max_tool_calls_per_turn: int) -> Tuple[Ag
             raise ProtocolError(f"tool_calls[{index}] must be an object.")
         call_id, tool_name, arguments_value = _normalize_tool_call(item, index)
         if not isinstance(call_id, str) or not CALL_ID_PATTERN.fullmatch(call_id):
-            raise ProtocolError(f"tool_calls[{index}] has an invalid call_id: {call_id!r}.")
+            # A call id is correlation metadata only; it grants no tool or
+            # argument authority. Providers sometimes emit punctuation such
+            # as ``describe_layer#1`` even when their configured structured
+            # schema disallows it. Replacing an unusable id with a unique
+            # local one is authority-neutral and keeps the validated tool name
+            # and arguments on the unchanged strict path below.
+            call_id = f"provider_call_{index + 1}"
         if call_id in seen_call_ids:
             raise ProtocolError(f"Duplicate call_id within this turn: {call_id!r}.")
         seen_call_ids.add(call_id)

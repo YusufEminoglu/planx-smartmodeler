@@ -11,6 +11,7 @@ registry -- this module never resolves a tool by name itself.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -34,11 +35,19 @@ from .proposals import (
     PROPOSAL_KIND_PYTHON_RUN,
     PROPOSAL_KIND_SQL_RUN,
     PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+    ProposalError,
     ProposalReason,
     ProposalValidation,
+    parse_proposal,
 )
 from .proposal_recovery import InspectionRequest, recover_agent_turn
-from .protocol import AgentTurn, ProtocolError, agent_turn_response_schema, parse_agent_turn
+from .protocol import (
+    ACTION_PROPOSAL,
+    AgentTurn,
+    ProtocolError,
+    agent_turn_response_schema,
+    parse_agent_turn,
+)
 
 # A validator that turns one parsed pure proposal draft into a bounded
 # validated preview or a controlled failure. Injected by the dock (it wraps the
@@ -81,6 +90,95 @@ _LIMIT_REASON_CODES = (
     "turn_call_limit_exceeded",
     "no_active_turn",
 )
+
+_ATTRIBUTE_FILTER_ALGORITHM = "native:extractbyattribute"
+_ATTRIBUTE_FIELD_RE = re.compile(
+    r"(?:\"(?P<quoted>[^\"\r\n]{1,128})\"|"
+    r"(?P<plain>[A-Za-z_][A-Za-z0-9_]{0,127}))\s+"
+    r"(?:sütun(?:unda|undaki)?|sutun(?:unda|undaki)?|"
+    r"alan(?:ında|inda|daki)?|column|field)\b",
+    re.IGNORECASE,
+)
+_ATTRIBUTE_VALUE_RE = re.compile(
+    r"(?:değeri|degeri|value(?:\s+is)?|eşit(?:tir)?|esit(?:tir)?|=)\s*"
+    r"(?:\"(?P<double>[^\"\r\n]{1,256})\"|"
+    r"'(?P<single>[^'\r\n]{1,256})'|"
+    r"(?P<plain>[^\s,;.\r\n]{1,256}))",
+    re.IGNORECASE,
+)
+_FILTER_RETRY_TERMS = (
+    "tekrar dene",
+    "yeniden dene",
+    "bir daha dene",
+    "try again",
+    "retry",
+)
+
+
+@dataclass(frozen=True)
+class _AttributeFilterIntent:
+    field_name: str
+    value: str
+
+
+def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent]:
+    """Recognize one narrow, explicit active-layer equality-filter request."""
+
+    if not isinstance(text, str) or not text.strip():
+        return None
+    folded = text.casefold()
+    if not any(term in folded for term in ("aktif katman", "active layer")):
+        return None
+    if not any(
+        term in folded
+        for term in (
+            "yeni katman",
+            "new layer",
+            "katman olarak",
+            "filter",
+            "filtre",
+            "süz",
+            "suz",
+        )
+    ):
+        return None
+    field_match = _ATTRIBUTE_FIELD_RE.search(text)
+    value_match = _ATTRIBUTE_VALUE_RE.search(text)
+    if field_match is None or value_match is None:
+        return None
+    field_name = (
+        field_match.group("quoted") or field_match.group("plain") or ""
+    ).strip()
+    value = (
+        value_match.group("double")
+        or value_match.group("single")
+        or value_match.group("plain")
+        or ""
+    ).strip()
+    if not field_name or not value or "\x00" in field_name or "\x00" in value:
+        return None
+    return _AttributeFilterIntent(field_name=field_name, value=value)
+
+
+def _attribute_filter_intent(
+    user_text: str, session_history: Tuple[Any, ...]
+) -> Optional[_AttributeFilterIntent]:
+    direct = _parse_direct_attribute_filter(user_text)
+    if direct is not None:
+        return direct
+    folded = str(user_text or "").casefold()
+    if len(folded.strip()) > 80 or not any(
+        term in folded for term in _FILTER_RETRY_TERMS
+    ):
+        return None
+    # Retry the most recent matching operation, skipping an intervening
+    # diagnostic exchange. SessionMemory already bounds this history.
+    for exchange in reversed(session_history[-3:]):
+        previous = getattr(exchange, "user_text", "")
+        recovered = _parse_direct_attribute_filter(previous)
+        if recovered is not None:
+            return recovered
+    return None
 
 
 def _total_warning_milestone(projected_tokens: int) -> int:
@@ -548,6 +646,173 @@ class AgentRunLoop:
         self._seen_call_ids.add(qualified)
         return qualified
 
+    def _try_local_attribute_filter(self) -> Optional[RunEvent]:
+        """Prepare one exact active-layer equality filter without another AI turn.
+
+        This path is deliberately narrow: it requires an explicit active-layer
+        request, a named field, an equality value, and a new-layer/filter
+        phrase. It performs three ordinary controller-gated read-only
+        inspections, then sends the resulting inert Processing proposal through
+        the same live validator and explicit Run approval used for provider
+        proposals. No Processing algorithm is executed here.
+        """
+
+        if (
+            self._mode not in (AgentMode.PLAN, AgentMode.ACT)
+            or self._scope not in (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER)
+            or self._proposal_validator is None
+        ):
+            return None
+        intent = _attribute_filter_intent(
+            self._user_text, self.session_memory.exchanges()
+        )
+        if intent is None:
+            return None
+
+        try:
+            self._run_state.check_capacity(3)
+        except RunLimitExceededError as error:
+            return self._fail(
+                "The configured tool-call limit is too small to inspect the "
+                "active layer and prepare this filter safely.",
+                error.reason_code,
+            )
+
+        events: List[Dict[str, Any]] = []
+        layer_result, layer_events = self._run_recovery_inspection(
+            InspectionRequest("layer.list", {})
+        )
+        events.extend(layer_events)
+        if layer_result is None:
+            return self._fail(
+                "The active layer could not be inspected.",
+                "attribute_filter_layer_list_failed",
+                tool_events=tuple(events),
+            )
+        layer_data = layer_result.get("data")
+        layers = layer_data.get("layers") if isinstance(layer_data, dict) else None
+        active = next(
+            (
+                item
+                for item in layers or ()
+                if isinstance(item, dict)
+                and item.get("active") is True
+                and isinstance(item.get("layer_id"), str)
+                and item.get("layer_id")
+            ),
+            None,
+        )
+        if active is None:
+            return self._fail(
+                "No active layer is available for the requested filter.",
+                "attribute_filter_no_active_layer",
+                tool_events=tuple(events),
+            )
+        layer_id = active["layer_id"]
+
+        resolve_result, resolve_events = self._run_recovery_inspection(
+            InspectionRequest(
+                "processing.resolve",
+                {"algorithm_id": _ATTRIBUTE_FILTER_ALGORITHM},
+            )
+        )
+        events.extend(resolve_events)
+        if resolve_result is None:
+            return self._fail(
+                "The attribute-filter algorithm could not be inspected.",
+                "attribute_filter_resolve_failed",
+                tool_events=tuple(events),
+            )
+        resolve_data = resolve_result.get("data")
+        resolved = (
+            resolve_data.get("resolved")
+            if isinstance(resolve_data, dict)
+            else None
+        )
+        if (
+            not isinstance(resolved, dict)
+            or resolved.get("available") is not True
+            or resolved.get("algorithm_id") != _ATTRIBUTE_FILTER_ALGORITHM
+            or resolved.get("agent_runnable") is not True
+            or not isinstance(resolved.get("context_token"), str)
+            or not resolved.get("context_token")
+        ):
+            return self._fail(
+                "The reviewed attribute-filter algorithm is not available.",
+                "attribute_filter_unavailable",
+                tool_events=tuple(events),
+            )
+
+        describe_result, describe_events = self._run_recovery_inspection(
+            InspectionRequest(
+                "layer.describe", {"layer_id": layer_id, "limit": 100}
+            )
+        )
+        events.extend(describe_events)
+        if describe_result is None:
+            return self._fail(
+                "The active layer fields could not be inspected.",
+                "attribute_filter_describe_failed",
+                tool_events=tuple(events),
+            )
+        describe_data = describe_result.get("data")
+        fields = (
+            describe_data.get("fields")
+            if isinstance(describe_data, dict)
+            else None
+        )
+        if not any(
+            isinstance(item, dict) and item.get("name") == intent.field_name
+            for item in fields or ()
+        ):
+            return self._fail(
+                f"The active layer does not contain the field "
+                f"{intent.field_name!r}.",
+                "attribute_filter_field_missing",
+                tool_events=tuple(events),
+            )
+
+        proposal_data = {
+            "schema_version": 1,
+            "context_token": resolved["context_token"],
+            "algorithm_id": _ATTRIBUTE_FILTER_ALGORITHM,
+            "title": "Filter active layer by attribute",
+            "summary": (
+                f"Create a temporary layer where {intent.field_name} equals "
+                f"{intent.value}."
+            ),
+            "inputs": {
+                "INPUT": {"layer": layer_id},
+                "FIELD": {
+                    "field": intent.field_name,
+                    "layer_param": "INPUT",
+                },
+                "OPERATOR": {"enum": 0},
+                "VALUE": {"string": intent.value},
+            },
+            "warnings": [],
+        }
+        try:
+            proposal = parse_proposal(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                json.dumps(
+                    proposal_data, ensure_ascii=False, separators=(",", ":")
+                ),
+            )
+        except ProposalError:
+            return self._fail(
+                "The attribute-filter proposal could not be constructed safely.",
+                "attribute_filter_proposal_failed",
+                tool_events=tuple(events),
+            )
+        turn = AgentTurn(
+            action=ACTION_PROPOSAL,
+            assistant_text="The active-layer attribute filter is ready to review.",
+            proposal_kind=PROPOSAL_KIND_PROCESSING_RUN,
+            proposal=proposal,
+        )
+        return self._handle_proposal(turn, tool_events=tuple(events))
+
     def _advance_turn(
         self, assistant_text: str = "", tool_events: Tuple[Dict[str, Any], ...] = ()
     ) -> RunEvent:
@@ -559,6 +824,10 @@ class AgentRunLoop:
                 error.reason_code,
                 tool_events=tool_events,
             )
+
+        local_filter = self._try_local_attribute_filter()
+        if local_filter is not None:
+            return local_filter
 
         power_enabled = bool(self._power_enabled_provider())
         tool_specs = select_tools_for_request(

@@ -357,14 +357,21 @@ class MalformedTurnRejectionTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
-    def test_invalid_call_id_is_rejected(self) -> None:
+    def test_invalid_provider_call_id_gets_authority_neutral_local_id(self) -> None:
         raw = _turn_json(
             ACTION_TOOL_CALLS,
             "",
-            [{"call_id": "has space", "tool_name": "project.summary", "arguments_json": "{}"}],
+            [
+                {
+                    "call_id": "describe_layer#1",
+                    "tool_name": "project.summary",
+                    "arguments_json": "{}",
+                }
+            ],
         )
-        with self.assertRaises(ProtocolError):
-            parse_agent_turn(raw, 3)
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.call_id, "provider_call_1")
+        self.assertEqual(call.tool_name, "project.summary")
 
     def test_repeated_call_id_within_the_turn_is_rejected(self) -> None:
         raw = _turn_json(

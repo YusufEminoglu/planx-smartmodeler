@@ -179,9 +179,19 @@ def select_tools_for_request(
     # The provider already receives that exchange; this merely keeps the same
     # scope-filtered discovery tools advertised for the continuation.
     if len(folded.strip()) <= 80 and session_history:
-        previous = session_history[-1]
-        if isinstance(previous, SessionExchange):
-            folded = f"{folded}\n{previous.user_text.casefold()}"
+        # A retry can follow a short diagnostic exchange ("why couldn't you
+        # do it?" -> "try again"). Looking at only the immediately preceding
+        # message loses the original operation and falsely removes its tools.
+        # The bounded session already caps retained exchanges and characters;
+        # inspecting the latest three user messages preserves the operation
+        # without making the tool pack depend on unbounded history.
+        recent = [
+            item.user_text.casefold()
+            for item in session_history[-3:]
+            if isinstance(item, SessionExchange)
+        ]
+        if recent:
+            folded = "\n".join((folded, *recent))
     wanted = set()
     if scope in ("project", "active_layer"):
         wanted.update(("project.summary", "layer.list", "layer.describe"))

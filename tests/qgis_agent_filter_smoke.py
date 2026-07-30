@@ -17,6 +17,7 @@ def _tool_turn() -> str:
             "assistant_text": "Inspecting the active layer and filter algorithm.",
             "tool_calls": [
                 {
+                    "call_id": "list_active#1",
                     "kind": "function",
                     "function": "layer.list",
                     "parameters": {},
@@ -261,9 +262,86 @@ def main() -> int:
                 raise RuntimeError(f"Unexpected filtered values: {values!r}")
             if source.featureCount() != 3:
                 raise RuntimeError("The source active layer was modified.")
+
+            # The exact owner-reported request now has a deterministic local
+            # proposal path. It must not spend a provider turn or depend on a
+            # provider emitting a correctly shaped final proposal.
+            result_id = result.id()
+            project.removeMapLayer(result_id)
+            local_loop = AgentRunLoop(
+                controller,
+                "Use the advertised QGIS tools and return one validated proposal.",
+                proposal_validator=validator.validate,
+                instruction_provider=lambda text, scope, power: (
+                    PromptContextLoader(
+                        context_dir=source_root / "agent_context"
+                    ).agent_context(text, scope, power_enabled=power)
+                ),
+                power_enabled_provider=lambda: True,
+            )
+            local_event = local_loop.start(
+                'aktif katmanda built_intensity_bin sütununda değeri "low" '
+                "olanları yeni katman olarak ver bana",
+                AgentMode.ACT,
+                AgentScope.PROJECT,
+            )
+            if (
+                local_event.kind != RunEventKind.PROPOSAL
+                or local_event.request is not None
+                or local_loop.turns_used != 1
+                or local_loop.tool_calls_used != 3
+            ):
+                raise RuntimeError(
+                    "The deterministic active-layer filter did not produce "
+                    "a one-turn local proposal."
+                )
+            local_ingredients = validator.take_last_validated()
+            if not local_ingredients:
+                raise RuntimeError(
+                    "The deterministic filter retained no run ingredients."
+                )
+            local_finished = []
+            local_failed = []
+            local_coordinator = RunCoordinator(lambda: None)
+            local_coordinator.run_finished.connect(local_finished.append)
+            local_coordinator.run_failed.connect(
+                lambda reason, message: local_failed.append((reason, message))
+            )
+            local_refusal = local_coordinator.start_processing_run(
+                "local_filter_acceptance",
+                "Filter low built intensity locally",
+                local_ingredients["display_name"],
+                local_ingredients["algorithm_id"],
+                local_ingredients["run_parameters"],
+                local_ingredients["destinations"],
+            )
+            if local_refusal or local_failed or len(local_finished) != 1:
+                raise RuntimeError(
+                    "Deterministic filter run failed: "
+                    f"refusal={local_refusal!r}, failures={local_failed!r}"
+                )
+            local_added = set(project.mapLayers()) - before - {source.id()}
+            if len(local_added) != 1:
+                raise RuntimeError(
+                    f"Expected one local filtered layer, got {len(local_added)}."
+                )
+            local_result = project.mapLayer(next(iter(local_added)))
+            local_values = [
+                feature["built_intensity_bin"]
+                for feature in local_result.getFeatures()
+            ]
+            if local_values != ["low", "low"]:
+                raise RuntimeError(
+                    f"Unexpected local filtered values: {local_values!r}"
+                )
+            if source.featureCount() != 3:
+                raise RuntimeError(
+                    "The deterministic filter modified the source active layer."
+                )
             print(
-                "AGENT FILTER SMOKE PASS: provider alias calls were normalized "
-                "and the active layer produced two low-value features."
+                "AGENT FILTER SMOKE PASS: invalid provider call ids and aliases "
+                "were normalized; the deterministic local path produced two "
+                "low-value features without a provider turn."
             )
             return 0
         finally:
