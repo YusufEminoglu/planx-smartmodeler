@@ -129,6 +129,27 @@ class ValidTurnParsingTests(unittest.TestCase):
         self.assertEqual(call.tool_name, "processing.search")
         self.assertEqual(call.arguments["query"], "osm konak roads")
 
+    def test_normalizes_name_parameters_provider_shape(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "name": "processing.resolve",
+                    "parameters": {
+                        "algorithm_id": "native:extractbyattribute",
+                    },
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.call_id, "provider_call_1")
+        self.assertEqual(call.tool_name, "processing.resolve")
+        self.assertEqual(
+            call.arguments,
+            {"algorithm_id": "native:extractbyattribute"},
+        )
+
     def test_normalizes_standard_nested_function_shape(self) -> None:
         raw = _turn_json(
             ACTION_TOOL_CALLS,
@@ -401,6 +422,21 @@ class MalformedTurnRejectionTests(unittest.TestCase):
                     "name": "layer.list",
                     "arguments": {},
                     "arguments_json": "{}",
+                }
+            ],
+        )
+        with self.assertRaises(ProtocolError):
+            parse_agent_turn(raw, 3)
+
+    def test_parameters_cannot_conflict_with_an_argument_alias(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "name": "layer.list",
+                    "arguments": {},
+                    "parameters": {},
                 }
             ],
         )

@@ -2,6 +2,19 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.2] - 2026-07-30
+
+### Fixed
+
+- Accept the provider-emitted `parameters` tool-call argument alias under the
+  same bounded object validation as `arguments`, while continuing to reject
+  ambiguous calls that contain more than one argument alias.
+
+### Testing
+
+- Exercise the reported `processing.resolve` + `parameters` shape through the
+  real active-layer filter acceptance test on QGIS 3.44 and 4.2.
+
 ## [0.18.1] - 2026-07-30
 
 ### Fixed

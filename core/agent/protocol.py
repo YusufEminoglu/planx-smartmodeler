@@ -63,6 +63,7 @@ _CALL_ALIAS_KEYS = frozenset(
         "arguments_json",
         "arguments",
         "args",
+        "parameters",
         "function",
         "type",
     }
@@ -240,7 +241,7 @@ def _normalize_tool_call(item: Dict[str, Any], index: int) -> Tuple[str, str, An
     ]
     arguments_candidates = [
         (key, item[key])
-        for key in ("arguments_json", "arguments", "args")
+        for key in ("arguments_json", "arguments", "args", "parameters")
         if key in item
     ]
     if "function" in item:

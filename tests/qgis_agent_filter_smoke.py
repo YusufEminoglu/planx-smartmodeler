@@ -19,7 +19,9 @@ def _tool_turn() -> str:
                 {"name": "layer.list", "arguments": {}},
                 {
                     "tool": "processing.resolve",
-                    "arguments": {"algorithm_id": "native:extractbyattribute"},
+                    "parameters": {
+                        "algorithm_id": "native:extractbyattribute",
+                    },
                 },
             ],
             "proposal_kind": "none",
