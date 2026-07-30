@@ -244,9 +244,14 @@ def _tool_layer_describe(call: AgentToolCall) -> Dict[str, Any]:
     fields: Iterator[agent_context.FieldSummary] = iter(())
     feature_count = None
     if isinstance(layer, QgsVectorLayer):
+        requested_field = call.arguments.get("field_name", "")
+        if not isinstance(requested_field, str):
+            raise ToolExecutionError("field_name must be a string.")
+        requested_field = requested_field.strip()
         fields = (
             agent_context.FieldSummary(field_def.name(), field_def.typeName())
             for field_def in layer.fields()
+            if not requested_field or field_def.name() == requested_field
         )
         with contextlib.suppress(Exception):
             feature_count = layer.featureCount()
@@ -1633,7 +1638,9 @@ def build_default_registry(
             description=(
                 "Describes one layer by id: field names, broad field types, "
                 "and how many features it holds. Never returns a source URI or "
-                "an individual feature."
+                "an individual feature. An optional exact field_name filter "
+                "checks the complete live schema without returning unrelated "
+                "fields."
             ),
             risk=AgentRisk.READ_ONLY,
             input_schema=_object_schema(
@@ -1642,6 +1649,11 @@ def build_default_registry(
                         "type": "string",
                         "minLength": 1,
                         "maxLength": _ID_MAX_LENGTH,
+                    },
+                    "field_name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
                     },
                     "limit": _LIMIT_PROPERTY,
                 },

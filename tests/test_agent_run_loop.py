@@ -707,7 +707,11 @@ def _tool_schema(properties=None, required=()):
 
 
 def build_attribute_filter_loop(
-    *, include_field=True, ambiguous_field=False, power_enabled=False
+    *,
+    include_field=True,
+    ambiguous_field=False,
+    power_enabled=False,
+    fields_truncated=False,
 ):
     registry = AgentToolRegistry()
     calls = []
@@ -715,7 +719,7 @@ def build_attribute_filter_loop(
     def _register(name, schema, result):
         def _handler(call):
             calls.append((call.tool_name, dict(call.arguments)))
-            return result
+            return result(call) if callable(result) else result
 
         registry.register(
             AgentToolSpec(
@@ -765,7 +769,10 @@ def build_attribute_filter_loop(
         },
     )
     fields = (
-        [{"name": "built_intensity_bin", "field_type": "string"}]
+        [
+            {"name": "built_intensity_bin", "field_type": "string"},
+            {"name": "lcz_weak_confidence", "field_type": "double"},
+        ]
         if include_field
         else [{"name": "other", "field_type": "string"}]
     )
@@ -778,15 +785,32 @@ def build_attribute_filter_loop(
         _tool_schema(
             {
                 "layer_id": {"type": "string", "minLength": 1},
+                "field_name": {"type": "string", "minLength": 1},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100},
             },
             ("layer_id",),
         ),
-        {
+        lambda call: {
             "available": True,
             "layer_id": "active-layer",
-            "fields": fields,
-            "fields_truncated": False,
+            "fields": (
+                [
+                    item
+                    for item in fields
+                    if item["name"] == call.arguments["field_name"]
+                ]
+                if call.arguments.get("field_name")
+                else (
+                    [{"name": "other", "field_type": "string"}]
+                    if fields_truncated
+                    else fields
+                )
+            ),
+            "fields_truncated": (
+                False
+                if call.arguments.get("field_name")
+                else fields_truncated
+            ),
         },
     )
     validator = AttributeFilterValidator()
@@ -809,6 +833,10 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
         'aktif katmanda built_intensity_bin sütununda değeri "low" '
         "olanları yeni katman olarak ver bana"
     )
+    NUMERIC_LESS_THAN_REQUEST = (
+        "lcz_weak_confidence değeri 0.6 değerinin altına olanları seçip "
+        "farklı bir katman olarak kaydet"
+    )
 
     def test_exact_filter_is_prepared_without_a_provider_turn(self) -> None:
         loop, validator, calls = build_attribute_filter_loop()
@@ -817,10 +845,15 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
         self.assertIsNone(event.request)
         self.assertEqual(
             [name for name, _arguments in calls],
-            ["layer.list", "processing.resolve", "layer.describe"],
+            [
+                "layer.list",
+                "processing.resolve",
+                "layer.describe",
+                "layer.describe",
+            ],
         )
         self.assertEqual(loop.turns_used, 1)
-        self.assertEqual(loop.tool_calls_used, 3)
+        self.assertEqual(loop.tool_calls_used, 4)
         self.assertEqual(len(validator.proposals), 1)
         kind, proposal, mode, scope = validator.proposals[0]
         self.assertEqual(kind, "processing_run")
@@ -842,6 +875,58 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
         )
         self.assertEqual(event.kind, RunEventKind.PROPOSAL)
         self.assertEqual(len(validator.proposals), 1)
+
+    def test_numeric_less_than_filter_uses_active_layer_without_provider(self) -> None:
+        loop, validator, calls = build_attribute_filter_loop()
+        event = loop.start(
+            self.NUMERIC_LESS_THAN_REQUEST,
+            AgentMode.ACT,
+            AgentScope.PROJECT,
+        )
+        self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+        self.assertIsNone(event.request)
+        self.assertEqual(len(validator.proposals), 1)
+        bindings = dict(validator.proposals[0][1].inputs)
+        self.assertEqual(bindings["INPUT"].value, "active-layer")
+        self.assertEqual(bindings["FIELD"].value, "lcz_weak_confidence")
+        self.assertEqual(bindings["OPERATOR"].value, 4)
+        self.assertEqual(bindings["VALUE"].value, "0.6")
+        self.assertEqual(
+            [name for name, _arguments in calls],
+            ["layer.list", "processing.resolve", "layer.describe"],
+        )
+
+    def test_symbolic_numeric_comparison_is_supported(self) -> None:
+        for request in (
+            "lcz_weak_confidence değeri < 0.6 olanları farklı bir katman "
+            "olarak kaydet",
+            "filter lcz_weak_confidence value below 0.6 as a new layer",
+        ):
+            loop, validator, _calls = build_attribute_filter_loop()
+            event = loop.start(
+                request,
+                AgentMode.ACT,
+                AgentScope.PROJECT,
+            )
+            self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+            bindings = dict(validator.proposals[0][1].inputs)
+            self.assertEqual(bindings["OPERATOR"].value, 4)
+            self.assertEqual(bindings["VALUE"].value, "0.6")
+
+    def test_truncated_field_preview_defers_exact_name_to_live_validator(self) -> None:
+        loop, validator, _calls = build_attribute_filter_loop(
+            fields_truncated=True,
+        )
+        event = loop.start(
+            self.NUMERIC_LESS_THAN_REQUEST,
+            AgentMode.ACT,
+            AgentScope.PROJECT,
+        )
+        self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+        proposal = validator.proposals[0][1]
+        bindings = dict(proposal.inputs)
+        self.assertEqual(bindings["FIELD"].value, "lcz_weak_confidence")
+        self.assertEqual(proposal.warnings, ())
 
     def test_retry_skips_an_intervening_diagnostic_exchange(self) -> None:
         for retry_text in ("tekrar yap", "tekrar dene"):

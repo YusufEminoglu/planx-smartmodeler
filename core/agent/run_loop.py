@@ -99,9 +99,6 @@ _LIMIT_REASON_CODES = (
 )
 
 _ATTRIBUTE_FILTER_ALGORITHM = "native:extractbyattribute"
-_ACTIVE_LAYER_RE = re.compile(
-    r"\b(?:aktif|active|etkin)\s+katman\w*", re.IGNORECASE
-)
 _NAMED_LAYER_RE = re.compile(
     r"^\s*(?P<name>.{1,160}?)\s+bu\s+katman\w*", re.IGNORECASE
 )
@@ -126,6 +123,11 @@ _ATTRIBUTE_FIELD_AFTER_RE = re.compile(
     r"(?P<plain>[A-Za-z_][A-Za-z0-9_]{0,127}))",
     re.IGNORECASE,
 )
+_ATTRIBUTE_FIELD_VALUE_RE = re.compile(
+    r"(?P<plain>[A-Za-z_][A-Za-z0-9_]{0,127})\s+"
+    r"(?:değeri|degeri|value)\b",
+    re.IGNORECASE,
+)
 _ATTRIBUTE_VALUE_AFTER_RE = re.compile(
     r"(?:değer\w*|deger\w*|value(?:\s+is)?|"
     r"eşit(?:tir)?|esit(?:tir)?|=)\s*"
@@ -133,6 +135,74 @@ _ATTRIBUTE_VALUE_AFTER_RE = re.compile(
     r"'(?P<single>[^'\r\n]{1,256})'|"
     r"(?P<plain>[^\s,;.\r\n]{1,256}))",
     re.IGNORECASE,
+)
+_NUMERIC_LITERAL = r"[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)"
+_NUMERIC_COMPARISON_PATTERNS = (
+    (
+        re.compile(
+            rf"(?P<value>{_NUMERIC_LITERAL})\s*"
+            r"(?:(?:değerinin|degerinin|value)\s+)?"
+            r"(?:altına|altinda|altında|altındaki|altindaki|"
+            r"altı|alti|below|under|less\s+than)\b",
+            re.IGNORECASE,
+        ),
+        4,
+        "is less than",
+    ),
+    (
+        re.compile(
+            rf"(?P<value>{_NUMERIC_LITERAL})\s*"
+            r"(?:'?(?:dan|den))\s+(?:küçük|kucuk|az)\b",
+            re.IGNORECASE,
+        ),
+        4,
+        "is less than",
+    ),
+    (
+        re.compile(
+            rf"(?P<value>{_NUMERIC_LITERAL})\s*"
+            r"(?:(?:değerinin|degerinin|value)\s+)?"
+            r"(?:üstüne|ustune|üstünde|ustunde|üstündeki|ustundeki|"
+            r"üstü|ustu|above|over|greater\s+than)\b",
+            re.IGNORECASE,
+        ),
+        2,
+        "is greater than",
+    ),
+    (
+        re.compile(
+            r"(?:below|under|less\s+than)\s+"
+            rf"(?P<value>{_NUMERIC_LITERAL})\b",
+            re.IGNORECASE,
+        ),
+        4,
+        "is less than",
+    ),
+    (
+        re.compile(
+            r"(?:above|over|greater\s+than)\s+"
+            rf"(?P<value>{_NUMERIC_LITERAL})\b",
+            re.IGNORECASE,
+        ),
+        2,
+        "is greater than",
+    ),
+    (
+        re.compile(
+            rf"(?P<value>{_NUMERIC_LITERAL})\s*"
+            r"(?:'?(?:dan|den))\s+(?:büyük|buyuk|fazla)\b",
+            re.IGNORECASE,
+        ),
+        2,
+        "is greater than",
+    ),
+    (
+        re.compile(
+            rf"(?P<operator><=|>=|<|>)\s*(?P<value>{_NUMERIC_LITERAL})"
+        ),
+        None,
+        "",
+    ),
 )
 _ATTRIBUTE_VALUE_BEFORE_RE = re.compile(
     r"(?:\"(?P<double>[^\"\r\n]{1,256})\"|"
@@ -158,6 +228,30 @@ class _AttributeFilterIntent:
     field_name: str
     value: str
     target_layer_name: str = ""
+    operator_index: int = 0
+    operator_label: str = "equals"
+
+
+def _parse_numeric_comparison(
+    text: str,
+) -> Optional[Tuple[str, int, str]]:
+    """Return a normalized threshold, QGIS enum, and readable relation."""
+
+    symbol_operators = {
+        "<": (4, "is less than"),
+        "<=": (5, "is less than or equal to"),
+        ">": (2, "is greater than"),
+        ">=": (3, "is greater than or equal to"),
+    }
+    for pattern, operator_index, label in _NUMERIC_COMPARISON_PATTERNS:
+        match = pattern.search(text)
+        if match is None:
+            continue
+        value = match.group("value").replace(",", ".")
+        if operator_index is None:
+            operator_index, label = symbol_operators[match.group("operator")]
+        return value, operator_index, label
+    return None
 
 
 def _within_one_edit(left: str, right: str) -> bool:
@@ -189,14 +283,12 @@ def _within_one_edit(left: str, right: str) -> bool:
 
 
 def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent]:
-    """Recognize one narrow, explicit active-layer equality-filter request."""
+    """Recognize one narrow new-layer attribute-filter request."""
 
     if not isinstance(text, str) or not text.strip():
         return None
     folded = text.casefold()
     named_layer_match = _NAMED_LAYER_RE.search(text)
-    if _ACTIVE_LAYER_RE.search(text) is None and named_layer_match is None:
-        return None
     if not any(
         term in folded
         for term in (
@@ -214,7 +306,9 @@ def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent
         _ATTRIBUTE_FIELD_AFTER_RE.search(text)
         or _ATTRIBUTE_FIELD_NAMED_RE.search(text)
         or _ATTRIBUTE_FIELD_BEFORE_RE.search(text)
+        or _ATTRIBUTE_FIELD_VALUE_RE.search(text)
     )
+    comparison = _parse_numeric_comparison(text)
     value_before = _ATTRIBUTE_VALUE_BEFORE_RE.search(text)
     value_after = _ATTRIBUTE_VALUE_AFTER_RE.search(text)
     # Prefer an explicitly quoted value on either side of the Turkish value
@@ -231,17 +325,23 @@ def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent
         value_match = value_after
     else:
         value_match = value_after or value_before
-    if field_match is None or value_match is None:
+    if field_match is None or (comparison is None and value_match is None):
         return None
+    field_groups = field_match.groupdict()
     field_name = (
-        field_match.group("quoted") or field_match.group("plain") or ""
+        field_groups.get("quoted") or field_groups.get("plain") or ""
     ).strip()
-    value = (
-        value_match.group("double")
-        or value_match.group("single")
-        or value_match.group("plain")
-        or ""
-    ).strip()
+    if comparison is not None:
+        value, operator_index, operator_label = comparison
+    else:
+        value = (
+            value_match.group("double")
+            or value_match.group("single")
+            or value_match.group("plain")
+            or ""
+        ).strip()
+        operator_index = 0
+        operator_label = "equals"
     if not field_name or not value or "\x00" in field_name or "\x00" in value:
         return None
     target_layer_name = ""
@@ -251,6 +351,8 @@ def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent
         field_name=field_name,
         value=value,
         target_layer_name=target_layer_name,
+        operator_index=operator_index,
+        operator_label=operator_label,
     )
 
 
@@ -815,14 +917,16 @@ class AgentRunLoop:
         return qualified
 
     def _try_local_attribute_filter(self) -> Optional[RunEvent]:
-        """Prepare one exact active-layer equality filter without another AI turn.
+        """Prepare one exact active-layer attribute filter without another AI turn.
 
-        This path is deliberately narrow: it requires an explicit active-layer
-        request, a named field, an equality value, and a new-layer/filter
-        phrase. It performs three ordinary controller-gated read-only
-        inspections, then sends the resulting inert Processing proposal through
-        the same live validator and explicit Run approval used for provider
-        proposals. No Processing algorithm is executed here.
+        This path is deliberately narrow: it requires a named field, an equality
+        or numeric comparison value, and a new-layer/filter phrase. An explicit
+        layer name wins; otherwise the active layer is used. It performs three
+        ordinary controller-gated read-only inspections, then sends the
+        resulting inert Processing proposal through the same live validator and
+        explicit Run approval used for provider proposals. An absent exact
+        field triggers one additional bounded inspection for a possible
+        one-edit correction. No Processing algorithm is executed here.
         """
 
         if (
@@ -940,7 +1044,12 @@ class AgentRunLoop:
 
         describe_result, describe_events = self._run_recovery_inspection(
             InspectionRequest(
-                "layer.describe", {"layer_id": layer_id, "limit": 100}
+                "layer.describe",
+                {
+                    "layer_id": layer_id,
+                    "field_name": intent.field_name,
+                    "limit": 100,
+                },
             )
         )
         events.extend(describe_events)
@@ -970,6 +1079,41 @@ class AgentRunLoop:
         )
         warnings = []
         if not resolved_field_name:
+            try:
+                self._run_state.check_capacity(1)
+            except RunLimitExceededError as error:
+                return self._fail(
+                    "The configured tool-call limit is too small to check a "
+                    "possible field-name correction.",
+                    error.reason_code,
+                    tool_events=tuple(events),
+                )
+            fallback_result, fallback_events = self._run_recovery_inspection(
+                InspectionRequest(
+                    "layer.describe", {"layer_id": layer_id, "limit": 100}
+                )
+            )
+            events.extend(fallback_events)
+            if fallback_result is None:
+                return self._fail(
+                    "The active layer fields could not be inspected for a "
+                    "field-name correction.",
+                    "attribute_filter_describe_failed",
+                    tool_events=tuple(events),
+                )
+            fallback_data = fallback_result.get("data")
+            fallback_fields = (
+                fallback_data.get("fields")
+                if isinstance(fallback_data, dict)
+                else None
+            )
+            field_names = [
+                item["name"]
+                for item in fallback_fields or ()
+                if isinstance(item, dict)
+                and isinstance(item.get("name"), str)
+                and item.get("name")
+            ]
             near_matches = [
                 name
                 for name in field_names
@@ -996,8 +1140,8 @@ class AgentRunLoop:
             "algorithm_id": _ATTRIBUTE_FILTER_ALGORITHM,
             "title": "Filter layer by attribute",
             "summary": (
-                f"Create a temporary layer where {resolved_field_name} equals "
-                f"{intent.value}."
+                f"Create a temporary layer where {resolved_field_name} "
+                f"{intent.operator_label} {intent.value}."
             ),
             "inputs": {
                 "INPUT": {"layer": layer_id},
@@ -1005,7 +1149,7 @@ class AgentRunLoop:
                     "field": resolved_field_name,
                     "layer_param": "INPUT",
                 },
-                "OPERATOR": {"enum": 0},
+                "OPERATOR": {"enum": intent.operator_index},
                 "VALUE": {"string": intent.value},
             },
             "warnings": warnings,

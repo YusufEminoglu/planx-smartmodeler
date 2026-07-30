@@ -2,6 +2,33 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.19.1] - 2026-07-30
+
+### Fixed
+
+- Recognize active-layer numeric threshold requests such as
+  `lcz_weak_confidence değeri 0.6 değerinin altına olanları ... farklı bir
+  katman olarak kaydet` and construct a provider-free
+  `native:extractbyattribute` proposal with the strict less-than operator.
+- Accept numeric `<`, `<=`, `>`, and `>=` symbols plus common Turkish/English
+  below/above wording while preserving QGIS's exact enum bindings.
+- Add an exact `field_name` filter to `layer.describe`, allowing a requested
+  field to be verified against the complete live schema even when the ordinary
+  bounded field preview reports `fields_truncated:true`.
+- Fall back to the bounded field list only when an exact field is absent, so
+  one-edit corrections remain visible and cannot override a real field hidden
+  beyond the preview limit.
+
+### Testing
+
+- Place `lcz_weak_confidence` after 101 filler fields and run the exact reported
+  request on QGIS 3.44 and 4.2, confirming that strict `< 0.6` returns `0.4`
+  and `0.59`, excludes `0.6`, creates one temporary layer, and leaves the
+  source unchanged.
+- Cover threshold parsing, symbolic comparison, targeted full-schema field
+  lookup, equality-filter correction fallback, and the complete Agent
+  Workspace regression suite.
+
 ## [0.19.0] - 2026-07-30
 
 ### Added

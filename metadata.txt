@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.19.0
+version=0.19.1
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    0.19.1 - Add provider-free numeric threshold filters and exact full-schema field lookup beyond truncated previews.
     0.19.0 - Unify connected Workflow Studio AI with the multi-turn Agent Workspace and add staged strategy recovery.
     0.18.9 - Support named-layer filters, long retries, and unique visible field-name correction without Power Mode.
     0.18.8 - Recognize mixed-language attribute filters, explain Ask versus Act immediately, and stop repeated no-progress inspection loops.

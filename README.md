@@ -173,7 +173,11 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 - Reviewed optional Processing result sinks remain signature-checked but are
   left unset unless they are the requested output. For example, **Extract by
   attribute** adds the matching temporary layer without also cluttering the
-  project with an unrequested `FAIL_OUTPUT` layer.
+  project with an unrequested `FAIL_OUTPUT` layer. Explicit equality and numeric
+  threshold requests (`<`, `<=`, `>`, `>=`, below/above wording) are prepared
+  locally without spending a provider turn. An exact field-name lookup checks
+  the complete live layer schema, so a target beyond the bounded 100-field
+  preview is not falsely reported as missing.
 - SmartModeler now ships its own dependency-free OSM Processing provider.
   Geometry-specific point, line, and polygon algorithms accept a plain key/value
   tag such as `highway=bus_stop`, `highway=*`, or `building=*` plus the live

@@ -67,16 +67,26 @@ def main() -> int:
 
         project = QgsProject.instance()
         before = set(project.mapLayers())
+        filler_fields = "&".join(
+            f"field=filler_{index}:integer" for index in range(101)
+        )
         source = QgsVectorLayer(
             "Point?crs=EPSG:4326&field=id:integer&"
-            "field=built_intensity_bin:string(20)",
+            "field=built_intensity_bin:string(20)&"
+            f"{filler_fields}&field=lcz_weak_confidence:double",
             "Audit - DOLDURULACAK",
             "memory",
         )
         features = []
-        for feature_id, category in ((1, "low"), (2, "high"), (3, "low")):
+        for feature_id, category, confidence in (
+            (1, "low", 0.4),
+            (2, "high", 0.6),
+            (3, "low", 0.59),
+        ):
             feature = QgsFeature(source.fields())
-            feature.setAttributes([feature_id, category])
+            feature.setAttributes(
+                [feature_id, category] + [None] * 101 + [confidence]
+            )
             features.append(feature)
         source.dataProvider().addFeatures(features)
         project.addMapLayer(source)
@@ -290,7 +300,7 @@ def main() -> int:
                 local_event.kind != RunEventKind.PROPOSAL
                 or local_event.request is not None
                 or local_loop.turns_used != 1
-                or local_loop.tool_calls_used != 3
+                or local_loop.tool_calls_used != 4
             ):
                 raise RuntimeError(
                     "The deterministic active-layer filter did not produce "
@@ -350,10 +360,108 @@ def main() -> int:
                 raise RuntimeError(
                     "The deterministic filter modified the source active layer."
                 )
+            for layer_id in local_added:
+                project.removeMapLayer(layer_id)
+
+            comparison_loop = AgentRunLoop(
+                controller,
+                "Use the advertised QGIS tools and return one validated proposal.",
+                proposal_validator=validator.validate,
+                instruction_provider=lambda text, scope, power: (
+                    PromptContextLoader(
+                        context_dir=source_root / "agent_context"
+                    ).agent_context(text, scope, power_enabled=power)
+                ),
+                power_enabled_provider=lambda: False,
+            )
+            comparison_event = comparison_loop.start(
+                "lcz_weak_confidence değeri 0.6 değerinin altına olanları "
+                "seçip farklı bir katman olarak kaydet",
+                AgentMode.ACT,
+                AgentScope.PROJECT,
+            )
+            if (
+                comparison_event.kind != RunEventKind.PROPOSAL
+                or comparison_event.request is not None
+                or comparison_loop.turns_used != 1
+                or comparison_loop.tool_calls_used != 3
+            ):
+                raise RuntimeError(
+                    "The deterministic numeric comparison did not produce "
+                    "a one-turn local proposal."
+                )
+            comparison_ingredients = validator.take_last_validated()
+            if (
+                not comparison_ingredients
+                or comparison_ingredients["run_parameters"].get("FIELD")
+                != "lcz_weak_confidence"
+                or comparison_ingredients["run_parameters"].get("OPERATOR")
+                != 4
+                or str(comparison_ingredients["run_parameters"].get("VALUE"))
+                != "0.6"
+            ):
+                raise RuntimeError(
+                    "The numeric less-than request was not bound to the exact "
+                    "live Processing signature."
+                )
+            comparison_finished = []
+            comparison_failed = []
+            comparison_coordinator = RunCoordinator(lambda: None)
+            comparison_coordinator.run_finished.connect(
+                comparison_finished.append
+            )
+            comparison_coordinator.run_failed.connect(
+                lambda reason, message: comparison_failed.append(
+                    (reason, message)
+                )
+            )
+            comparison_refusal = comparison_coordinator.start_processing_run(
+                "numeric_filter_acceptance",
+                "Filter low LCZ confidence locally",
+                comparison_ingredients["display_name"],
+                comparison_ingredients["algorithm_id"],
+                comparison_ingredients["run_parameters"],
+                comparison_ingredients["destinations"],
+            )
+            if (
+                comparison_refusal
+                or comparison_failed
+                or len(comparison_finished) != 1
+            ):
+                raise RuntimeError(
+                    "Numeric comparison run failed: "
+                    f"refusal={comparison_refusal!r}, "
+                    f"failures={comparison_failed!r}"
+                )
+            comparison_added = (
+                set(project.mapLayers()) - before - {source.id()}
+            )
+            if len(comparison_added) != 1:
+                raise RuntimeError(
+                    "Expected one numeric-comparison layer, got "
+                    f"{len(comparison_added)}."
+                )
+            comparison_result = project.mapLayer(
+                next(iter(comparison_added))
+            )
+            comparison_values = [
+                feature["lcz_weak_confidence"]
+                for feature in comparison_result.getFeatures()
+            ]
+            if comparison_values != [0.4, 0.59]:
+                raise RuntimeError(
+                    "Strict less-than filtering returned unexpected values: "
+                    f"{comparison_values!r}"
+                )
+            if source.featureCount() != 3:
+                raise RuntimeError(
+                    "The numeric comparison modified the source active layer."
+                )
             print(
                 "AGENT FILTER SMOKE PASS: invalid provider call ids and aliases "
-                "were normalized; the deterministic local path produced two "
-                "low-value features without a provider turn."
+                "were normalized; deterministic equality and numeric less-than "
+                "paths each produced the exact temporary output without a "
+                "provider turn."
             )
             return 0
         finally:
