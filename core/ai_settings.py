@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import uuid
 from contextlib import contextmanager
@@ -117,33 +118,91 @@ class AiProfile:
 
     @classmethod
     def from_dict(cls, data: Dict[str, object]) -> "AiProfile":
+        if not isinstance(data, dict):
+            raise ValueError("AI profile data must be an object.")
         allowed = set(cls.__dataclass_fields__)
         values = {key: value for key, value in data.items() if key in allowed}
-        profile = cls(**values)
+        try:
+            profile = cls(**values)
+        except TypeError as error:
+            raise ValueError("AI profile data is incomplete.") from error
         if not isinstance(profile.profile_id, str) or not re.fullmatch(
             r"[A-Za-z0-9_-]{8,80}", profile.profile_id
         ):
             profile.profile_id = uuid.uuid4().hex
-        if profile.provider_id not in PROVIDERS:
+        provider_is_known = isinstance(profile.provider_id, str) and (
+            profile.provider_id in PROVIDERS
+        )
+        if not provider_is_known:
             profile.provider_id = "openai_compatible"
+        for field_name, limit in (
+            ("name", 80),
+            ("model", 160),
+            ("endpoint", 2_048),
+            ("api_version", 80),
+            ("organization", 160),
+        ):
+            value = getattr(profile, field_name)
+            setattr(profile, field_name, str(value or "").strip()[:limit])
+        try:
+            temperature = float(profile.temperature)
+        except (TypeError, ValueError):
+            temperature = 0.1
+        profile.temperature = (
+            temperature
+            if math.isfinite(temperature) and 0.0 <= temperature <= 2.0
+            else 0.1
+        )
+        try:
+            timeout = int(profile.timeout_seconds)
+        except (TypeError, ValueError):
+            timeout = 90
+        profile.timeout_seconds = timeout if 10 <= timeout <= 600 else 90
+        try:
+            catalog_size = int(profile.max_catalog_algorithms)
+        except (TypeError, ValueError):
+            catalog_size = 50
+        profile.max_catalog_algorithms = (
+            catalog_size if 5 <= catalog_size <= 200 else 50
+        )
+        profile.include_project_context = _coerce_bool(
+            profile.include_project_context,
+            True,
+        )
+        profile.include_algorithm_catalog = _coerce_bool(
+            profile.include_algorithm_catalog,
+            True,
+        )
         return profile
 
     def validate(self, api_key: str = "") -> List[str]:
         errors: List[str] = []
-        provider = PROVIDERS[self.provider_id]
-        if not self.name.strip():
+        provider_id = str(self.provider_id or "")
+        provider = PROVIDERS.get(provider_id)
+        if provider is None:
+            errors.append("AI provider is not supported.")
+            provider = PROVIDERS["offline"]
+        if not str(self.name or "").strip():
             errors.append("Profile name is required.")
-        if self.provider_id != "offline" and not self.model.strip():
+        if provider_id != "offline" and not str(self.model or "").strip():
             errors.append("Model or deployment name is required.")
-        if self.provider_id != "offline":
-            endpoint_error = validate_endpoint(self.endpoint)
+        if provider_id != "offline":
+            endpoint_error = validate_endpoint(str(self.endpoint or ""))
             if endpoint_error:
                 errors.append(endpoint_error)
-        if provider.requires_key and not api_key.strip():
+        if provider.requires_key and not str(api_key or "").strip():
             errors.append("This provider requires an API key.")
-        if not 10 <= int(self.timeout_seconds) <= 600:
+        try:
+            timeout_seconds = int(self.timeout_seconds)
+        except (TypeError, ValueError):
+            timeout_seconds = 0
+        if not 10 <= timeout_seconds <= 600:
             errors.append("Timeout must be between 10 and 600 seconds.")
-        if not 5 <= int(self.max_catalog_algorithms) <= 200:
+        try:
+            catalog_size = int(self.max_catalog_algorithms)
+        except (TypeError, ValueError):
+            catalog_size = 0
+        if not 5 <= catalog_size <= 200:
             errors.append("Algorithm context size must be between 5 and 200.")
         return errors
 
@@ -162,6 +221,20 @@ def validate_endpoint(endpoint: str) -> str:
     if parsed.username or parsed.password:
         return "Do not place credentials in the endpoint URL."
     return ""
+
+
+def _coerce_bool(value: object, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return default
 
 
 class AiSettingsStore:
@@ -189,7 +262,15 @@ class AiSettingsStore:
         if raw:
             try:
                 values = json.loads(str(raw))
-                profiles = [AiProfile.from_dict(value) for value in values]
+                if not isinstance(values, list):
+                    raise ValueError("AI profiles must be a list.")
+                for value in values[:50]:
+                    try:
+                        profile = AiProfile.from_dict(value)
+                    except (TypeError, ValueError):
+                        profile = None
+                    if profile is not None:
+                        profiles.append(profile)
             except (TypeError, ValueError):
                 profiles = []
         if not profiles:

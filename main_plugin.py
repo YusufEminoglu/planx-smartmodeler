@@ -183,18 +183,30 @@ class SmartModelerPlugin:
         self.window.raise_()
         self.window.activateWindow()
 
-    def open_agent_workspace(self) -> None:
+    def open_agent_workspace(self) -> bool:
         if self.agent_dock is None:
-            return
+            return False
         self.agent_dock.show()
         self.agent_dock.raise_()
         self.agent_dock.prompt_input.setFocus()
+        return True
 
     def open_ai_connections(self) -> bool:
         """Open the shared AI profile editor for trusted companion plugins."""
-        if self.agent_dock is None:
-            return False
-        self.agent_dock.open_ai_connections()
+        if self.agent_dock is not None:
+            self.agent_dock.open_ai_connections()
+            return True
+
+        # A companion plugin can reach this public bridge while SmartModeler's
+        # Processing lifecycle is ready but its dock has not been constructed.
+        # Keep Connections functional instead of returning a silent no-op.
+        from .gui.ai_settings_dialog import AiSettingsDialog
+        from .gui.theme import STUDIO_STYLE
+
+        parent = self.iface.mainWindow() if self.iface is not None else None
+        dialog = AiSettingsDialog(parent)
+        dialog.setStyleSheet(STUDIO_STYLE)
+        dialog.exec()
         return True
 
     def agent_connection_info(self) -> dict:

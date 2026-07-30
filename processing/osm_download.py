@@ -12,7 +12,7 @@ import json
 import time
 from typing import Dict, List, Optional
 
-from qgis.PyQt.QtCore import QByteArray, QUrl, QUrlQuery, QVariant
+from qgis.PyQt.QtCore import QByteArray, QMetaType, QUrl, QUrlQuery
 from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import (
     QgsBlockingNetworkRequest,
@@ -235,7 +235,7 @@ def _fields() -> QgsFields:
         "building_levels",
         "tags_json",
     ):
-        fields.append(QgsField(name, QVariant.String))
+        fields.append(QgsField(name, QMetaType.Type.QString))
     return fields
 
 

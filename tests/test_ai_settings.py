@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import types
 import unittest
@@ -16,7 +17,9 @@ qgis_module.core = core_module
 from qgis.core import QgsApplication  # noqa: E402
 
 from planx_smartmodeler.core.ai_settings import (  # noqa: E402
+    AiProfile,
     AiSettingsStore,
+    FakeQgsSettings,
     PROVIDERS,
 )
 
@@ -126,6 +129,53 @@ class AiSettingsSecretTests(unittest.TestCase):
         self.assertEqual(provider.default_endpoint, "https://api.deepseek.com/chat/completions")
         self.assertEqual(provider.default_model, "deepseek-v4-flash")
         self.assertTrue(provider.requires_key)
+
+    def test_corrupt_profile_storage_is_bounded_and_recovered(self) -> None:
+        settings = FakeQgsSettings()
+        settings.setValue(
+            AiSettingsStore.PROFILE_KEY,
+            json.dumps(
+                [
+                    None,
+                    {"name": "missing id"},
+                    {
+                        "profile_id": "valid_profile",
+                        "name": 42,
+                        "provider_id": {"invalid": True},
+                        "temperature": "nan",
+                        "timeout_seconds": "never",
+                        "max_catalog_algorithms": -1,
+                        "include_project_context": "false",
+                    },
+                ]
+            ),
+        )
+        profiles = AiSettingsStore(settings).profiles()
+        self.assertEqual(len(profiles), 1)
+        profile = profiles[0]
+        self.assertEqual(profile.name, "42")
+        self.assertEqual(profile.provider_id, "openai_compatible")
+        self.assertEqual(profile.temperature, 0.1)
+        self.assertEqual(profile.timeout_seconds, 90)
+        self.assertEqual(profile.max_catalog_algorithms, 50)
+        self.assertFalse(profile.include_project_context)
+
+    def test_validation_never_crashes_on_non_numeric_values(self) -> None:
+        profile = AiProfile.create("offline", "Invalid numbers")
+        profile.provider_id = {"invalid": True}
+        profile.name = None
+        profile.model = None
+        profile.endpoint = None
+        profile.timeout_seconds = "never"
+        profile.max_catalog_algorithms = None
+        errors = profile.validate()
+        self.assertIn("AI provider is not supported.", errors)
+        self.assertIn("Profile name is required.", errors)
+        self.assertIn("Timeout must be between 10 and 600 seconds.", errors)
+        self.assertIn(
+            "Algorithm context size must be between 5 and 200.",
+            errors,
+        )
 
 
 if __name__ == "__main__":

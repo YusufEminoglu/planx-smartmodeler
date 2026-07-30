@@ -2,6 +2,18 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.16.1] - 2026-07-30
+
+### Fixed
+
+- Keep the public AI Connections bridge functional before Agent Workspace dock
+  construction instead of returning a silent no-op.
+- Recover safely from malformed or partially corrupt AI profile JSON, bound
+  profile fields and counts, and normalize invalid numeric/boolean values.
+- Return explicit availability results from the public Agent Workspace bridge.
+- Use the current `QMetaType` string field API in the bounded OSM algorithm,
+  removing the deprecated `QVariant` field-constructor path.
+
 ## [0.16.0] - 2026-07-29
 
 ### Complete live-catalog modeler compatibility
