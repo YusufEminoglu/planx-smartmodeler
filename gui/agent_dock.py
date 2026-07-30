@@ -862,10 +862,8 @@ class AgentWorkspaceDock(QDockWidget):
         elif event.kind == RunEventKind.BUDGET_CONFIRMATION:
             answer = QMessageBox.question(
                 self,
-                "Token budget",
-                event.text
-                + "\n\nThe Agent already compressed its working context. "
-                "No additional request has been sent yet.",
+                "Large AI request",
+                event.text,
             )
             if answer == QMessageBox.StandardButton.Yes:
                 self._handle_run_event(self.run_loop.confirm_budget())

@@ -185,6 +185,44 @@ class ValidTurnParsingTests(unittest.TestCase):
         self.assertEqual(call.tool_name, "layer.describe")
         self.assertEqual(call.arguments, {"layer_id": "active-id"})
 
+    def test_normalizes_string_function_with_top_level_parameters(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "kind": "function",
+                    "function": "layer.describe",
+                    "parameters": {"layer_id": "active-id"},
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.tool_name, "layer.describe")
+        self.assertEqual(call.arguments, {"layer_id": "active-id"})
+
+    def test_normalizes_nested_function_parameters_shape(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "function": {
+                        "name": "processing.resolve",
+                        "parameters": {
+                            "algorithm_id": "native:extractbyattribute",
+                        },
+                    }
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.tool_name, "processing.resolve")
+        self.assertEqual(
+            call.arguments,
+            {"algorithm_id": "native:extractbyattribute"},
+        )
+
     def test_normalizes_nested_tool_shape(self) -> None:
         raw = _turn_json(
             ACTION_TOOL_CALLS,
@@ -675,7 +713,7 @@ class ProposalProtocolTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
-    def test_proposal_cannot_also_call_a_tool(self) -> None:
+    def test_proposal_discards_repeated_tool_calls_without_executing_them(self) -> None:
         raw = _turn_json(
             "proposal",
             "here",
@@ -683,8 +721,10 @@ class ProposalProtocolTests(unittest.TestCase):
             proposal_kind="model_patch",
             proposal_json=VALID_MODEL_PATCH_JSON,
         )
-        with self.assertRaises(ProtocolError):
-            parse_agent_turn(raw, 3)
+        turn = parse_agent_turn(raw, 3)
+        self.assertTrue(turn.is_proposal)
+        self.assertEqual(turn.tool_calls, ())
+        self.assertEqual(turn.proposal_kind, "model_patch")
 
     def test_proposal_kind_none_for_proposal_action_rejected(self) -> None:
         raw = _turn_json("proposal", "here", proposal_kind="none", proposal_json=VALID_MODEL_PATCH_JSON)

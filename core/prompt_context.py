@@ -65,10 +65,7 @@ class PromptContextLoader:
             )
         ):
             names.append("16_OSM.md")
-        if power_enabled and any(
-            term in folded
-            for term in ("sql", "postgis", "geopackage", "python", "pyqgis", "script")
-        ):
+        if power_enabled:
             names.append("25_POWER_MODE.md")
         return self._selected_context(names)
 

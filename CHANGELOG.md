@@ -2,6 +2,35 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.4] - 2026-07-30
+
+### Changed
+
+- Remove the 24,000 estimated-token hard stop and replace frequent 12,000-token
+  confirmations with milestone notices: first at 300,000 cumulative estimated
+  task input tokens, then each additional 100,000, plus any single next request
+  estimated at 100,000 or more.
+- Keep the compact Power Mode instruction pack and its bounded database/script
+  discovery tools advertised whenever Power Mode is enabled.
+- Reuse identical successful read-only tool results across provider turns in
+  the same run, preserving the latest result while avoiding repeated QGIS work
+  and tool-call quota consumption.
+
+### Fixed
+
+- Normalize provider calls that put a tool name directly in `function`, accept
+  nested `parameters`, and safely discard repeated tool calls attached to a
+  terminal proposal instead of rejecting the proposal.
+- Add compact attribute-filter and layer-style proposal shapes so the Agent
+  proposes immediately after successful inspection instead of repeatedly
+  listing layers or falsely claiming that styling is unavailable.
+
+### Testing
+
+- Extend the QGIS 3.44/4.2 filter regression with repeated-call reuse,
+  string-function aliases, proposal-plus-tool-calls, and the final temporary
+  two-feature `low` output; rerun the full Power Mode acceptance workflow.
+
 ## [0.18.3] - 2026-07-30
 
 ### Fixed

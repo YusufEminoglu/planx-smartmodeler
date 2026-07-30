@@ -34,6 +34,21 @@ Processing:
 "title":"...","summary":"...","inputs":{"INPUT":{"layer":"id"}},
 "warnings":[]}`
 
+Attribute filter:
+`native:extractbyattribute` with `INPUT:{"layer":"id"}`,
+`FIELD:{"field":"exact_name","layer_param":"INPUT"}`, `OPERATOR:{"enum":0}`,
+and `VALUE:{"string":"user value"}`. A successful `processing.resolve` is
+enough; propose immediately and do not inspect the same layer again.
+
+Layer style:
+`{"schema_version":1,"context_token":"...","target_layer_id":"id",
+"title":"...","summary":"...","renderer":{"family":"single_symbol",
+"field":"","class_count":1,"palette":["#2F80ED"],"opacity":1.0},
+"labels":{"enabled":false,"field":""},"warnings":[]}`.
+`layer.style` is the required read-only receipt inspection; after it succeeds,
+return a `layer_style` proposal. Never claim that styling is unavailable merely
+because the inspection tool itself is read-only.
+
 Model run:
 `{"schema_version":1,"context_token":"...","title":"...","summary":"...",
 "warnings":[]}`

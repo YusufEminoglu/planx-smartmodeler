@@ -79,6 +79,29 @@ class ScopeFilterTests(unittest.TestCase):
         self.assertNotIn("database.list", selected_names)
         self.assertNotIn("script.list", selected_names)
 
+    def test_enabled_power_mode_always_advertises_its_discovery_tools(self) -> None:
+        names = (
+            "project.summary", "layer.list", "layer.describe",
+            "database.list", "database.describe",
+            "script.list", "script.describe",
+        )
+        tools = [make_tool(name, [AgentScope.PROJECT]) for name in names]
+        selected = select_tools_for_request(
+            tools,
+            AgentScope.PROJECT,
+            "hazır",
+            power_enabled=True,
+        )
+        selected_names = {item.name for item in selected}
+        self.assertTrue(
+            {
+                "database.list",
+                "database.describe",
+                "script.list",
+                "script.describe",
+            } <= selected_names
+        )
+
     def test_osm_request_routes_to_one_processing_discovery_pack(self) -> None:
         names = (
             "project.summary", "layer.list", "processing.resolve",

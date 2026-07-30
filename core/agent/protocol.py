@@ -27,8 +27,12 @@ from .proposals import (
     ALL_PROPOSAL_KINDS,
     MAX_PROPOSAL_JSON_CHARS,
     PROPOSABLE_KINDS,
+    PROPOSAL_KIND_LAYER_STYLE,
     PROPOSAL_KIND_NONE,
     PROPOSAL_KIND_PROCESSING_RUN,
+    PROPOSAL_KIND_PYTHON_RUN,
+    PROPOSAL_KIND_SQL_RUN,
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
     ProposalError,
     parse_proposal,
 )
@@ -55,6 +59,12 @@ _PROPOSAL_KIND_ALIASES = {
     # This is a spelling-only normalization to the same locally validated,
     # inert processing_run proposal contract.
     "processing": PROPOSAL_KIND_PROCESSING_RUN,
+    "style": PROPOSAL_KIND_LAYER_STYLE,
+    "sql": PROPOSAL_KIND_SQL_RUN,
+    "python": PROPOSAL_KIND_PYTHON_RUN,
+    "pyqgis": PROPOSAL_KIND_PYTHON_RUN,
+    "script": PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+    "trusted_script": PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
 }
 _TOOL_CALL_MARKERS = frozenset({"function", "tool", "tool_call"})
 
@@ -216,13 +226,20 @@ def _nested_tool_parts(value: Any, index: int, label: str) -> Tuple[Any, Any]:
     if not isinstance(value, dict):
         raise ProtocolError(f"tool_calls[{index}].{label} must be an object.")
     keys = frozenset(value)
-    expected = frozenset({"name", "arguments"})
-    if keys != expected:
+    argument_keys = ("arguments", "arguments_json", "args", "parameters")
+    allowed = frozenset(("name",) + argument_keys)
+    unknown = keys - allowed
+    if unknown or "name" not in keys:
         raise ProtocolError(
             f"tool_calls[{index}].{label} has unexpected or missing fields: "
-            f"{sorted(keys ^ expected)}."
+            f"{sorted(unknown | (frozenset({'name'}) - keys))}."
         )
-    return value["name"], value["arguments"]
+    arguments = _one_alias(
+        [(key, value[key]) for key in argument_keys if key in value],
+        index,
+        f"{label} arguments",
+    )
+    return value["name"], arguments
 
 
 def _normalize_tool_call(item: Dict[str, Any], index: int) -> Tuple[str, str, Any]:
@@ -254,11 +271,15 @@ def _normalize_tool_call(item: Dict[str, Any], index: int) -> Tuple[str, str, An
         if key in item
     ]
     if "function" in item:
-        nested_name, nested_arguments = _nested_tool_parts(
-            item["function"], index, "function"
-        )
-        tool_candidates.append(("function.name", nested_name))
-        arguments_candidates.append(("function.arguments", nested_arguments))
+        function_value = item["function"]
+        if isinstance(function_value, str):
+            tool_candidates.append(("function", function_value))
+        else:
+            nested_name, nested_arguments = _nested_tool_parts(
+                function_value, index, "function"
+            )
+            tool_candidates.append(("function.name", nested_name))
+            arguments_candidates.append(("function.arguments", nested_arguments))
     if "tool" in item and isinstance(item["tool"], dict):
         nested_name, nested_arguments = _nested_tool_parts(
             item["tool"], index, "tool"
@@ -411,7 +432,10 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
         return AgentTurn(action=ACTION_FINAL, assistant_text=assistant_text, tool_calls=())
 
     if action == ACTION_PROPOSAL:
-        _require_no_tool_calls(tool_calls_data, "A proposal turn must not include tool calls.")
+        # Some providers repeat their last read-only calls beside a terminal
+        # proposal. Dropping those calls is authority-reducing: they are never
+        # parsed or executed, while the inert proposal still passes the full
+        # proposal parser, receipt validation and live runtime boundary.
         if not assistant_text.strip():
             raise ProtocolError("A proposal turn must include a non-empty assistant_text.")
         if proposal_kind not in PROPOSABLE_KINDS:

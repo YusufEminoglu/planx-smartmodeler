@@ -46,12 +46,16 @@ class PromptContextTests(unittest.TestCase):
         python_on = loader.agent_context(
             "Run a PyQGIS script", "project", power_enabled=True
         )
+        generic_power_on = loader.agent_context(
+            "hazır", "project", power_enabled=True
+        )
         self.assertIn("SmartModeler Agent core contract", basic)
         self.assertNotIn("# QGIS expressions", basic)
         self.assertIn("# QGIS expressions", expression)
         self.assertIn("# OSM acquisition", osm)
         self.assertNotIn("# Power Mode", python_off)
         self.assertIn("# Power Mode", python_on)
+        self.assertIn("# Power Mode", generic_power_on)
         self.assertLess(len(basic), 5_000)
 
 

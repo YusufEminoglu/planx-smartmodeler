@@ -184,12 +184,13 @@ class BasicLifecycleTests(unittest.TestCase):
 
 
 class LimitTests(unittest.TestCase):
-    def test_soft_token_budget_requires_confirmation_before_provider_request(self) -> None:
+    def test_single_large_turn_requires_confirmation_before_provider_request(self) -> None:
         loop, _, _, _ = build_loop()
         with patch(
-            "planx_smartmodeler.core.agent.run_loop.SOFT_RUN_INPUT_TOKENS", 1
+            "planx_smartmodeler.core.agent.run_loop.SINGLE_TURN_WARNING_TOKENS", 1
         ), patch(
-            "planx_smartmodeler.core.agent.run_loop.ABSOLUTE_RUN_INPUT_TOKENS", 100_000
+            "planx_smartmodeler.core.agent.run_loop.TOTAL_TOKEN_WARNING_START",
+            1_000_000,
         ):
             event = loop.start("hello", AgentMode.ASK, AgentScope.PROJECT)
             self.assertEqual(event.kind, RunEventKind.BUDGET_CONFIRMATION)
@@ -199,15 +200,50 @@ class LimitTests(unittest.TestCase):
             self.assertEqual(released.kind, RunEventKind.REQUEST_PROVIDER)
             self.assertGreater(loop.estimated_input_tokens, 0)
 
-    def test_absolute_token_budget_stops_before_provider_request(self) -> None:
-        loop, _, _, _ = build_loop()
+    def test_cumulative_warning_occurs_once_per_100k_milestone(self) -> None:
+        loop, _, _, _ = build_loop(AgentRunLimits(max_turns=5))
         with patch(
-            "planx_smartmodeler.core.agent.run_loop.ABSOLUTE_RUN_INPUT_TOKENS", 1
+            "planx_smartmodeler.core.agent.run_loop.TOTAL_TOKEN_WARNING_START", 1
+        ), patch(
+            "planx_smartmodeler.core.agent.run_loop.TOTAL_TOKEN_WARNING_STEP",
+            100_000,
+        ), patch(
+            "planx_smartmodeler.core.agent.run_loop.SINGLE_TURN_WARNING_TOKENS",
+            1_000_000,
         ):
-            event = loop.start("hello", AgentMode.ASK, AgentScope.PROJECT)
-        self.assertEqual(event.kind, RunEventKind.FAILED)
-        self.assertEqual(event.reason_code, "absolute_token_budget_exceeded")
-        self.assertIsNone(event.request)
+            first = loop.start("hello", AgentMode.ASK, AgentScope.PROJECT)
+            self.assertEqual(first.kind, RunEventKind.BUDGET_CONFIRMATION)
+            released = loop.confirm_budget()
+            second = loop.submit_provider_response(
+                released.request.request_token,
+                tool_calls_turn_json([("c1", "test.echo", "{}")]),
+            )
+            self.assertEqual(second.kind, RunEventKind.REQUEST_PROVIDER)
+            loop._estimated_input_tokens = 100_000
+            third = loop.submit_provider_response(
+                second.request.request_token,
+                tool_calls_turn_json([("c2", "test.echo", "{}")]),
+            )
+            self.assertEqual(third.kind, RunEventKind.BUDGET_CONFIRMATION)
+            self.assertIn("100,001-token", third.text)
+
+    def test_large_cumulative_total_is_never_an_absolute_block(self) -> None:
+        loop, _, _, _ = build_loop(AgentRunLimits(max_turns=3))
+        with patch(
+            "planx_smartmodeler.core.agent.run_loop.TOTAL_TOKEN_WARNING_START",
+            1_000_000_000,
+        ), patch(
+            "planx_smartmodeler.core.agent.run_loop.SINGLE_TURN_WARNING_TOKENS",
+            1_000_000_000,
+        ):
+            first = loop.start("hello", AgentMode.ASK, AgentScope.PROJECT)
+            loop._estimated_input_tokens = 500_000
+            second = loop.submit_provider_response(
+                first.request.request_token,
+                tool_calls_turn_json([("c1", "test.echo", "{}")]),
+            )
+        self.assertEqual(second.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertNotEqual(second.reason_code, "absolute_token_budget_exceeded")
 
     def test_max_turns_limit_stops_the_run(self) -> None:
         loop, _, _, _ = build_loop(AgentRunLimits(max_turns=1))
@@ -231,7 +267,7 @@ class LimitTests(unittest.TestCase):
         self.assertEqual(event2.kind, RunEventKind.REQUEST_PROVIDER)
         token2 = event2.request.request_token
         event3 = loop.submit_provider_response(
-            token2, tool_calls_turn_json([("c2", "test.echo", "{}")])
+            token2, tool_calls_turn_json([("c2", "test.mutate", "{}")])
         )
         self.assertEqual(event3.kind, RunEventKind.FAILED)
         self.assertEqual(event3.reason_code, "run_call_limit_exceeded")
@@ -273,7 +309,15 @@ class DuplicateCallIdTests(unittest.TestCase):
             token2, tool_calls_turn_json([("c1", "test.echo", "{}")])
         )
         self.assertNotEqual(event3.kind, RunEventKind.FAILED)
-        self.assertEqual(len(echo_handler.calls), 2)
+        self.assertEqual(len(echo_handler.calls), 1)
+        self.assertEqual(loop.tool_calls_used, 1)
+        reused = [
+            item
+            for item in event3.tool_events
+            if item["kind"] == "tool_result"
+        ]
+        self.assertEqual(len(reused), 1)
+        self.assertTrue(reused[0]["reused"])
 
     def test_a_reused_call_id_is_disambiguated_in_the_run_trace(self) -> None:
         loop, _, _, _ = build_loop(AgentRunLimits(max_turns=5))
@@ -439,7 +483,13 @@ class AtomicCallBatchTests(unittest.TestCase):
         # batch is rejected atomically and NEITHER handler runs.
         token2 = event2.request.request_token
         event3 = loop.submit_provider_response(
-            token2, tool_calls_turn_json([("c3", "test.echo", "{}"), ("c4", "test.echo", "{}")])
+            token2,
+            tool_calls_turn_json(
+                [
+                    ("c3", "test.mutate", "{}"),
+                    ("c4", "does.not_exist", "{}"),
+                ]
+            ),
         )
         self.assertEqual(event3.kind, RunEventKind.FAILED)
         self.assertEqual(event3.reason_code, "run_call_limit_exceeded")

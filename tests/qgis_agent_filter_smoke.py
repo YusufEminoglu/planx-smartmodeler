@@ -18,8 +18,8 @@ def _tool_turn() -> str:
             "tool_calls": [
                 {
                     "kind": "function",
-                    "name": "layer.list",
-                    "arguments": {},
+                    "function": "layer.list",
+                    "parameters": {},
                 },
                 {
                     "tool": "processing.resolve",
@@ -136,6 +136,39 @@ def main() -> int:
                 raise RuntimeError("Resolved algorithm omitted its proposal receipt.")
             context_token = resolved["context_token"]
 
+            repeated = loop.submit_provider_response(
+                inspected.request.request_token,
+                json.dumps(
+                    {
+                        "action": "tool_calls",
+                        "assistant_text": "Checking the active layer again.",
+                        "tool_calls": [
+                            {
+                                "function": "layer.list",
+                                "parameters": {},
+                            }
+                        ],
+                        "proposal_kind": "none",
+                        "proposal_json": "",
+                    }
+                ),
+            )
+            if repeated.kind != RunEventKind.REQUEST_PROVIDER:
+                raise RuntimeError("A repeated successful inspection ended the run.")
+            reused_events = [
+                event
+                for event in repeated.tool_events
+                if event.get("kind") == "tool_result"
+            ]
+            if (
+                loop.tool_calls_used != 2
+                or len(reused_events) != 1
+                or not reused_events[0].get("reused")
+            ):
+                raise RuntimeError(
+                    "A repeated successful inspection consumed another tool call."
+                )
+
             proposal_json = json.dumps(
                 {
                     "schema_version": 1,
@@ -159,13 +192,18 @@ def main() -> int:
                 {
                     "action": "proposal",
                     "assistant_text": "The active-layer filter is ready to review.",
-                    "tool_calls": [],
+                    "tool_calls": [
+                        {
+                            "function": "layer.list",
+                            "parameters": {},
+                        }
+                    ],
                     "proposal_kind": "processing",
                     "proposal_json": proposal_json,
                 }
             )
             proposal_event = loop.submit_provider_response(
-                inspected.request.request_token, proposal_turn
+                repeated.request.request_token, proposal_turn
             )
             if proposal_event.kind != RunEventKind.PROPOSAL:
                 raise RuntimeError(

@@ -48,8 +48,9 @@ ProposalValidator = Callable[[str, Any, str, str], ProposalValidation]
 InstructionProvider = Callable[[str, str, bool], str]
 PowerEnabledProvider = Callable[[], bool]
 
-SOFT_RUN_INPUT_TOKENS = 12_000
-ABSOLUTE_RUN_INPUT_TOKENS = 24_000
+TOTAL_TOKEN_WARNING_START = 300_000
+TOTAL_TOKEN_WARNING_STEP = 100_000
+SINGLE_TURN_WARNING_TOKENS = 100_000
 
 # Which application-owned scope each proposal kind is compatible with.
 _PROPOSAL_SCOPES = {
@@ -80,6 +81,16 @@ _LIMIT_REASON_CODES = (
     "turn_call_limit_exceeded",
     "no_active_turn",
 )
+
+
+def _total_warning_milestone(projected_tokens: int) -> int:
+    """Return the latest 300k/100k cumulative warning milestone reached."""
+    if projected_tokens < TOTAL_TOKEN_WARNING_START:
+        return 0
+    steps = (
+        projected_tokens - TOTAL_TOKEN_WARNING_START
+    ) // TOTAL_TOKEN_WARNING_STEP
+    return TOTAL_TOKEN_WARNING_START + steps * TOTAL_TOKEN_WARNING_STEP
 
 
 class RunLoopError(ValueError):
@@ -183,7 +194,13 @@ class AgentRunLoop:
         self._seen_call_ids: set = set()
         self._estimated_input_tokens = 0
         self._pending_budget_request: Optional[ProviderRequest] = None
+        self._pending_budget_milestone = 0
+        self._acknowledged_budget_milestone = 0
         self._turn_events: List[Dict[str, Any]] = []
+        # Successful read-only results are reused only within this active run.
+        # A new user message resets the cache, so active-layer/project changes
+        # between requests are always re-inspected.
+        self._successful_tool_results: Dict[Tuple[str, str], Dict[str, Any]] = {}
         # Freshness receipts observed during this run. They come only from
         # trusted read-only tool results and are used solely by the narrow
         # proposal-recovery path; starting another run discards them so a
@@ -264,6 +281,12 @@ class AgentRunLoop:
         if not self.is_active() or request is None:
             raise RunLoopError("There is no provider request waiting for token approval.")
         self._pending_budget_request = None
+        if self._pending_budget_milestone:
+            self._acknowledged_budget_milestone = max(
+                self._acknowledged_budget_milestone,
+                self._pending_budget_milestone,
+            )
+        self._pending_budget_milestone = 0
         self._estimated_input_tokens += request.estimated_input_tokens
         return RunEvent(kind=RunEventKind.REQUEST_PROVIDER, request=request)
 
@@ -330,8 +353,13 @@ class AgentRunLoop:
         # remains) is rejected without any partial execution. The controller's
         # per-call note_tool_call() remains the authoritative counter and
         # defense-in-depth check.
+        call_keys = [self._tool_cache_key(call) for call in turn.tool_calls]
+        cached_before_turn = dict(self._successful_tool_results)
+        new_call_count = sum(
+            key not in cached_before_turn for key in call_keys
+        )
         try:
-            self._run_state.check_capacity(len(turn.tool_calls))
+            self._run_state.check_capacity(new_call_count)
         except RunLimitExceededError as error:
             return self._fail(
                 "The configured tool-call limit for this run was reached.",
@@ -344,40 +372,65 @@ class AgentRunLoop:
             self._turn_events.append(note)
             this_turn_events.append(note)
 
-        for call in turn.tool_calls:
+        for call, cache_key in zip(turn.tool_calls, call_keys):
             trace_call_id = self._trace_call_id(call.call_id)
-            # approved=False is always supplied by this trusted application
-            # code; provider output can never set, infer, or influence it.
-            result = self.controller.execute(
-                call, self._mode, self._scope, run_state=self._run_state, approved=False
-            )
-            result_dict = result.to_dict()
+            # Reuse only results from an earlier provider turn. Duplicate
+            # calls inside one batch retain atomic execution/count semantics.
+            cached_result = cached_before_turn.get(cache_key)
+            reused = cached_result is not None
+            if reused:
+                result_dict = dict(cached_result)
+            else:
+                # approved=False is always supplied by this trusted
+                # application code; provider output can never influence it.
+                result = self.controller.execute(
+                    call,
+                    self._mode,
+                    self._scope,
+                    run_state=self._run_state,
+                    approved=False,
+                )
+                result_dict = result.to_dict()
+                if result.status == AgentResultStatus.SUCCESS:
+                    self._successful_tool_results[cache_key] = dict(result_dict)
             self._remember_proposal_receipt(call.tool_name, result_dict)
             event_dict = {
                 "kind": "tool_result",
                 "tool_name": call.tool_name,
                 "call_id": trace_call_id,
+                "reused": reused,
                 "result": result_dict,
             }
             self._turn_events.append(event_dict)
             this_turn_events.append(event_dict)
-            if result.status == AgentResultStatus.APPROVAL_REQUIRED:
+            if result_dict.get("status") == AgentResultStatus.APPROVAL_REQUIRED:
                 return self._fail(
                     "This action requires approval, which Agent Chat cannot grant "
                     "in this phase.",
                     "approval_required",
                     tool_events=tuple(this_turn_events),
                 )
-            if result.reason_code in _LIMIT_REASON_CODES:
+            if result_dict.get("reason_code") in _LIMIT_REASON_CODES:
                 return self._fail(
                     "The configured tool-call limit for this run was reached.",
-                    result.reason_code,
+                    str(result_dict.get("reason_code")),
                     tool_events=tuple(this_turn_events),
                 )
 
         return self._advance_turn(
             assistant_text=turn.assistant_text, tool_events=tuple(this_turn_events)
         )
+
+    @staticmethod
+    def _tool_cache_key(call: AgentToolCall) -> Tuple[str, str]:
+        """Return a deterministic semantic key for one read-only tool call."""
+        arguments = json.dumps(
+            call.arguments,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return call.tool_name, arguments
 
     def _remember_proposal_receipt(
         self, tool_name: str, result: Dict[str, Any]
@@ -560,20 +613,28 @@ class AgentRunLoop:
             },
         )
         projected = self._estimated_input_tokens + estimated_tokens
-        if projected > ABSOLUTE_RUN_INPUT_TOKENS:
-            return self._fail(
-                "The absolute 24,000 estimated input-token limit for this task "
-                "was reached. Start a new chat or narrow the request.",
-                "absolute_token_budget_exceeded",
-                tool_events=tool_events,
-            )
-        if projected > SOFT_RUN_INPUT_TOKENS:
+        milestone = _total_warning_milestone(projected)
+        warn_for_total = milestone > self._acknowledged_budget_milestone
+        warn_for_turn = estimated_tokens >= SINGLE_TURN_WARNING_TOKENS
+        if warn_for_total or warn_for_turn:
             self._pending_budget_request = request
+            self._pending_budget_milestone = milestone
+            reasons = []
+            if warn_for_turn:
+                reasons.append(
+                    f"the next request alone is estimated at "
+                    f"{estimated_tokens:,} input tokens"
+                )
+            if warn_for_total:
+                reasons.append(
+                    f"this task would cross the {milestone:,}-token "
+                    f"cumulative warning milestone"
+                )
             return RunEvent(
                 kind=RunEventKind.BUDGET_CONFIRMATION,
                 text=(
-                    f"The next AI turn is estimated at {estimated_tokens:,} input "
-                    f"tokens and would bring this task to {projected:,}. Continue?"
+                    f"Token notice: {'; and '.join(reasons)}. "
+                    f"Projected task total: {projected:,}. Continue?"
                 ),
                 tool_events=tool_events,
             )

@@ -3,11 +3,11 @@ name=SmartModeler GIS
 qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.18.3
+version=0.18.4
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
-about=SmartModeler GIS is a QGIS 4 visual Processing studio with typed workflows, native .model3 interchange, validated AI planning, reviewed temporary-layer Processing runs, first-class QGIS expressions, and bounded OSM acquisition. Agent Workspace uses compact intent-routed prompts and read-only metadata tools; proposals remain inert until an explicit Apply or Run click. Optional Power Mode is off by default and adds full-source SQL, trusted-script, and generated PyQGIS approval cards. Database writes and live in-process Python require a second confirmation; isolated Python uses a cancellable timeout-bounded QGIS subprocess but is not a security sandbox. Connection URIs, credentials, source paths, feature values, and API secrets are not sent as tool metadata. Provider-reported last-request, chat, and cached input usage is visible, with a local preflight estimate and per-task soft and absolute budgets. The 02Agent Urban Context preset can obtain roads, buildings, and trees in one reviewed run when installed; built-in geometry-specific OSM tools remain available. API keys use session memory or the optional encrypted QGIS vault. No pip dependencies are required.
+about=SmartModeler GIS is a QGIS 4 visual Processing studio with typed workflows, native .model3 interchange, validated AI planning, reviewed temporary-layer Processing runs, first-class QGIS expressions, and bounded OSM acquisition. Agent Workspace uses compact intent-routed prompts and read-only metadata tools; proposals remain inert until an explicit Apply or Run click. Optional Power Mode is off by default and adds full-source SQL, trusted-script, and generated PyQGIS approval cards. Database writes and live in-process Python require a second confirmation; isolated Python uses a cancellable timeout-bounded QGIS subprocess but is not a security sandbox. Connection URIs, credentials, source paths, feature values, and API secrets are not sent as tool metadata. Provider-reported last-request, chat, and cached input usage is visible, with a local preflight estimate and milestone-based large-request notices that never impose an absolute token stop. The 02Agent Urban Context preset can obtain roads, buildings, and trees in one reviewed run when installed; built-in geometry-specific OSM tools remain available. API keys use session memory or the optional encrypted QGIS vault. No pip dependencies are required.
 
 tracker=https://github.com/YusufEminoglu/planx-smartmodeler/issues
 repository=https://github.com/YusufEminoglu/planx-smartmodeler
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    0.18.4 - Replace low token blocks with 300k/100k notices, reuse repeated inspections, harden provider proposal aliases, and keep Power Mode capabilities available.
     0.18.3 - Preserve Processing tools across short follow-ups and accept bounded kind/processing provider aliases.
     0.18.2 - Accept the provider-emitted parameters tool-call alias with strict conflict and argument validation.
     0.18.1 - Accept safe provider tool-call aliases and route active-layer attribute filters to a reviewed temporary-layer run.

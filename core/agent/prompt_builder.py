@@ -229,14 +229,18 @@ def select_tools_for_request(
         for term in ("style", "symbol", "label", "renderer", "stil", "sembol", "etiket")
     ):
         wanted.update(("layer.list", "layer.describe", "layer.style"))
-    if power_enabled and any(
-        term in folded for term in ("sql", "postgis", "geopackage", "database", "veritaban")
-    ):
-        wanted.update(("database.list", "database.describe"))
-    if power_enabled and any(
-        term in folded for term in ("python", "pyqgis", "script", "betik")
-    ):
-        wanted.update(("script.list", "script.describe"))
+    if power_enabled:
+        # Power Mode is an explicit user choice. Keep its bounded read-only
+        # discovery tools advertised for the full Project-scope run, including
+        # short follow-ups where the current message no longer says SQL/Python.
+        wanted.update(
+            (
+                "database.list",
+                "database.describe",
+                "script.list",
+                "script.describe",
+            )
+        )
 
     # An unknown project request still needs one discovery route, but not the
     # entire registry.

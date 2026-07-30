@@ -159,8 +159,11 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   and **cached input** counts; hover for input/output/total and the conservative
   local estimate. The Agent sends only a compact core prompt plus intent-specific
   expression, OSM, or Power packs, advertises only the relevant tools, retains
-  six bounded exchanges, compresses tool traces, caps structured output, asks
-  before a task crosses 12,000 estimated input tokens, and stops at 24,000.
+  six bounded exchanges, compresses tool traces, and caps structured output.
+  It never blocks a task solely because of the local estimate. Confirmation is
+  requested only when a task crosses 300,000 estimated input tokens, at each
+  subsequent 100,000-token milestone, or when one next request alone is
+  estimated at 100,000 tokens or more.
 - Reviewed optional Processing result sinks remain signature-checked but are
   left unset unless they are the requested output. For example, **Extract by
   attribute** adds the matching temporary layer without also cluttering the
