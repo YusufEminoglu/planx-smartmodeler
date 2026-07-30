@@ -15,7 +15,13 @@ from planx_smartmodeler.tests.qgis_stubs import ensure_qgis_core
 qgis_module, _core_module = ensure_qgis_core()
 
 from planx_smartmodeler.core.agent import runtime_tools  # noqa: E402
-from planx_smartmodeler.core.agent.contracts import AgentToolCall  # noqa: E402
+from planx_smartmodeler.core.agent.contracts import (  # noqa: E402
+    AgentMode,
+    AgentResultStatus,
+    AgentScope,
+    AgentToolCall,
+)
+from planx_smartmodeler.core.agent.controller import AgentController  # noqa: E402
 from planx_smartmodeler.core.agent.context_tokens import ContextTokenService  # noqa: E402
 
 
@@ -134,9 +140,10 @@ class DefaultRegistryTests(unittest.TestCase):
     schemas after the second-review contract corrections (immutable schemas,
     the stricter shape validator, and serialization-safe results).
 
-    The set grew from eight (Phase 01) to twelve (Phase 06) to thirteen
-    with live built-in QGIS expression help. Attribute-value inspection is
-    deliberately absent because provider tool results are metadata-only.
+    The set grew from eight (Phase 01) to eighteen with expression, one-step
+    Processing resolution, and default-off Power metadata tools.
+    Attribute-value inspection is deliberately absent because provider tool
+    results are metadata-only.
     It is asserted as an exact set, so an accidental extra tool fails here."""
 
     EXPECTED_TOOL_NAMES = frozenset(
@@ -146,6 +153,7 @@ class DefaultRegistryTests(unittest.TestCase):
             "layer.describe",
             "processing.search",
             "processing.describe",
+            "processing.resolve",
             "expression.search",
             "model.summary",
             "model.validate",
@@ -154,6 +162,10 @@ class DefaultRegistryTests(unittest.TestCase):
             "model.describe",
             "plugin.describe",
             "plugin.capabilities",
+            "database.list",
+            "database.describe",
+            "script.list",
+            "script.describe",
         }
     )
 
@@ -181,6 +193,57 @@ class DefaultRegistryTests(unittest.TestCase):
         self.assertNotEqual(
             fresh["input_schema"]["properties"]["layer_id"]["maxLength"], 999999
         )
+
+    def test_trusted_script_description_never_exposes_parameter_defaults(self) -> None:
+        item = types.SimpleNamespace(
+            script_id="script-id",
+            name="Safe script",
+            description="One managed script",
+            script_hash="a" * 64,
+            parameters={
+                "api_key": {
+                    "type": "string",
+                    "description": "Provider credential",
+                    "required": True,
+                    "default": "SENTINEL_SECRET",
+                },
+                "output_path": r"C:\private\result.gpkg",
+            },
+        )
+
+        class Library:
+            def list(self):
+                return (item,)
+
+            def get(self, script_id):
+                if script_id != item.script_id:
+                    raise ValueError("missing")
+                return item
+
+        class Resources:
+            def issue(self, *_args):
+                return "opaque-token"
+
+        registry = runtime_tools.build_default_registry(
+            lambda: None,
+            power_enabled_provider=lambda: True,
+            power_resources=Resources(),
+            script_library=Library(),
+        )
+        result = AgentController(registry).execute(
+            AgentToolCall(
+                call_id="script",
+                tool_name="script.describe",
+                arguments={"script_id": "script-id"},
+            ),
+            AgentMode.PLAN,
+            AgentScope.PROJECT,
+        )
+        self.assertEqual(result.status, AgentResultStatus.SUCCESS)
+        serialized = str(result.data)
+        self.assertNotIn("SENTINEL_SECRET", serialized)
+        self.assertNotIn("private", serialized)
+        self.assertIn("Provider credential", serialized)
 
 
 class PluginDescribeTests(unittest.TestCase):

@@ -17,6 +17,8 @@ from planx_smartmodeler.core.agent.prompt_builder import (
     SessionExchange,
     SessionMemory,
     build_prompt,
+    estimate_input_tokens,
+    select_tools_for_request,
     select_tools_for_scope,
 )
 
@@ -58,6 +60,43 @@ class ScopeFilterTests(unittest.TestCase):
         selected = select_tools_for_scope([PROJECT_TOOL, MODEL_TOOL], AgentScope.PROJECT)
         self.assertEqual([spec.name for spec in selected], ["project.summary"])
 
+    def test_request_routing_advertises_expression_tools_without_power_tools(self) -> None:
+        names = (
+            "project.summary", "layer.list", "layer.describe",
+            "processing.resolve", "processing.search", "processing.describe",
+            "expression.search", "database.list", "script.list",
+        )
+        tools = [make_tool(name, [AgentScope.PROJECT]) for name in names]
+        selected = select_tools_for_request(
+            tools,
+            AgentScope.PROJECT,
+            "Add floors with rand(1, 15) in field calculator",
+            power_enabled=False,
+        )
+        selected_names = {item.name for item in selected}
+        self.assertIn("processing.resolve", selected_names)
+        self.assertIn("expression.search", selected_names)
+        self.assertNotIn("database.list", selected_names)
+        self.assertNotIn("script.list", selected_names)
+
+    def test_osm_request_routes_to_one_processing_discovery_pack(self) -> None:
+        names = (
+            "project.summary", "layer.list", "processing.resolve",
+            "processing.search", "processing.describe", "plugin.capabilities",
+            "layer.style",
+        )
+        tools = [make_tool(name, [AgentScope.PROJECT]) for name in names]
+        selected = select_tools_for_request(
+            tools,
+            AgentScope.PROJECT,
+            "Ekrandaki alandaki yolları, binaları ve ağaçları indir",
+        )
+        selected_names = {item.name for item in selected}
+        self.assertIn("processing.search", selected_names)
+        self.assertIn("processing.describe", selected_names)
+        self.assertIn("plugin.capabilities", selected_names)
+        self.assertNotIn("layer.style", selected_names)
+
 
 class DeterminismTests(unittest.TestCase):
     def test_identical_inputs_produce_identical_output(self) -> None:
@@ -79,6 +118,15 @@ class UntrustedDataSerializationTests(unittest.TestCase):
 
 
 class BudgetTests(unittest.TestCase):
+    def test_prompt_reports_component_sizes_and_conservative_token_estimate(self) -> None:
+        result = build_prompt(**base_call())
+        self.assertEqual(result.system_chars, len(result.system_prompt))
+        self.assertGreater(result.tool_schema_chars, 0)
+        self.assertEqual(
+            result.estimated_input_tokens,
+            estimate_input_tokens(len(result.system_prompt) + len(result.user_prompt)),
+        )
+
     def test_result_stays_within_max_prompt_chars(self) -> None:
         budget = PromptBudget(max_prompt_chars=5000)
         result = build_prompt(**base_call(budget=budget))

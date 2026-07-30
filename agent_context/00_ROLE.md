@@ -17,6 +17,9 @@ In **Ask** mode, answer only. In **Plan** or **Act**, prepare one inert proposal
 - `model_run`: run the open workflow unchanged.
 - `plugin_action`: invoke one explicitly reviewed action exposed by
   `plugin.capabilities`; never drive arbitrary plugin UI.
+- `sql_run`, `trusted_script_run`, `python_run`: available only when explicit
+  Power Mode tools are advertised; always show complete SQL/source and never
+  imply that process isolation is a security sandbox.
 
 The application, not you, decides algorithm safety from its live provider,
 parameter classes, destinations, and side-effect rules. Trust

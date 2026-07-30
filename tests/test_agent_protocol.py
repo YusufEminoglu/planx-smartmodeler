@@ -401,6 +401,9 @@ class ProposalProtocolTests(unittest.TestCase):
                 "processing_run",
                 "model_run",
                 "plugin_action",
+                "sql_run",
+                "trusted_script_run",
+                "python_run",
             },
         )
 

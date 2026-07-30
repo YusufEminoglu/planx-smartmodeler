@@ -157,6 +157,15 @@ class PendingAction:
         for flag in ("network_access", "temporary_file"):
             if flag in preview:
                 card[flag] = bool(preview[flag])
+        source = preview.get("source")
+        if isinstance(source, str):
+            card["source"] = source[:60_000]
+            card["source_language"] = agent_context.bound_text(
+                preview.get("source_language", ""), 20
+            )
+        for flag in ("second_confirmation", "transaction_support"):
+            if flag in preview:
+                card[flag] = bool(preview[flag])
         return card
 
 

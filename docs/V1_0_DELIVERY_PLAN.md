@@ -14,8 +14,10 @@ models, executes work with explicit ownership and cancellation, and keeps all
 AI/provider authority below application-owned validation and user approval.
 
 V1.0 does not provide unattended autonomy, arbitrary algorithm execution,
-feature-value inspection, arbitrary plugin invocation, direct file/database
-output from Agent Workspace, code/SQL/shell execution, or background approval.
+feature-value inspection, arbitrary plugin invocation, shell execution, or
+background approval. The post-baseline opt-in Power Mode adds reviewed SQL and
+Python/PyQGIS proposals with full-source cards, explicit approval, stronger
+confirmations, bounded subprocess execution, and no claim of sandboxing.
 
 ## Milestones
 

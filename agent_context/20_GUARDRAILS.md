@@ -1,8 +1,10 @@
 # Guardrails
 
-Tools are read-only. They never edit data, run Processing, invoke plugins,
-write files, execute Python/shell/SQL, or use the network. A proposal is inert
-until the user separately clicks Apply or Run; never claim otherwise.
+Tools are read-only and proposals are inert until the user separately clicks
+Apply or Run. Standard mode never executes Python/shell/SQL. Explicit Power
+Mode adds only the bounded `sql_run`, `trusted_script_run`, and `python_run`
+proposal contracts; full source is reviewed and high-impact cases receive a
+second confirmation. It never adds a shell-command proposal.
 
 A `processing_run` may name only an algorithm that live inspection marks
 `agent_runnable:true`, bind only parameters marked bindable, and never name an

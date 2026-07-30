@@ -909,5 +909,90 @@ class InstructionSchemaParityTests(unittest.TestCase):
         self.assertEqual(proposal.title, "Run the current model")
 
 
+class PowerProposalContractTests(unittest.TestCase):
+    @staticmethod
+    def _sql(statement: str, operation: str = "select") -> str:
+        return json.dumps(
+            {
+                "schema_version": 1,
+                "context_token": "db-token",
+                "connection_token": "db-token",
+                "provider": "postgres",
+                "statement": statement,
+                "operation": operation,
+                "output_name": "SQL result",
+                "title": "Run query",
+                "summary": "Run one reviewed statement.",
+                "warnings": [],
+            }
+        )
+
+    def test_sql_accepts_one_statement_with_quoted_or_commented_semicolons(self) -> None:
+        proposal = parse_proposal(
+            "sql_run",
+            self._sql("SELECT ';' AS marker /* ; */; -- trailing comment"),
+        )
+        self.assertEqual(proposal.operation, "select")
+
+    def test_sql_rejects_multiple_statements_and_wrong_operation_class(self) -> None:
+        with self.assertRaises(ProposalError):
+            parse_proposal("sql_run", self._sql("SELECT 1; DROP TABLE buildings"))
+        with self.assertRaises(ProposalError):
+            parse_proposal(
+                "sql_run",
+                self._sql("WITH changed AS (DELETE FROM roads RETURNING *) SELECT * FROM changed"),
+            )
+
+    def test_sql_classifies_write_cte_without_matching_string_literals(self) -> None:
+        proposal = parse_proposal(
+            "sql_run",
+            self._sql(
+                "WITH changed AS (DELETE FROM roads RETURNING *) SELECT * FROM changed",
+                operation="write",
+            ),
+        )
+        self.assertEqual(proposal.operation, "write")
+        harmless = parse_proposal(
+            "sql_run",
+            self._sql("WITH labels AS (SELECT 'delete' AS text) SELECT * FROM labels"),
+        )
+        self.assertEqual(harmless.operation, "select")
+
+    def test_python_contract_rejects_duplicate_inputs_and_invalid_timeout(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "context_token": "python-token",
+            "source": "print('ok')",
+            "execution_mode": "subprocess",
+            "input_layer_ids": ["layer-a", "layer-a"],
+            "timeout_seconds": 120,
+            "output_names": [],
+            "title": "Run Python",
+            "summary": "Run bounded generated code.",
+            "warnings": [],
+        }
+        with self.assertRaises(ProposalError):
+            parse_proposal("python_run", json.dumps(payload))
+        payload["input_layer_ids"] = []
+        payload["timeout_seconds"] = 9
+        with self.assertRaises(ProposalError):
+            parse_proposal("python_run", json.dumps(payload))
+
+    def test_trusted_script_requires_exact_sha256_digest(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "context_token": "script-token",
+            "script_id": "script-id",
+            "script_hash": "not-a-hash",
+            "execution_mode": "subprocess",
+            "parameters": {},
+            "title": "Run script",
+            "summary": "Run a trusted script.",
+            "warnings": [],
+        }
+        with self.assertRaises(ProposalError):
+            parse_proposal("trusted_script_run", json.dumps(payload))
+
+
 if __name__ == "__main__":
     unittest.main()

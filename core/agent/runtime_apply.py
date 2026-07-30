@@ -44,13 +44,22 @@ from .proposals import (
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PROCESSING_RUN,
     PROPOSAL_KIND_PLUGIN_ACTION,
+    PROPOSAL_KIND_PYTHON_RUN,
+    PROPOSAL_KIND_SQL_RUN,
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
     ProposalError,
     ProposalReason,
     apply_model_patch_to_clone,
 )
 
 # The two execution kinds whose Undo removes the run's own result layers.
-RUN_KINDS = (PROPOSAL_KIND_PROCESSING_RUN, PROPOSAL_KIND_MODEL_RUN)
+RUN_KINDS = (
+    PROPOSAL_KIND_PROCESSING_RUN,
+    PROPOSAL_KIND_MODEL_RUN,
+    PROPOSAL_KIND_SQL_RUN,
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+    PROPOSAL_KIND_PYTHON_RUN,
+)
 # A single reviewed run cannot legitimately produce more results than this.
 MAX_UNDOABLE_RESULT_LAYERS = 20
 

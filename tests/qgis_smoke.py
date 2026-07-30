@@ -1215,6 +1215,7 @@ def run_checks() -> str:
             "layer.describe",
             "processing.search",
             "processing.describe",
+            "processing.resolve",
             "expression.search",
             "model.summary",
             "model.validate",
@@ -1223,6 +1224,10 @@ def run_checks() -> str:
             "model.describe",
             "plugin.describe",
             "plugin.capabilities",
+            "database.list",
+            "database.describe",
+            "script.list",
+            "script.describe",
         }
         empty_dock = AgentWorkspaceDock(None, lambda: None)
         registry_tool_names = {spec.name for spec in empty_dock.registry.list_specs()}
@@ -2316,14 +2321,14 @@ def run_checks() -> str:
                 raise RuntimeError(f"plugin.capabilities failed for {package_name}.")
             return outcome.data
 
-        # The V1 registry is exactly thirteen read-only, value-private tools.
+        # The registry includes fourteen core and four default-denied Power tools.
         tool_names = {d["name"] for d in caps_dock.registry.public_tool_descriptions()}
         if (
-            len(tool_names) != 13
+            len(tool_names) != 18
             or "plugin.capabilities" not in tool_names
             or "expression.search" not in tool_names
         ):
-            raise RuntimeError(f"Expected the thirteen-tool V1 registry, got {len(tool_names)}.")
+            raise RuntimeError(f"Expected the eighteen-tool registry, got {len(tool_names)}.")
 
         # An unknown package is reported honestly, never invented.
         unknown = _capabilities("definitely_not_a_real_plugin_xyz")
@@ -2706,9 +2711,11 @@ def run_checks() -> str:
         final_status = chat_dock.status_label.text()
         if "tool call" not in final_status or "turn" not in final_status.lower():
             raise RuntimeError("Agent Chat did not render turn/tool-call usage in its status.")
-        chat_dock._on_token_usage(AiTokenUsage(80, 12, 95))
-        if chat_dock.token_usage_label.text() != "Input 80 · Output 12":
+        chat_dock._on_token_usage(AiTokenUsage(80, 12, 95, 24))
+        if chat_dock.token_usage_label.text() != "Last 80 · Chat 80 · Cached 24":
             raise RuntimeError("Agent Workspace did not render provider token usage.")
+        if "80 input + 12 output" not in chat_dock.token_usage_label.toolTip():
+            raise RuntimeError("Agent Workspace token tooltip omitted provider usage detail.")
         if chat_dock._active_api_key != "" or chat_dock._active_profile is not None:
             raise RuntimeError("Agent Chat did not clear its transient key/profile after finishing.")
 

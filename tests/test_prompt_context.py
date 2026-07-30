@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from planx_smartmodeler.core.prompt_context import PromptContextLoader
 
@@ -33,6 +34,25 @@ class PromptContextTests(unittest.TestCase):
         oversized = "x" * (PromptContextLoader.MAX_RUNTIME_CHARS + 5000)
         context = loader.build(oversized, oversized)
         self.assertLess(len(context), PromptContextLoader.MAX_RUNTIME_CHARS * 2 + 500)
+
+    def test_agent_context_loads_only_task_specific_packs(self) -> None:
+        loader = PromptContextLoader(
+            context_dir=Path(__file__).resolve().parents[1] / "agent_context"
+        )
+        basic = loader.agent_context("List my layers", "project")
+        expression = loader.agent_context("Use rand(1, 15)", "project")
+        osm = loader.agent_context("Download OSM roads and buildings", "project")
+        python_off = loader.agent_context("Run a PyQGIS script", "project")
+        python_on = loader.agent_context(
+            "Run a PyQGIS script", "project", power_enabled=True
+        )
+        self.assertIn("SmartModeler Agent core contract", basic)
+        self.assertNotIn("# QGIS expressions", basic)
+        self.assertIn("# QGIS expressions", expression)
+        self.assertIn("# OSM acquisition", osm)
+        self.assertNotIn("# Power Mode", python_off)
+        self.assertIn("# Power Mode", python_on)
+        self.assertLess(len(basic), 5_000)
 
 
 class FakeMarkdown:

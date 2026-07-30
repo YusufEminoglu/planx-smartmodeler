@@ -49,6 +49,10 @@ class AiTokenUsage:
     input_tokens: int
     output_tokens: int
     total_tokens: int
+    cached_input_tokens: int = 0
+
+
+MAX_STRUCTURED_OUTPUT_TOKENS = 6000
 
 
 class StructuredResponseContract:
@@ -262,6 +266,7 @@ class AiNetworkClient(QObject):
                 "model": profile.model,
                 "instructions": system_prompt,
                 "input": user_prompt,
+                "max_output_tokens": MAX_STRUCTURED_OUTPUT_TOKENS,
                 "temperature": profile.temperature,
                 "text": {
                     "format": {
@@ -281,7 +286,7 @@ class AiNetworkClient(QObject):
             )
             payload = {
                 "model": profile.model,
-                "max_tokens": 6000,
+                "max_tokens": MAX_STRUCTURED_OUTPUT_TOKENS,
                 "temperature": profile.temperature,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_prompt}],
@@ -301,6 +306,7 @@ class AiNetworkClient(QObject):
                 endpoint += f"/models/{quote(profile.model, safe='-._')}:generateContent"
             generation_config: Dict[str, Any] = {
                 "responseMimeType": "application/json",
+                "maxOutputTokens": MAX_STRUCTURED_OUTPUT_TOKENS,
             }
             # Gemini 3.6 Flash and 3.5 Flash-Lite deprecated sampling
             # parameters. Omitting temperature avoids a future HTTP 400 and
@@ -329,7 +335,10 @@ class AiNetworkClient(QObject):
                     {"role": "user", "content": user_prompt},
                 ],
                 "format": schema,
-                "options": {"temperature": profile.temperature},
+                "options": {
+                    "temperature": profile.temperature,
+                    "num_predict": MAX_STRUCTURED_OUTPUT_TOKENS,
+                },
             }
         elif profile.provider_id in (
             "deepseek",
@@ -360,6 +369,7 @@ class AiNetworkClient(QObject):
                     {"role": "user", "content": user_prompt},
                 ],
                 "temperature": profile.temperature,
+                "max_tokens": MAX_STRUCTURED_OUTPUT_TOKENS,
                 "response_format": response_format,
             }
         else:
@@ -627,11 +637,15 @@ class AiNetworkClient(QObject):
                 usage.get("candidatesTokenCount") if isinstance(usage, dict) else None
             )
             total_value = usage.get("totalTokenCount") if isinstance(usage, dict) else None
+            cached_value = (
+                usage.get("cachedContentTokenCount") if isinstance(usage, dict) else None
+            )
         elif provider_id == "ollama":
             usage = data
             input_value = usage.get("prompt_eval_count")
             output_value = usage.get("eval_count")
             total_value = None
+            cached_value = None
         else:
             usage = data.get("usage")
             if not isinstance(usage, dict):
@@ -640,9 +654,32 @@ class AiNetworkClient(QObject):
                 input_value = usage.get("input_tokens")
                 output_value = usage.get("output_tokens")
                 total_value = usage.get("total_tokens")
+                details = usage.get("input_tokens_details")
+                cached_value = (
+                    details.get("cached_tokens") if isinstance(details, dict) else None
+                )
+            elif provider_id == "anthropic":
+                base_input = cls._reported_token_count(usage.get("input_tokens"))
+                cache_read = cls._reported_token_count(
+                    usage.get("cache_read_input_tokens")
+                )
+                cache_creation = cls._reported_token_count(
+                    usage.get("cache_creation_input_tokens")
+                )
+                if base_input is None and cache_read is None and cache_creation is None:
+                    input_value = None
+                else:
+                    input_value = (
+                        (base_input or 0)
+                        + (cache_read or 0)
+                        + (cache_creation or 0)
+                    )
+                output_value = usage.get("output_tokens")
+                total_value = usage.get("total_tokens")
+                cached_value = cache_read
             else:
-                # Anthropic and Chat-Completions-compatible providers use
-                # input/output and prompt/completion spellings respectively.
+                # Chat-Completions-compatible providers use prompt/completion
+                # spellings, with a few cache fields in the top-level usage.
                 input_value = usage.get(
                     "input_tokens",
                     usage.get("prompt_tokens"),
@@ -652,10 +689,18 @@ class AiNetworkClient(QObject):
                     usage.get("completion_tokens"),
                 )
                 total_value = usage.get("total_tokens")
+                cached_value = usage.get(
+                    "cache_read_input_tokens",
+                    usage.get(
+                        "prompt_cache_hit_tokens",
+                        usage.get("cached_tokens"),
+                    ),
+                )
 
         input_tokens = cls._reported_token_count(input_value)
         output_tokens = cls._reported_token_count(output_value)
         total_tokens = cls._reported_token_count(total_value)
+        cached_tokens = cls._reported_token_count(cached_value) or 0
         if input_tokens is None and output_tokens is None and total_tokens is None:
             return None
         input_tokens = input_tokens or 0
@@ -667,7 +712,8 @@ class AiNetworkClient(QObject):
             total_tokens = subtotal
         else:
             total_tokens = max(total_tokens, subtotal)
-        return AiTokenUsage(input_tokens, output_tokens, total_tokens)
+        cached_tokens = min(cached_tokens, input_tokens)
+        return AiTokenUsage(input_tokens, output_tokens, total_tokens, cached_tokens)
 
     @classmethod
     def _extract_endpoint_host_targets(cls, endpoint: str) -> Tuple[str, ...]:

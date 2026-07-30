@@ -37,12 +37,18 @@ from .proposals import (
     ModelPatchProposal,
     ModelRunProposal,
     PluginActionProposal,
+    PythonRunProposal,
     PROPOSAL_KIND_LAYER_STYLE,
     PROPOSAL_KIND_MODEL_PATCH,
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PROCESSING_RUN,
     PROPOSAL_KIND_PLUGIN_ACTION,
+    PROPOSAL_KIND_PYTHON_RUN,
+    PROPOSAL_KIND_SQL_RUN,
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
     ProcessingRunProposal,
+    SqlRunProposal,
+    TrustedScriptRunProposal,
     ProposalError,
     ProposalReason,
     ProposalValidation,
@@ -91,6 +97,9 @@ _KIND_SCOPES = {
     PROPOSAL_KIND_PROCESSING_RUN: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
     PROPOSAL_KIND_MODEL_RUN: (AgentScope.CURRENT_MODEL,),
     PROPOSAL_KIND_PLUGIN_ACTION: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
+    PROPOSAL_KIND_SQL_RUN: (AgentScope.PROJECT,),
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN: (AgentScope.PROJECT,),
+    PROPOSAL_KIND_PYTHON_RUN: (AgentScope.PROJECT,),
 }
 
 # Stable, detail-free sentences for each policy denial. The reason code carries
@@ -194,6 +203,7 @@ class RuntimeProposalValidator:
         clone_fn: Optional[Callable[[GraphModel], GraphModel]] = None,
         policy: Optional[SafeAlgorithmPolicy] = None,
         map_extent_provider: Optional[Callable[[], Any]] = None,
+        power_runtime: Optional[Any] = None,
     ) -> None:
         self._model_provider = model_provider
         self._token_service = token_service
@@ -205,6 +215,7 @@ class RuntimeProposalValidator:
         # user message can widen or replace it.
         self._policy = policy or default_policy()
         self._map_extent_provider = map_extent_provider or (lambda: None)
+        self._power_runtime = power_runtime
         # On a successful validation the trusted boundary retains the detached
         # parsed proposal plus its target/token so the dock can build the single
         # pending action for an Act-mode apply. This never reaches the provider
@@ -257,6 +268,15 @@ class RuntimeProposalValidator:
                 proposal, PluginActionProposal
             ):
                 return self._validate_plugin_action(proposal, scope)
+            if kind in (
+                PROPOSAL_KIND_SQL_RUN,
+                PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+                PROPOSAL_KIND_PYTHON_RUN,
+            ) and isinstance(
+                proposal,
+                (SqlRunProposal, TrustedScriptRunProposal, PythonRunProposal),
+            ):
+                return self._validate_power(proposal)
         except ProposalError as error:
             return ProposalValidation.failure(error.reason_code, _sanitize(str(error)))
         except Exception:  # noqa: BLE001 - a validator failure must be sanitized
@@ -266,6 +286,28 @@ class RuntimeProposalValidator:
         return ProposalValidation.failure(
             ProposalReason.UNKNOWN_KIND, "Unknown or mismatched proposal kind."
         )
+
+    def _validate_power(self, proposal: Any) -> ProposalValidation:
+        if self._power_runtime is None:
+            return ProposalValidation.failure(
+                ProposalReason.SIDE_EFFECT_BLOCKED, "Power Mode is unavailable."
+            )
+        ok, preview, ingredients, message = self._power_runtime.validate(proposal)
+        if not ok:
+            return ProposalValidation.failure(
+                ProposalReason.VALIDATION_FAILED,
+                _sanitize(message or "The Power Mode proposal was rejected."),
+            )
+        self._last_validated = {
+            "kind": proposal.kind,
+            "proposal": proposal,
+            "preview": preview,
+            "target_identity": str(preview.get("target", "")),
+            "context_token": proposal.context_token,
+            "display_name": str(ingredients.get("display_name", "")),
+            "power_ingredients": ingredients,
+        }
+        return ProposalValidation.success(preview)
 
     # -- model_patch -------------------------------------------------------
 

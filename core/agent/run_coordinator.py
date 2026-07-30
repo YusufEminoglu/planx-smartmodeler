@@ -48,7 +48,10 @@ from qgis.core import (
 from . import context as agent_context
 from .proposals import (
     PROPOSAL_KIND_MODEL_RUN,
+    PROPOSAL_KIND_PYTHON_RUN,
     PROPOSAL_KIND_PROCESSING_RUN,
+    PROPOSAL_KIND_SQL_RUN,
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
     ProposalReason,
 )
 from .run_planner import RunResultSummary
@@ -81,7 +84,12 @@ class RunCoordinator(QObject):
     run_failed = pyqtSignal(str, str)
     run_canceled = pyqtSignal()
 
-    def __init__(self, model_provider: ModelProvider, parent: Optional[QObject] = None) -> None:
+    def __init__(
+        self,
+        model_provider: ModelProvider,
+        parent: Optional[QObject] = None,
+        power_runtime: Optional[Any] = None,
+    ) -> None:
         super().__init__(parent)
         self._model_provider = model_provider
         self._state = RunState()
@@ -89,6 +97,7 @@ class RunCoordinator(QObject):
         self._engine: Optional[Any] = None
         self._pumping = False
         self._last_pump = 0.0
+        self._power_runtime = power_runtime
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -105,6 +114,9 @@ class RunCoordinator(QObject):
         with contextlib.suppress(Exception):
             if self._engine is not None:
                 self._engine.cancel()
+        with contextlib.suppress(Exception):
+            if self._power_runtime is not None:
+                self._power_runtime.cancel()
 
     def shutdown(self) -> None:
         """Cancel and tear down so no in-flight result can outlive the dock."""
@@ -150,6 +162,56 @@ class RunCoordinator(QObject):
         finally:
             self._engine = None
             self._feedback = None
+        return ""
+
+    def start_power_run(
+        self,
+        action_id: str,
+        kind: str,
+        title: str,
+        display_name: str,
+        ingredients: Dict[str, Any],
+    ) -> str:
+        if kind not in (
+            PROPOSAL_KIND_SQL_RUN,
+            PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+            PROPOSAL_KIND_PYTHON_RUN,
+        ) or self._power_runtime is None:
+            return ProposalReason.SIDE_EFFECT_BLOCKED
+        ticket = self._state.start(action_id, kind, title)
+        if ticket is None:
+            return ProposalReason.RUN_IN_PROGRESS
+        try:
+            if kind == PROPOSAL_KIND_SQL_RUN:
+                layers, _message = self._power_runtime.execute_sql(ingredients)
+            else:
+                layers, _message = self._power_runtime.execute_python(ingredients)
+            if (
+                kind in (PROPOSAL_KIND_TRUSTED_SCRIPT_RUN, PROPOSAL_KIND_PYTHON_RUN)
+                and ingredients.get("execution_mode") == "live"
+            ):
+                self._finish_success(
+                    ticket,
+                    kind,
+                    display_name,
+                    [layer.id() for layer in layers],
+                    [agent_context.bound_text(layer.name(), agent_context.MAX_DISPLAY_NAME)
+                     for layer in layers],
+                )
+            elif layers:
+                self._finish_with_layers(
+                    ticket,
+                    kind,
+                    display_name,
+                    [(f"OUTPUT_{index + 1}", layer) for index, layer in enumerate(layers)],
+                )
+            else:
+                self._finish_success(ticket, kind, display_name, [], [])
+        except Exception as error:  # noqa: BLE001
+            if self._state.canceled:
+                self._finish_canceled(ticket)
+            else:
+                self._fail(ticket, sanitize_run_message(error))
         return ""
 
     # -- progress ----------------------------------------------------------

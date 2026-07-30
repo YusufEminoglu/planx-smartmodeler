@@ -18,9 +18,11 @@ from typing import Any, Optional
 
 from qgis.PyQt.QtCore import QEvent, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDockWidget,
     QGroupBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -43,6 +45,12 @@ from ..core.agent.contracts import (
 )
 from ..core.agent.controller import AgentController
 from ..core.agent.pending_action import build_pending_action, proposal_digest
+from ..core.agent.power_mode import (
+    PowerModeSettings,
+    PowerResourceRegistry,
+    ScriptLibrary,
+)
+from ..core.agent.power_runtime import PowerRuntime
 from ..core.agent.proposals import ProposalReason
 from ..core.agent.run_coordinator import RunCoordinator
 from ..core.agent.run_loop import AgentRunLoop, RunEventKind, RunLoopError
@@ -80,7 +88,9 @@ def _load_static_instructions() -> str:
     from pathlib import Path
 
     context_dir = Path(__file__).resolve().parent.parent / _AGENT_CONTEXT_DIR_NAME
-    return PromptContextLoader(context_dir=context_dir).static_context()
+    return PromptContextLoader(context_dir=context_dir).agent_context(
+        "", AgentScope.PROJECT
+    )
 
 
 class _NullModelAdapter:
@@ -122,22 +132,45 @@ class AgentWorkspaceDock(QDockWidget):
         # for model.describe/layer.style and verifies them at the proposal
         # boundary. New chat rotates its secret, invalidating every open token.
         self.token_service = ContextTokenService()
+        from pathlib import Path
+
+        self._prompt_context_loader = PromptContextLoader(
+            context_dir=Path(__file__).resolve().parent.parent
+            / _AGENT_CONTEXT_DIR_NAME
+        )
+        self._power_settings = PowerModeSettings()
+        self._power_mode_enabled = self._power_settings.enabled()
+        self._power_resources = PowerResourceRegistry()
+        self._script_library = ScriptLibrary()
         self.registry = build_default_registry(
             model_provider,
             self.token_service,
             active_layer_provider=self._active_layer,
+            power_enabled_provider=lambda: self._power_mode_enabled,
+            power_resources=self._power_resources,
+            script_library=self._script_library,
         )
         self.controller = AgentController(self.registry)
+        self._power_runtime = PowerRuntime(
+            self._power_settings, self._power_resources, self._script_library
+        )
         self._proposal_validator = RuntimeProposalValidator(
             model_provider,
             self.token_service,
             active_layer_provider=self._active_layer,
             map_extent_provider=self._current_map_extent,
+            power_runtime=self._power_runtime,
         )
         self.run_loop = AgentRunLoop(
             self.controller,
             _load_static_instructions(),
             proposal_validator=self._proposal_validator.validate,
+            instruction_provider=lambda text, scope, power: (
+                self._prompt_context_loader.agent_context(
+                    text, scope, power_enabled=power
+                )
+            ),
+            power_enabled_provider=lambda: self._power_mode_enabled,
         )
         # Trusted apply/undo boundary. A model_apply adapter (from the plugin,
         # wrapping the Workflow Studio window) enables model-patch apply; without
@@ -149,7 +182,9 @@ class AgentWorkspaceDock(QDockWidget):
         self.action_ledger = ActionLedger()
         # The trusted execution boundary. It owns the single running action;
         # nothing the provider says can start, resume, or cancel it.
-        self.run_coordinator = RunCoordinator(model_provider, self)
+        self.run_coordinator = RunCoordinator(
+            model_provider, self, power_runtime=self._power_runtime
+        )
         self.run_coordinator.run_progress.connect(self._on_run_progress)
         self.run_coordinator.run_finished.connect(self._on_run_finished)
         self.run_coordinator.run_failed.connect(self._on_run_failed)
@@ -166,6 +201,9 @@ class AgentWorkspaceDock(QDockWidget):
         self._token_input = 0
         self._token_output = 0
         self._token_total = 0
+        self._token_cached = 0
+        self._last_input_tokens = 0
+        self._last_estimated_tokens = 0
         # At most one pending, human-approvable action and one last-applied
         # action (for a single-level, state-fingerprinted Undo).
         self._pending_action = None
@@ -210,10 +248,9 @@ class AgentWorkspaceDock(QDockWidget):
         subtitle = QLabel(
             "Inspections are read-only. A model, style, or run proposal takes "
             "effect only after you explicitly click Apply or Run on its approval "
-            "card, and the last such action can be undone. A run is limited to a "
-            "locally verified safe Processing algorithm or your current workflow, "
-            "always writes to temporary layers, and never drives plugin UI or "
-            "accepts a destination path."
+            "card. Standard runs use locally verified Processing tools and "
+            "temporary layers. Optional Power Mode separately unlocks reviewed "
+            "SQL and full Python/PyQGIS with stronger warnings."
         )
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet("color: #9AAAC2;")
@@ -244,6 +281,30 @@ class AgentWorkspaceDock(QDockWidget):
         self.mode_combo.addItem("Act (approve to apply)", AgentMode.ACT)
         selectors.addWidget(self.mode_combo, 1)
         layout.addLayout(selectors)
+
+        power_row = QHBoxLayout()
+        self.power_mode_check = QCheckBox("Power Mode")
+        self.power_mode_check.setChecked(self._power_mode_enabled)
+        self.power_mode_check.setToolTip(
+            "Enables reviewed database SQL and Python/PyQGIS proposals. "
+            "Full code has the same user permissions as QGIS."
+        )
+        self.power_mode_check.toggled.connect(self._on_power_mode_toggled)
+        power_row.addWidget(self.power_mode_check)
+        self.import_script_button = QPushButton("Import trusted script...")
+        self.import_script_button.setEnabled(self._power_mode_enabled)
+        self.import_script_button.clicked.connect(self._import_trusted_script)
+        power_row.addWidget(self.import_script_button)
+        power_row.addStretch(1)
+        layout.addLayout(power_row)
+        self.power_hint_label = QLabel(
+            "Power Mode is ON: SQL and Python run with your QGIS user "
+            "permissions. Review the full source; external changes may not be undoable."
+        )
+        self.power_hint_label.setAccessibleName("Power Mode warning")
+        self.power_hint_label.setWordWrap(True)
+        self.power_hint_label.setVisible(self._power_mode_enabled)
+        layout.addWidget(self.power_hint_label)
 
         # Visible Plan vs Act semantics (§9.2): one sentence, always on screen,
         # saying what the *currently selected* mode is allowed to reach.
@@ -301,8 +362,8 @@ class AgentWorkspaceDock(QDockWidget):
         self.proposal_view.setMinimumHeight(self._text_height(6))
         self.proposal_view.setMaximumHeight(self._text_height(12))
         self.proposal_view.setPlaceholderText(
-            "A validated model or style proposal appears here. It is never "
-            "applied - there is no Apply, Run, or Accept action."
+            "A locally validated proposal appears here. Plan mode never applies "
+            "it; Act mode creates a separate explicit approval card."
         )
         proposal_layout.addWidget(self.proposal_view)
         layout.addWidget(self.proposal_group)
@@ -398,7 +459,7 @@ class AgentWorkspaceDock(QDockWidget):
         self.status_label = QLabel("Ready.")
         self.status_label.setStyleSheet("color: #9AAAC2;")
         status_row.addWidget(self.status_label, 1)
-        self.token_usage_label = QLabel("Input - · Output -")
+        self.token_usage_label = QLabel("Last - · Chat - · Cached -")
         self.token_usage_label.setAccessibleName("AI token usage")
         self.token_usage_label.setStyleSheet("color: #70849F;")
         self.token_usage_label.setToolTip(
@@ -411,7 +472,7 @@ class AgentWorkspaceDock(QDockWidget):
         self.prompt_input = QPlainTextEdit()
         self.prompt_input.setPlaceholderText(
             "Ask a question about your project, layers, Processing, the "
-            "current model, or installed plugins. Ctrl+Enter sends."
+            "current model, installed plugins, or enabled Power Mode. Ctrl+Enter sends."
         )
         self.prompt_input.setMinimumHeight(self._text_height(2))
         self.prompt_input.setMaximumHeight(self._text_height(5))
@@ -450,6 +511,72 @@ class AgentWorkspaceDock(QDockWidget):
         # index, so the sentence can never disagree with the combo.
         self._refresh_mode_hint()
 
+    def _on_power_mode_toggled(self, enabled: bool) -> None:
+        if enabled:
+            answer = QMessageBox.warning(
+                self,
+                "Enable Power Mode?",
+                "Power Mode can run full SQL and Python/PyQGIS with your QGIS "
+                "user permissions. These actions may change databases, files, "
+                "or the live project and may not be undoable.\n\nEnable it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self.power_mode_check.blockSignals(True)
+                self.power_mode_check.setChecked(False)
+                self.power_mode_check.blockSignals(False)
+                return
+        self._power_mode_enabled = bool(enabled)
+        self._power_settings.set_enabled(self._power_mode_enabled)
+        self._power_resources.rotate()
+        self.import_script_button.setEnabled(self._power_mode_enabled)
+        self.power_hint_label.setVisible(self._power_mode_enabled)
+        self._append_line(
+            "[power] Power Mode enabled. Every SQL/Python action still requires "
+            "review and approval."
+            if enabled
+            else "[power] Power Mode disabled."
+        )
+
+    def _import_trusted_script(self) -> None:
+        if not self._power_mode_enabled:
+            return
+        filename, _selected = QFileDialog.getOpenFileName(
+            self, "Import trusted PyQGIS script", "", "Python scripts (*.py)"
+        )
+        if not filename:
+            return
+        try:
+            from pathlib import Path
+            import hashlib
+
+            source = Path(filename).read_bytes()
+            if len(source) > 500_000:
+                raise ValueError("Script exceeds the managed library limit.")
+            digest = hashlib.sha256(source).hexdigest()
+            box = QMessageBox(self)
+            box.setWindowTitle("Trust this script?")
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setText(
+                "The managed copy will be trusted only while this SHA-256 "
+                f"remains unchanged:\n{digest}"
+            )
+            box.setDetailedText(source.decode("utf-8"))
+            box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            box.setDefaultButton(QMessageBox.StandardButton.No)
+            if box.exec() != QMessageBox.StandardButton.Yes:
+                return
+            item = self._script_library.import_script(Path(filename))
+            self._append_line(
+                f"[power] Trusted script imported: {item.name} "
+                f"({item.script_hash[:12]}…)."
+            )
+        except (OSError, UnicodeError, ValueError, SyntaxError):
+            self._append_line("[power] The script could not be imported or compiled.")
+
     def _apply_accessibility(self) -> None:
         """Give every interactive control a name and a deliberate tab order.
 
@@ -462,6 +589,8 @@ class AgentWorkspaceDock(QDockWidget):
             (self.scope_combo, "Inspection scope"),
             (self.mode_combo, "Agent mode"),
             (self.ai_settings_button, "Open AI connection settings"),
+            (self.power_mode_check, "Enable Power Mode"),
+            (self.import_script_button, "Import a trusted Python script"),
             (self.project_summary_button, "Quick inspection: project summary"),
             (self.layers_button, "Quick inspection: layers"),
             (self.model_button, "Quick inspection: current model"),
@@ -673,6 +802,7 @@ class AgentWorkspaceDock(QDockWidget):
         if self.run_loop.session_memory.is_empty() and not self.transcript.toPlainText().strip():
             self.run_loop.new_chat()
             self.token_service.rotate()
+            self._power_resources.rotate()
             self._clear_proposal_preview()
             self._clear_all_action_state()
             self._reset_token_usage()
@@ -689,6 +819,7 @@ class AgentWorkspaceDock(QDockWidget):
         # old conversation can no longer validate, and clear the preview and all
         # pending/applied/ledger action state.
         self.token_service.rotate()
+        self._power_resources.rotate()
         self.transcript.clear()
         self._clear_proposal_preview()
         self._clear_all_action_state()
@@ -709,6 +840,9 @@ class AgentWorkspaceDock(QDockWidget):
 
         if event.kind == RunEventKind.REQUEST_PROVIDER:
             self._active_request_token = event.request.request_token
+            self._last_estimated_tokens = int(
+                event.request.estimated_input_tokens or 0
+            )
             contract = StructuredResponseContract(
                 schema=event.request.response_schema,
                 name=_AGENT_TURN_SCHEMA_NAME,
@@ -725,6 +859,20 @@ class AgentWorkspaceDock(QDockWidget):
                 event.request.user_prompt,
                 contract,
             )
+        elif event.kind == RunEventKind.BUDGET_CONFIRMATION:
+            answer = QMessageBox.question(
+                self,
+                "Token budget",
+                event.text
+                + "\n\nThe Agent already compressed its working context. "
+                "No additional request has been sent yet.",
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._handle_run_event(self.run_loop.confirm_budget())
+            else:
+                self.run_loop.cancel()
+                self._append_line("[budget] Additional AI request canceled.")
+                self._finish_run("Stopped at the configured token budget.")
         elif event.kind == RunEventKind.FINAL:
             self._append_line(f"[assistant] {event.text}")
             self._finish_run(
@@ -774,21 +922,28 @@ class AgentWorkspaceDock(QDockWidget):
         self._token_input += usage.input_tokens
         self._token_output += usage.output_tokens
         self._token_total += usage.total_tokens
+        self._token_cached += usage.cached_input_tokens
+        self._last_input_tokens = usage.input_tokens
         self.token_usage_label.setText(
-            f"Input {self._token_input:,} · Output {self._token_output:,}"
+            f"Last {self._last_input_tokens:,} · Chat {self._token_input:,} · "
+            f"Cached {self._token_cached:,}"
         )
         self.token_usage_label.setToolTip(
-            "Provider-reported usage for this chat: "
+            "Provider-reported usage. Last request: "
+            f"{self._last_input_tokens:,} input. Chat: "
             f"{self._token_input:,} input + {self._token_output:,} output; "
-            f"{self._token_total:,} total. A provider may include reasoning or "
-            "cache tokens only in the total."
+            f"{self._token_total:,} total; {self._token_cached:,} cached input. "
+            f"Local request estimate: {self._last_estimated_tokens:,}."
         )
 
     def _reset_token_usage(self) -> None:
         self._token_input = 0
         self._token_output = 0
         self._token_total = 0
-        self.token_usage_label.setText("Input - · Output -")
+        self._token_cached = 0
+        self._last_input_tokens = 0
+        self._last_estimated_tokens = 0
+        self.token_usage_label.setText("Last - · Chat - · Cached -")
         self.token_usage_label.setToolTip(
             "Provider-reported token use for this chat. No estimate is shown "
             "when the provider omits usage metadata."
@@ -866,6 +1021,9 @@ class AgentWorkspaceDock(QDockWidget):
             "processing_run",
             "model_run",
             "plugin_action",
+            "sql_run",
+            "trusted_script_run",
+            "python_run",
         ):
             lines.append("")
             heading = {
@@ -873,6 +1031,9 @@ class AgentWorkspaceDock(QDockWidget):
                 "processing_run": "Reviewed run inputs (nothing has run):",
                 "model_run": "Current workflow to run (nothing has run):",
                 "plugin_action": "Reviewed plugin action (nothing has run):",
+                "sql_run": "Database SQL (not executed):",
+                "trusted_script_run": "Trusted Python script (not executed):",
+                "python_run": "Generated PyQGIS source (not executed):",
             }[kind]
             lines.append(heading)
             for change in preview.get("changes", [])[:40]:
@@ -883,6 +1044,15 @@ class AgentWorkspaceDock(QDockWidget):
                 lines.append("Expected results:")
                 for output in outputs[:20]:
                     lines.append(f"  - {str(output)[:200]}")
+            source = preview.get("source")
+            if isinstance(source, str):
+                lines.extend(
+                    (
+                        "",
+                        f"Full {preview.get('source_language', 'source')} for review:",
+                        source,
+                    )
+                )
         for warning in preview.get("warnings", [])[:20]:
             lines.append(f"  * warning: {str(warning)[:500]}")
         self.proposal_view.setPlainText("\n".join(lines))
@@ -1070,6 +1240,14 @@ class AgentWorkspaceDock(QDockWidget):
             lines.append(f"  ! {str(issue)[:300]}")
         for warning in card.get("warnings", [])[:20]:
             lines.append(f"  * warning: {str(warning)[:500]}")
+        if isinstance(card.get("source"), str):
+            lines.extend(
+                (
+                    "",
+                    f"Full {card.get('source_language', 'source')}:",
+                    card["source"],
+                )
+            )
         return "\n".join(lines)
 
     def _on_apply_clicked(self) -> None:
@@ -1134,6 +1312,43 @@ class AgentWorkspaceDock(QDockWidget):
             self._fail_run(pending, validation.reason_code or ProposalReason.VALIDATION_FAILED,
                            validation.message or "The run is no longer valid; nothing ran.")
             return
+        if pending.kind == "sql_run" and pending.preview.get("second_confirmation"):
+            answer = QMessageBox.warning(
+                self,
+                "Execute database change?",
+                "This is the second and final confirmation. The SQL shown in "
+                "the approval card will be executed and committed against "
+                f"{pending.preview.get('target', 'the selected database')}.\n\n"
+                "SmartModeler cannot undo the committed database change.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self._fail_run(
+                    pending,
+                    ProposalReason.EXECUTION_CANCELED,
+                    "The database Execute confirmation was declined.",
+                )
+                return
+        if pending.kind in ("trusted_script_run", "python_run") and (
+            ingredients.get("power_ingredients", {}).get("execution_mode") == "live"
+        ):
+            answer = QMessageBox.warning(
+                self,
+                "Run full Python in live QGIS?",
+                "This is the second and final confirmation. The reviewed code "
+                "will run inside the current QGIS process with iface/project "
+                "access, no rollback guarantee, and may freeze or crash QGIS.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self._fail_run(
+                    pending,
+                    ProposalReason.EXECUTION_CANCELED,
+                    "The live Python confirmation was declined.",
+                )
+                return
         self._record_ledger(pending, ActionStatus.APPROVED)
         self._running_action = pending
         self._set_running_ui(True, ingredients.get("display_name", ""))
@@ -1147,11 +1362,19 @@ class AgentWorkspaceDock(QDockWidget):
                 ingredients.get("run_parameters", {}),
                 ingredients.get("destinations", ()),
             )
-        else:
+        elif pending.kind == "model_run":
             refused = self.run_coordinator.start_model_run(
                 pending.action_id,
                 pending.preview.get("title", ""),
                 ingredients.get("display_name", ""),
+            )
+        else:
+            refused = self.run_coordinator.start_power_run(
+                pending.action_id,
+                pending.kind,
+                pending.preview.get("title", ""),
+                ingredients.get("display_name", ""),
+                ingredients.get("power_ingredients", {}),
             )
         if refused:
             self._fail_run(pending, refused, "A run is already in progress; nothing started.")
@@ -1191,6 +1414,10 @@ class AgentWorkspaceDock(QDockWidget):
         # every other control that could re-enter this dock -- a modal settings
         # dialog, a quick inspection, Undo -- is disabled for the duration.
         self.ai_settings_button.setEnabled(not running)
+        self.power_mode_check.setEnabled(not running)
+        self.import_script_button.setEnabled(
+            not running and self._power_mode_enabled
+        )
         for button in (
             self.project_summary_button,
             self.layers_button,

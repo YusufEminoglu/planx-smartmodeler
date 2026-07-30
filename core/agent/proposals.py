@@ -32,6 +32,9 @@ PROPOSAL_KIND_LAYER_STYLE = "layer_style"
 PROPOSAL_KIND_PROCESSING_RUN = "processing_run"
 PROPOSAL_KIND_MODEL_RUN = "model_run"
 PROPOSAL_KIND_PLUGIN_ACTION = "plugin_action"
+PROPOSAL_KIND_SQL_RUN = "sql_run"
+PROPOSAL_KIND_TRUSTED_SCRIPT_RUN = "trusted_script_run"
+PROPOSAL_KIND_PYTHON_RUN = "python_run"
 ALL_PROPOSAL_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_NONE,
     PROPOSAL_KIND_MODEL_PATCH,
@@ -39,6 +42,9 @@ ALL_PROPOSAL_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_PROCESSING_RUN,
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PLUGIN_ACTION,
+    PROPOSAL_KIND_SQL_RUN,
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+    PROPOSAL_KIND_PYTHON_RUN,
 )
 PROPOSABLE_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_MODEL_PATCH,
@@ -46,6 +52,9 @@ PROPOSABLE_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_PROCESSING_RUN,
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PLUGIN_ACTION,
+    PROPOSAL_KIND_SQL_RUN,
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+    PROPOSAL_KIND_PYTHON_RUN,
 )
 
 
@@ -113,6 +122,10 @@ MAX_EXPRESSION_CHARS = 8_000
 MAX_CRS_CHARS = 64
 MAX_ENUM_INDEX = 255
 MAX_RUN_NUMBER_ABS = 1e12
+MAX_SQL_CHARS = 60_000
+MAX_PYTHON_SOURCE_CHARS = 50_000
+MAX_POWER_PARAMETERS_CHARS = 20_000
+MAX_POWER_OUTPUTS = 20
 
 ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
 # A Processing algorithm id -- exactly ``provider:name``; never path/URI-shaped.
@@ -1454,6 +1467,329 @@ def _parse_plugin_action(data: Dict[str, Any]) -> PluginActionProposal:
     )
 
 
+def _power_parameters(value: Any) -> Dict[str, Any]:
+    try:
+        detached = validate_json_value(
+            value,
+            max_string_length=MAX_RUN_STRING_CHARS,
+            max_total_chars=MAX_POWER_PARAMETERS_CHARS,
+        )
+    except ContractError as error:
+        raise ProposalError(str(error), ProposalReason.MALFORMED) from error
+    if not isinstance(detached, dict):
+        raise ProposalError("parameters must be an object.", ProposalReason.MALFORMED)
+    return detached
+
+
+@dataclass(frozen=True)
+class SqlRunProposal:
+    context_token: str
+    connection_token: str
+    provider: str
+    statement: str
+    operation: str
+    output_name: str
+    title: str
+    summary: str
+    warnings: Tuple[str, ...] = field(default_factory=tuple)
+    schema_version: int = 1
+
+    @property
+    def kind(self) -> str:
+        return PROPOSAL_KIND_SQL_RUN
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "kind": self.kind,
+            "connection_token": self.connection_token,
+            "provider": self.provider,
+            "statement": self.statement,
+            "operation": self.operation,
+            "output_name": self.output_name,
+            "title": self.title,
+            "summary": self.summary,
+            "warnings": list(self.warnings),
+        }
+
+
+_SQL_RUN_KEYS = {
+    "schema_version", "context_token", "connection_token", "provider",
+    "statement", "operation", "output_name", "title", "summary", "warnings",
+}
+
+
+def _sql_code_view(statement: str) -> str:
+    """Return SQL with strings/comments blanked, preserving statement markers.
+
+    This is deliberately a small lexical pass, not a database-specific parser.
+    Its job is only to make the one-statement boundary and broad operation class
+    independent of semicolons/keywords embedded in quoted data or comments.
+    """
+    output: List[str] = []
+    index = 0
+    length = len(statement)
+    state = "code"
+    dollar_tag = ""
+    while index < length:
+        char = statement[index]
+        following = statement[index + 1] if index + 1 < length else ""
+        if state == "code":
+            if char == "'":
+                state = "single"
+                output.append(" ")
+            elif char == '"':
+                state = "double"
+                output.append(" ")
+            elif char == "-" and following == "-":
+                state = "line_comment"
+                output.extend((" ", " "))
+                index += 1
+            elif char == "/" and following == "*":
+                state = "block_comment"
+                output.extend((" ", " "))
+                index += 1
+            elif char == "$":
+                match = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", statement[index:])
+                if match:
+                    dollar_tag = match.group(0)
+                    state = "dollar"
+                    output.extend(" " * len(dollar_tag))
+                    index += len(dollar_tag) - 1
+                else:
+                    output.append(char)
+            else:
+                output.append(char)
+        elif state == "single":
+            output.append("\n" if char == "\n" else " ")
+            if char == "'" and following == "'":
+                output.append(" ")
+                index += 1
+            elif char == "'":
+                state = "code"
+        elif state == "double":
+            output.append("\n" if char == "\n" else " ")
+            if char == '"' and following == '"':
+                output.append(" ")
+                index += 1
+            elif char == '"':
+                state = "code"
+        elif state == "line_comment":
+            output.append("\n" if char == "\n" else " ")
+            if char == "\n":
+                state = "code"
+        elif state == "block_comment":
+            output.append("\n" if char == "\n" else " ")
+            if char == "*" and following == "/":
+                output.append(" ")
+                index += 1
+                state = "code"
+        elif state == "dollar":
+            if statement.startswith(dollar_tag, index):
+                output.extend(" " * len(dollar_tag))
+                index += len(dollar_tag) - 1
+                state = "code"
+            else:
+                output.append("\n" if char == "\n" else " ")
+        index += 1
+    if state in ("single", "double", "block_comment", "dollar"):
+        raise ProposalError("SQL contains an unterminated quote or comment.")
+    return "".join(output)
+
+
+def sql_operation_class(statement: str) -> str:
+    """Validate one SQL statement and return select/write/ddl."""
+    code = _sql_code_view(statement)
+    semicolons = [match.start() for match in re.finditer(";", code)]
+    if semicolons:
+        first = semicolons[0]
+        if len(semicolons) > 1 or code[first + 1 :].strip():
+            raise ProposalError("SQL proposals must contain exactly one statement.")
+        code = code[:first]
+    words = re.findall(r"[A-Za-z_][A-Za-z0-9_$]*", code.casefold())
+    if not words:
+        raise ProposalError("SQL statement contains no executable text.")
+    first = words[0]
+    write_words = {"insert", "update", "delete", "merge", "replace", "copy", "truncate"}
+    ddl_words = {
+        "alter", "attach", "comment", "create", "detach", "drop", "grant",
+        "reindex", "revoke", "vacuum",
+    }
+    if first == "select":
+        return "select"
+    if first == "with":
+        if any(word in write_words for word in words):
+            return "write"
+        if any(word in ddl_words for word in words):
+            return "ddl"
+        return "select"
+    if first in write_words:
+        return "write"
+    return "ddl"
+
+
+def _parse_sql_run(data: Dict[str, Any]) -> SqlRunProposal:
+    _require_exact_keys(data, _SQL_RUN_KEYS, PROPOSAL_KIND_SQL_RUN)
+    provider = _bounded_text(data["provider"], "provider", 1, 32)
+    if provider not in ("postgres", "ogr"):
+        raise ProposalError("Only PostGIS and GeoPackage are supported.")
+    operation = _bounded_text(data["operation"], "operation", 1, 16)
+    if operation not in ("select", "write", "ddl"):
+        raise ProposalError("Unknown SQL operation class.")
+    statement = _bounded_text(data["statement"], "statement", 1, MAX_SQL_CHARS)
+    if "\x00" in statement:
+        raise ProposalError("SQL may not contain NUL characters.")
+    actual_operation = sql_operation_class(statement)
+    if actual_operation != operation:
+        raise ProposalError("The declared SQL operation class is incorrect.")
+    return SqlRunProposal(
+        schema_version=_schema_version(data["schema_version"]),
+        context_token=_token(data["context_token"]),
+        connection_token=_token(data["connection_token"]),
+        provider=provider,
+        statement=statement,
+        operation=operation,
+        output_name=_bounded_text(data["output_name"], "output_name", 0, 160),
+        title=_bounded_text(data["title"], "title", MIN_TITLE_CHARS, MAX_TITLE_CHARS),
+        summary=_bounded_text(data["summary"], "summary", MIN_SUMMARY_CHARS, MAX_SUMMARY_CHARS),
+        warnings=_warnings(data["warnings"]),
+    )
+
+
+@dataclass(frozen=True)
+class TrustedScriptRunProposal:
+    context_token: str
+    script_id: str
+    script_hash: str
+    execution_mode: str
+    parameters: Dict[str, Any]
+    title: str
+    summary: str
+    warnings: Tuple[str, ...] = field(default_factory=tuple)
+    schema_version: int = 1
+
+    @property
+    def kind(self) -> str:
+        return PROPOSAL_KIND_TRUSTED_SCRIPT_RUN
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "kind": self.kind,
+            "script_id": self.script_id,
+            "script_hash": self.script_hash,
+            "execution_mode": self.execution_mode,
+            "parameters": dict(self.parameters),
+            "title": self.title,
+            "summary": self.summary,
+            "warnings": list(self.warnings),
+        }
+
+
+_TRUSTED_SCRIPT_KEYS = {
+    "schema_version", "context_token", "script_id", "script_hash",
+    "execution_mode", "parameters", "title", "summary", "warnings",
+}
+
+
+def _execution_mode(value: Any) -> str:
+    mode = _bounded_text(value, "execution_mode", 1, 20)
+    if mode not in ("subprocess", "live"):
+        raise ProposalError("execution_mode must be subprocess or live.")
+    return mode
+
+
+def _parse_trusted_script_run(data: Dict[str, Any]) -> TrustedScriptRunProposal:
+    _require_exact_keys(data, _TRUSTED_SCRIPT_KEYS, PROPOSAL_KIND_TRUSTED_SCRIPT_RUN)
+    digest = _bounded_text(data["script_hash"], "script_hash", 64, 64)
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ProposalError("script_hash must be a SHA-256 hex digest.")
+    return TrustedScriptRunProposal(
+        schema_version=_schema_version(data["schema_version"]),
+        context_token=_token(data["context_token"]),
+        script_id=_safe_id_text(data["script_id"], 128, "script id"),
+        script_hash=digest,
+        execution_mode=_execution_mode(data["execution_mode"]),
+        parameters=_power_parameters(data["parameters"]),
+        title=_bounded_text(data["title"], "title", MIN_TITLE_CHARS, MAX_TITLE_CHARS),
+        summary=_bounded_text(data["summary"], "summary", MIN_SUMMARY_CHARS, MAX_SUMMARY_CHARS),
+        warnings=_warnings(data["warnings"]),
+    )
+
+
+@dataclass(frozen=True)
+class PythonRunProposal:
+    context_token: str
+    source: str
+    execution_mode: str
+    input_layer_ids: Tuple[str, ...]
+    timeout_seconds: int
+    output_names: Tuple[str, ...]
+    title: str
+    summary: str
+    warnings: Tuple[str, ...] = field(default_factory=tuple)
+    schema_version: int = 1
+
+    @property
+    def kind(self) -> str:
+        return PROPOSAL_KIND_PYTHON_RUN
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "kind": self.kind,
+            "source": self.source,
+            "execution_mode": self.execution_mode,
+            "input_layer_ids": list(self.input_layer_ids),
+            "timeout_seconds": self.timeout_seconds,
+            "output_names": list(self.output_names),
+            "title": self.title,
+            "summary": self.summary,
+            "warnings": list(self.warnings),
+        }
+
+
+_PYTHON_RUN_KEYS = {
+    "schema_version", "context_token", "source", "execution_mode",
+    "input_layer_ids", "timeout_seconds", "output_names", "title", "summary",
+    "warnings",
+}
+
+
+def _bounded_string_list(value: Any, label: str, maximum: int) -> Tuple[str, ...]:
+    if not isinstance(value, list) or len(value) > maximum:
+        raise ProposalError(f"{label} must be a bounded array.")
+    items = tuple(
+        _bounded_text(item, f"{label} item", 1, MAX_LAYER_ID_CHARS)
+        for item in value
+    )
+    if len(set(items)) != len(items):
+        raise ProposalError(f"{label} may not contain duplicates.")
+    return items
+
+
+def _parse_python_run(data: Dict[str, Any]) -> PythonRunProposal:
+    _require_exact_keys(data, _PYTHON_RUN_KEYS, PROPOSAL_KIND_PYTHON_RUN)
+    source = _bounded_text(data["source"], "source", 1, MAX_PYTHON_SOURCE_CHARS)
+    if "\x00" in source:
+        raise ProposalError("Python source may not contain NUL characters.")
+    timeout = data["timeout_seconds"]
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or not 10 <= timeout <= 600:
+        raise ProposalError("timeout_seconds must be between 10 and 600.")
+    return PythonRunProposal(
+        schema_version=_schema_version(data["schema_version"]),
+        context_token=_token(data["context_token"]),
+        source=source,
+        execution_mode=_execution_mode(data["execution_mode"]),
+        input_layer_ids=_bounded_string_list(data["input_layer_ids"], "input_layer_ids", 25),
+        timeout_seconds=timeout,
+        output_names=_bounded_string_list(data["output_names"], "output_names", MAX_POWER_OUTPUTS),
+        title=_bounded_text(data["title"], "title", MIN_TITLE_CHARS, MAX_TITLE_CHARS),
+        summary=_bounded_text(data["summary"], "summary", MIN_SUMMARY_CHARS, MAX_SUMMARY_CHARS),
+        warnings=_warnings(data["warnings"]),
+    )
+
+
 # -- public entry point -----------------------------------------------------
 
 
@@ -1485,7 +1821,13 @@ def parse_proposal(kind: str, proposal_json: str):
         return _parse_processing_run(data)
     if kind == PROPOSAL_KIND_MODEL_RUN:
         return _parse_model_run(data)
-    return _parse_plugin_action(data)
+    if kind == PROPOSAL_KIND_PLUGIN_ACTION:
+        return _parse_plugin_action(data)
+    if kind == PROPOSAL_KIND_SQL_RUN:
+        return _parse_sql_run(data)
+    if kind == PROPOSAL_KIND_TRUSTED_SCRIPT_RUN:
+        return _parse_trusted_script_run(data)
+    return _parse_python_run(data)
 
 
 # -- detached model-patch application/preview -------------------------------

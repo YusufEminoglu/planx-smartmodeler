@@ -10,6 +10,7 @@ registry -- this module never resolves a tool by name itself.
 """
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -21,7 +22,8 @@ from .prompt_builder import (
     PromptBuildError,
     SessionMemory,
     build_prompt,
-    select_tools_for_scope,
+    estimate_input_tokens,
+    select_tools_for_request,
 )
 from .proposals import (
     PROPOSAL_KIND_LAYER_STYLE,
@@ -29,6 +31,9 @@ from .proposals import (
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PROCESSING_RUN,
     PROPOSAL_KIND_PLUGIN_ACTION,
+    PROPOSAL_KIND_PYTHON_RUN,
+    PROPOSAL_KIND_SQL_RUN,
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
     ProposalReason,
     ProposalValidation,
 )
@@ -40,6 +45,11 @@ from .protocol import AgentTurn, ProtocolError, agent_turn_response_schema, pars
 # trusted runtime proposal boundary); the run loop stays QGIS-free and never
 # resolves a live layer/graph or a context token itself.
 ProposalValidator = Callable[[str, Any, str, str], ProposalValidation]
+InstructionProvider = Callable[[str, str, bool], str]
+PowerEnabledProvider = Callable[[], bool]
+
+SOFT_RUN_INPUT_TOKENS = 12_000
+ABSOLUTE_RUN_INPUT_TOKENS = 24_000
 
 # Which application-owned scope each proposal kind is compatible with.
 _PROPOSAL_SCOPES = {
@@ -48,6 +58,9 @@ _PROPOSAL_SCOPES = {
     PROPOSAL_KIND_PROCESSING_RUN: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
     PROPOSAL_KIND_MODEL_RUN: (AgentScope.CURRENT_MODEL,),
     PROPOSAL_KIND_PLUGIN_ACTION: (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
+    PROPOSAL_KIND_SQL_RUN: (AgentScope.PROJECT,),
+    PROPOSAL_KIND_TRUSTED_SCRIPT_RUN: (AgentScope.PROJECT,),
+    PROPOSAL_KIND_PYTHON_RUN: (AgentScope.PROJECT,),
 }
 
 # Bound on the preview text kept in bounded session memory after a proposal.
@@ -85,7 +98,11 @@ class RunEventKind:
     FAILED = "failed"
     CANCELLED = "cancelled"
     PROPOSAL = "proposal"
-    ALL = (REQUEST_PROVIDER, FINAL, FAILED, CANCELLED, PROPOSAL)
+    BUDGET_CONFIRMATION = "budget_confirmation"
+    ALL = (
+        REQUEST_PROVIDER, FINAL, FAILED, CANCELLED, PROPOSAL,
+        BUDGET_CONFIRMATION,
+    )
 
 
 @dataclass(frozen=True)
@@ -100,6 +117,8 @@ class ProviderRequest:
     system_prompt: str
     user_prompt: str
     response_schema: Dict[str, Any]
+    estimated_input_tokens: int = 0
+    prompt_metrics: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -123,12 +142,16 @@ class AgentRunLoop:
         static_instructions: str,
         prompt_budget: Optional[PromptBudget] = None,
         proposal_validator: Optional[ProposalValidator] = None,
+        instruction_provider: Optional[InstructionProvider] = None,
+        power_enabled_provider: Optional[PowerEnabledProvider] = None,
     ) -> None:
         self.controller = controller
         self.static_instructions = static_instructions
         # A None validator means proposals are unsupported for this loop; such
         # a turn fails closed rather than reaching any live validation.
         self._proposal_validator = proposal_validator
+        self._instruction_provider = instruction_provider
+        self._power_enabled_provider = power_enabled_provider or (lambda: False)
         # controller.limits.max_prompt_chars is authoritative for the combined
         # system+user prompt. A caller may customize the other budget fields,
         # but its max_prompt_chars is always normalized to the controller's
@@ -158,6 +181,8 @@ class AgentRunLoop:
         self._current_token: Optional[str] = None
         self._token_counter = 0
         self._seen_call_ids: set = set()
+        self._estimated_input_tokens = 0
+        self._pending_budget_request: Optional[ProviderRequest] = None
         self._turn_events: List[Dict[str, Any]] = []
         # Freshness receipts observed during this run. They come only from
         # trusted read-only tool results and are used solely by the narrow
@@ -193,6 +218,10 @@ class AgentRunLoop:
         """How many tool calls the active/most recent run has executed."""
         return self._run_state.tool_calls_this_run if self._run_state is not None else 0
 
+    @property
+    def estimated_input_tokens(self) -> int:
+        return self._estimated_input_tokens
+
     def start(self, user_text: str, mode: str, scope: str) -> RunEvent:
         """Start a new run. Raises :class:`RunAlreadyActiveError` if a run is
         already active -- new input is rejected, never implicitly queued."""
@@ -226,7 +255,17 @@ class AgentRunLoop:
             return RunEvent(kind=RunEventKind.CANCELLED, text="No run is active.")
         self._terminal = True
         self._current_token = None
+        self._pending_budget_request = None
         return RunEvent(kind=RunEventKind.CANCELLED, text="The run was cancelled.")
+
+    def confirm_budget(self) -> RunEvent:
+        """Release exactly one already-built provider request after user consent."""
+        request = self._pending_budget_request
+        if not self.is_active() or request is None:
+            raise RunLoopError("There is no provider request waiting for token approval.")
+        self._pending_budget_request = None
+        self._estimated_input_tokens += request.estimated_input_tokens
+        return RunEvent(kind=RunEventKind.REQUEST_PROVIDER, request=request)
 
     def new_chat(self) -> None:
         """Clear session memory (the **New chat** action). The dock is
@@ -463,10 +502,21 @@ class AgentRunLoop:
                 tool_events=tool_events,
             )
 
-        tool_specs = select_tools_for_scope(self.controller.registry.list_specs(), self._scope)
+        power_enabled = bool(self._power_enabled_provider())
+        tool_specs = select_tools_for_request(
+            self.controller.registry.list_specs(),
+            self._scope,
+            self._user_text,
+            power_enabled=power_enabled,
+        )
+        static_instructions = self.static_instructions
+        if self._instruction_provider is not None:
+            static_instructions = self._instruction_provider(
+                self._user_text, self._scope, power_enabled
+            )
         try:
             prompt = build_prompt(
-                static_instructions=self.static_instructions,
+                static_instructions=static_instructions,
                 mode=self._mode,
                 scope=self._scope,
                 tool_specs=tool_specs,
@@ -479,6 +529,10 @@ class AgentRunLoop:
             return self._fail(str(error), "prompt_build_failed", tool_events=tool_events)
 
         schema = agent_turn_response_schema(self.controller.limits.max_tool_calls_per_turn)
+        schema_chars = len(json.dumps(schema, ensure_ascii=False, sort_keys=True))
+        estimated_tokens = estimate_input_tokens(
+            len(prompt.system_prompt) + len(prompt.user_prompt) + schema_chars
+        )
         self._token_counter += 1
         token = f"{self._run_id}-{self._token_counter}"
         self._current_token = token
@@ -487,7 +541,37 @@ class AgentRunLoop:
             system_prompt=prompt.system_prompt,
             user_prompt=prompt.user_prompt,
             response_schema=schema,
+            estimated_input_tokens=estimated_tokens,
+            prompt_metrics={
+                "system_chars": prompt.system_chars,
+                "tool_schema_chars": prompt.tool_schema_chars,
+                "history_chars": prompt.history_chars,
+                "event_chars": prompt.event_chars,
+                "schema_chars": schema_chars,
+                "combined_chars": (
+                    len(prompt.system_prompt) + len(prompt.user_prompt) + schema_chars
+                ),
+            },
         )
+        projected = self._estimated_input_tokens + estimated_tokens
+        if projected > ABSOLUTE_RUN_INPUT_TOKENS:
+            return self._fail(
+                "The absolute 24,000 estimated input-token limit for this task "
+                "was reached. Start a new chat or narrow the request.",
+                "absolute_token_budget_exceeded",
+                tool_events=tool_events,
+            )
+        if projected > SOFT_RUN_INPUT_TOKENS:
+            self._pending_budget_request = request
+            return RunEvent(
+                kind=RunEventKind.BUDGET_CONFIRMATION,
+                text=(
+                    f"The next AI turn is estimated at {estimated_tokens:,} input "
+                    f"tokens and would bring this task to {projected:,}. Continue?"
+                ),
+                tool_events=tool_events,
+            )
+        self._estimated_input_tokens = projected
         return RunEvent(
             kind=RunEventKind.REQUEST_PROVIDER,
             text=assistant_text,

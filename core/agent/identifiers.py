@@ -22,6 +22,9 @@ STYLE_PROPOSAL_KIND = "layer_style"
 PROCESSING_PROPOSAL_KIND = "processing_run"
 MODEL_RUN_KIND = "model_run"
 PLUGIN_ACTION_KIND = "plugin_action"
+SQL_RUN_KIND = "sql_run"
+TRUSTED_SCRIPT_RUN_KIND = "trusted_script_run"
+PYTHON_RUN_KIND = "python_run"
 
 # Display-limit-independent bound used only for the style *freshness* signing
 # state, so the receipt depends on the layer's meaningful style, not on the

@@ -261,6 +261,32 @@ class TokenUsageTests(unittest.TestCase):
         )
         self.assertEqual(usage, AiTokenUsage(100, 20, 120))
 
+    def test_normalizes_cached_input_tokens_without_exceeding_input(self) -> None:
+        openai_usage = AiNetworkClient.extract_token_usage(
+            "openai",
+            {
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 10,
+                    "total_tokens": 110,
+                    "input_tokens_details": {"cached_tokens": 35},
+                }
+            },
+        )
+        anthropic_usage = AiNetworkClient.extract_token_usage(
+            "anthropic",
+            {
+                "usage": {
+                    "input_tokens": 80,
+                    "output_tokens": 5,
+                    "cache_read_input_tokens": 120,
+                }
+            },
+        )
+        self.assertEqual(openai_usage.cached_input_tokens, 35)
+        self.assertEqual(anthropic_usage.input_tokens, 200)
+        self.assertEqual(anthropic_usage.cached_input_tokens, 120)
+
 
 def make_profile(provider_id: str) -> AiProfile:
     profile = AiProfile.create(provider_id, provider_id)
@@ -363,6 +389,27 @@ class WorkflowStudioRequestUnchangedTests(unittest.TestCase):
             make_profile("azure_openai"), "key", "sys", "user"
         )
         self.assertEqual(payload["response_format"]["json_schema"]["name"], "qgis_workflow")
+
+    def test_every_provider_has_a_bounded_structured_output(self) -> None:
+        for provider_id in (
+            "openai", "anthropic", "gemini", "ollama", "deepseek",
+            "openai_compatible", "azure_openai",
+        ):
+            with self.subTest(provider_id=provider_id):
+                _, _, payload = AiNetworkClient.build_request(
+                    make_profile(provider_id), "key", "sys", "user"
+                )
+                if provider_id == "openai":
+                    limit = payload["max_output_tokens"]
+                elif provider_id == "anthropic":
+                    limit = payload["max_tokens"]
+                elif provider_id == "gemini":
+                    limit = payload["generationConfig"]["maxOutputTokens"]
+                elif provider_id == "ollama":
+                    limit = payload["options"]["num_predict"]
+                else:
+                    limit = payload["max_tokens"]
+                self.assertEqual(limit, 6000)
 
 
 class AgentStructuredContractInsertedTests(unittest.TestCase):

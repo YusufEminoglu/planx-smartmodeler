@@ -24,7 +24,10 @@ from .identifiers import (
     MODEL_RUN_KIND,
     PROCESSING_PROPOSAL_KIND,
     PLUGIN_ACTION_KIND,
+    PYTHON_RUN_KIND,
+    SQL_RUN_KIND,
     STYLE_PROPOSAL_KIND,
+    TRUSTED_SCRIPT_RUN_KIND,
 )
 
 RISK_LOW = "low"
@@ -121,6 +124,24 @@ def assess_risk(
                 "opens one reviewed plugin surface and creates a temporary "
                 "visual from the selected layer"
             ),
+            reversible=False,
+        )
+    if kind == SQL_RUN_KIND:
+        return RiskAssessment(
+            level=RISK_HIGH if is_destructive else RISK_MEDIUM,
+            label=_LABELS[RISK_HIGH if is_destructive else RISK_MEDIUM],
+            reason=(
+                "executes SQL against a stored database connection"
+                if is_destructive
+                else "runs a read query and adds a temporary result layer"
+            ),
+            reversible=not is_destructive,
+        )
+    if kind in (TRUSTED_SCRIPT_RUN_KIND, PYTHON_RUN_KIND):
+        return RiskAssessment(
+            level=RISK_HIGH,
+            label=_LABELS[RISK_HIGH],
+            reason="executes full Python with the current user's QGIS permissions",
             reversible=False,
         )
     return RiskAssessment(

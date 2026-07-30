@@ -66,7 +66,8 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 - Offers a separate **Agent Workspace** dock with bounded, read-only project,
   layer, symbology/labeling, Processing, model, and plugin inspections through
   a fail-closed policy engine, plus a bounded, provider-neutral **Agent Chat**
-  conversation over **thirteen** read-only tools using any configured non-offline
+  conversation over a capability-routed registry of **eighteen** read-only tools
+  using any configured non-offline
   AI connection (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible,
   Azure OpenAI). Every provider turn is a strict, locally re-validated
   structured envelope; mode, scope, and every tool call's execution stay under
@@ -76,10 +77,11 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   working with the `offline` profile, which is not treated as a language model.
 - Uses a dedicated node-and-spark Agent Workspace toolbar icon that remains
   distinct from the main Workflow Studio action at small QGIS toolbar sizes.
-- In Plan or Act mode the Agent Workspace can show five kinds of **validated
+- In Plan or Act mode the Agent Workspace can show eight kinds of **validated
   proposals**: a model-workflow patch, a vector/raster symbology-and-labeling
   intent, a single reviewed Processing run, a run of your current workflow, and
-  one explicitly reviewed cross-plugin action.
+  one explicitly reviewed cross-plugin action, plus opt-in SQL, trusted-script,
+  and generated-PyQGIS runs.
   A proposal is inert data validated locally (a model patch only on a
   detached graph clone; a style proposal only against the live layer's fields).
   In **Plan** it stays review-only with a **Not applied** status. In **Act** it
@@ -105,6 +107,17 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   verifies cleanup and never claims or removes an unrelated project layer.
   Workflow Studio and Agent Workspace share one execution slot, so they cannot
   run or apply competing changes to the same graph/project concurrently.
+- **Power Mode is explicit and off by default.** When enabled, the Agent can
+  inspect stored PostGIS/GeoPackage connection metadata through opaque receipts,
+  propose one complete SQL statement, use a managed hash-pinned trusted script,
+  or show complete generated PyQGIS source. SQL/Python is never hidden behind a
+  generic tool call: the approval card shows the full source. Database writes
+  and DDL require a second confirmation; live in-process Python requires a
+  second confirmation and carries a no-rollback warning. Generated Python
+  defaults to a cancellable, timeout-bounded separate QGIS process, snapshots
+  selected vector inputs, and imports only its requested/new vector outputs.
+  This is process isolation, not a security sandbox: code still has the current
+  user's filesystem and network permissions.
 - QGIS expressions are a typed, reviewed capability instead of generic text.
   Agent Workspace can run `native:fieldcalculator` with formulas such as
   `rand(1, 15)`, `$area`, quoted field references, `CASE`, and ordinary QGIS
@@ -142,11 +155,12 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
   are not repeated. A mechanically missing proposal receipt can be restored
   locally with one bounded read-only inspection, avoiding another provider turn
   while preserving the normal strict validation and approval boundary.
-- A compact **Tokens** label shows exact usage metadata reported by the active
-  provider as separate `Input … · Output …` counts. Agent Workspace totals the
-  current chat and Workflow Studio totals the current window; hover for the
-  provider-reported total. It remains `Input - · Output -` instead of inventing
-  an estimate when a provider sends no usage metadata.
+- A compact token label shows provider-reported **last request**, **chat input**
+  and **cached input** counts; hover for input/output/total and the conservative
+  local estimate. The Agent sends only a compact core prompt plus intent-specific
+  expression, OSM, or Power packs, advertises only the relevant tools, retains
+  six bounded exchanges, compresses tool traces, caps structured output, asks
+  before a task crosses 12,000 estimated input tokens, and stops at 24,000.
 - Reviewed optional Processing result sinks remain signature-checked but are
   left unset unless they are the requested output. For example, **Extract by
   attribute** adds the matching temporary layer without also cluttering the
@@ -198,10 +212,12 @@ independently rechecks its stricter structural execution policy. Live enum
 meanings and safe defaults keep choice indices unambiguous. Feature values are
 not included. Returned JSON must pass the shipped schema, installed-algorithm,
 parameter, socket-type, and DAG checks. `null` means deliberately unconfigured.
-AI output cannot request Python, shell commands, arbitrary downloads,
-user-selected filesystem changes, or arbitrary network actions. SmartModeler's
-bounded point/line/polygon OSM algorithms and the legacy QuickOSM fallback are
-application-owned and separately approved.
+With Power Mode off, AI output cannot request Python, shell commands, database
+actions, arbitrary downloads, user-selected filesystem changes, or arbitrary
+network actions. SmartModeler's bounded point/line/polygon OSM algorithms and
+the legacy QuickOSM fallback are application-owned and separately approved.
+Power Mode deliberately adds the separately reviewed SQL/Python contracts
+described above; it never adds shell-command proposals or background approval.
 
 The auditable instruction set lives in [`ai_context/`](ai_context/):
 

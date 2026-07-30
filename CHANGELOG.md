@@ -2,6 +2,47 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.0] - 2026-07-30
+
+### Added
+
+- Add explicit, persistent, default-off Power Mode with read-only discovery of
+  stored PostGIS and GeoPackage connections through short-lived opaque receipts.
+- Add strict single-statement SQL proposals with full-source approval cards,
+  local select/write/DDL classification, transaction reporting, a second
+  confirmation for writes/DDL, and temporary in-project SELECT result layers.
+- Add a managed trusted-script library with SHA-256 pinning and complete source
+  review at import, plus complete generated PyQGIS proposal cards.
+- Add cancellable, timeout-bounded separate-QGIS Python execution with vector
+  input snapshots and temporary result import; live in-process Python remains
+  available behind a second warning and explicit confirmation.
+- Add a real QGIS 3.44/4.2 acceptance test for default-off gating, script hash
+  invalidation, full-source preview, isolated execution, cancellation, and
+  output import.
+
+### Changed
+
+- Replace the full Agent handbook on every turn with a compact core and
+  intent-routed expression, OSM, and Power packs.
+- Advertise only the tools relevant to the captured scope and request, add
+  one-step Processing resolution, bound history/tool traces, and cap structured
+  provider output.
+- Add per-request prompt component metrics, conservative token estimation,
+  a confirmation before 12,000 estimated task input tokens, and an absolute
+  24,000-token stop.
+- Show last-request, chat-total, and cached-input provider telemetry; normalize
+  cache usage across OpenAI, Anthropic, Gemini, and compatible providers.
+- Route roads/buildings/trees requests directly toward 02Agent's single Urban
+  Context preset while preserving built-in OSM fallbacks.
+
+### Security
+
+- Power proposals fail closed when disabled, stale, hash-mismatched, multi-
+  statement, wrongly classified, or bound to unavailable local resources.
+- SQL/Python source is never hidden from the approval card. Power subprocesses
+  isolate QGIS project state but are explicitly not presented as a filesystem
+  or network security sandbox.
+
 ## [0.17.0] - 2026-07-30
 
 ### Added

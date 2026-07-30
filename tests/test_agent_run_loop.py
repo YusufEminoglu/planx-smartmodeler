@@ -184,6 +184,31 @@ class BasicLifecycleTests(unittest.TestCase):
 
 
 class LimitTests(unittest.TestCase):
+    def test_soft_token_budget_requires_confirmation_before_provider_request(self) -> None:
+        loop, _, _, _ = build_loop()
+        with patch(
+            "planx_smartmodeler.core.agent.run_loop.SOFT_RUN_INPUT_TOKENS", 1
+        ), patch(
+            "planx_smartmodeler.core.agent.run_loop.ABSOLUTE_RUN_INPUT_TOKENS", 100_000
+        ):
+            event = loop.start("hello", AgentMode.ASK, AgentScope.PROJECT)
+            self.assertEqual(event.kind, RunEventKind.BUDGET_CONFIRMATION)
+            self.assertIsNone(event.request)
+            self.assertEqual(loop.estimated_input_tokens, 0)
+            released = loop.confirm_budget()
+            self.assertEqual(released.kind, RunEventKind.REQUEST_PROVIDER)
+            self.assertGreater(loop.estimated_input_tokens, 0)
+
+    def test_absolute_token_budget_stops_before_provider_request(self) -> None:
+        loop, _, _, _ = build_loop()
+        with patch(
+            "planx_smartmodeler.core.agent.run_loop.ABSOLUTE_RUN_INPUT_TOKENS", 1
+        ):
+            event = loop.start("hello", AgentMode.ASK, AgentScope.PROJECT)
+        self.assertEqual(event.kind, RunEventKind.FAILED)
+        self.assertEqual(event.reason_code, "absolute_token_budget_exceeded")
+        self.assertIsNone(event.request)
+
     def test_max_turns_limit_stops_the_run(self) -> None:
         loop, _, _, _ = build_loop(AgentRunLimits(max_turns=1))
         event = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)

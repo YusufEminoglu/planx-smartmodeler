@@ -9,6 +9,7 @@ that remains the dock/``AiNetworkClient``'s job.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -16,9 +17,10 @@ from .contracts import AgentToolSpec, MAX_ALLOWED_PROMPT_CHARS
 
 # Recommended Phase 02 defaults (work order Section 8.2).
 MAX_USER_MESSAGE_CHARS = 4_000
-MAX_SESSION_EXCHANGES = 12
-MAX_SESSION_TEXT_CHARS = 30_000
-MAX_TOOL_RESULT_PROMPT_CHARS = 8_000
+MAX_SESSION_EXCHANGES = 6
+MAX_SESSION_TEXT_CHARS = 6_000
+MAX_TOOL_RESULT_PROMPT_CHARS = 3_000
+MAX_WORKING_TRACE_CHARS = 2_500
 
 # Hard maxima: a malformed/adversarial PromptBudget can never exceed these.
 MAX_ALLOWED_USER_MESSAGE_CHARS = 20_000
@@ -139,6 +141,16 @@ class PromptResult:
     system_prompt: str
     user_prompt: str
     history_truncated: bool
+    system_chars: int = 0
+    tool_schema_chars: int = 0
+    history_chars: int = 0
+    event_chars: int = 0
+    estimated_input_tokens: int = 0
+
+
+def estimate_input_tokens(characters: int) -> int:
+    """Return a conservative provider-neutral estimate used only for budgets."""
+    return max(0, int(math.ceil(max(0, int(characters)) / 3.0)))
 
 
 def select_tools_for_scope(
@@ -149,6 +161,78 @@ def select_tools_for_scope(
     registry). Only these tools are ever advertised to the provider for a
     turn captured with this scope."""
     return [spec for spec in tool_specs if scope in spec.allowed_scopes]
+
+
+def select_tools_for_request(
+    tool_specs: Sequence[AgentToolSpec],
+    scope: str,
+    user_text: str,
+    *,
+    power_enabled: bool = False,
+) -> List[AgentToolSpec]:
+    """Select the smallest useful deterministic capability pack for a request."""
+    scoped = select_tools_for_scope(tool_specs, scope)
+    folded = str(user_text or "").casefold()
+    wanted = set()
+    if scope in ("project", "active_layer"):
+        wanted.update(("project.summary", "layer.list", "layer.describe"))
+    if scope == "current_model":
+        wanted.update(("model.summary", "model.describe", "model.validate"))
+    if scope == "plugins":
+        wanted.update(("plugin.list", "plugin.describe", "plugin.capabilities"))
+
+    processing_terms = (
+        "process", "algorithm", "buffer", "reproject", "extract", "calculate",
+        "field", "expression", "rand(", "$area", "$length", "clip", "merge",
+        "dissolve", "processing", "sütun", "sutun", "alan hesap",
+    )
+    if any(term in folded for term in processing_terms):
+        wanted.update(
+            (
+                "processing.resolve",
+                "processing.search",
+                "processing.describe",
+                "expression.search",
+                "layer.list",
+                "layer.describe",
+            )
+        )
+    osm_terms = (
+        "osm", "openstreetmap", "overpass", "02agent", "road", "building",
+        "tree", "yol", "bina", "ağaç", "agac",
+    )
+    if any(term in folded for term in osm_terms):
+        wanted.update(
+            (
+                "processing.resolve",
+                "processing.search",
+                "processing.describe",
+                "plugin.capabilities",
+                "layer.list",
+            )
+        )
+    if any(term in folded for term in ("plugin", "eklenti", "02agent", "02viz")):
+        wanted.update(("plugin.list", "plugin.describe", "plugin.capabilities"))
+    if any(
+        term in folded
+        for term in ("style", "symbol", "label", "renderer", "stil", "sembol", "etiket")
+    ):
+        wanted.update(("layer.list", "layer.describe", "layer.style"))
+    if power_enabled and any(
+        term in folded for term in ("sql", "postgis", "geopackage", "database", "veritaban")
+    ):
+        wanted.update(("database.list", "database.describe"))
+    if power_enabled and any(
+        term in folded for term in ("python", "pyqgis", "script", "betik")
+    ):
+        wanted.update(("script.list", "script.describe"))
+
+    # An unknown project request still needs one discovery route, but not the
+    # entire registry.
+    if not wanted and scope in ("project", "active_layer"):
+        wanted.update(("project.summary", "layer.list", "processing.resolve"))
+    selected = [spec for spec in scoped if spec.name in wanted]
+    return selected or scoped[:3]
 
 
 def _omit_if_oversized(event: Dict[str, Any], max_chars: int) -> Dict[str, Any]:
@@ -180,6 +264,26 @@ def _events_omitted_marker(dropped: int) -> Dict[str, Any]:
             "budget; call a tool again if you still need that information"
         ),
     }
+
+
+def _compact_working_events(
+    events: Sequence[Dict[str, Any]], max_chars: int = MAX_WORKING_TRACE_CHARS
+) -> List[Dict[str, Any]]:
+    """Keep newest semantically distinct tool results within a small budget."""
+    latest = []
+    for event in reversed(events):
+        item = dict(event)
+        candidate = [item] + latest
+        if len(json.dumps(candidate, ensure_ascii=False, sort_keys=True)) > max_chars:
+            continue
+        latest = candidate
+    dropped = max(0, len(events) - len(latest))
+    if dropped:
+        marker = _events_omitted_marker(dropped)
+        candidate = [marker] + latest
+        if len(json.dumps(candidate, ensure_ascii=False, sort_keys=True)) <= max_chars:
+            latest = candidate
+    return latest
 
 
 def _fixed_length(
@@ -287,6 +391,7 @@ def build_prompt(
         _omit_if_oversized(dict(event), budget.max_tool_result_prompt_chars)
         for event in current_run_events
     ]
+    bounded_events = _compact_working_events(bounded_events)
 
     def combined_length(history_entries: Sequence[SessionExchange], history_truncated: bool) -> int:
         payload = _payload(
@@ -336,8 +441,30 @@ def build_prompt(
         mode, scope, tool_descriptions, user_text, bounded_events, included, history_truncated
     )
     user_prompt = json.dumps(final_payload, ensure_ascii=False, sort_keys=True)
+    tool_schema_chars = len(
+        json.dumps(tool_descriptions, ensure_ascii=False, sort_keys=True)
+    )
+    history_chars = len(
+        json.dumps(
+            [
+                {"user_text": item.user_text, "assistant_text": item.assistant_text}
+                for item in included
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    event_chars = len(
+        json.dumps(bounded_events, ensure_ascii=False, sort_keys=True)
+    )
+    combined_chars = len(static_instructions) + len(user_prompt)
     return PromptResult(
         system_prompt=static_instructions,
         user_prompt=user_prompt,
         history_truncated=history_truncated,
+        system_chars=len(static_instructions),
+        tool_schema_chars=tool_schema_chars,
+        history_chars=history_chars,
+        event_chars=event_chars,
+        estimated_input_tokens=estimate_input_tokens(combined_chars),
     )

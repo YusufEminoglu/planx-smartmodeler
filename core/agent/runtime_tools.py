@@ -658,6 +658,57 @@ def _tool_processing_describe_factory(
     return _handler
 
 
+def _tool_processing_resolve_factory(
+    token_service: ContextTokenService,
+) -> Callable[[AgentToolCall], Dict[str, Any]]:
+    """Combine Processing discovery and signature inspection in one call."""
+    describe = _tool_processing_describe_factory(token_service)
+
+    def _handler(call: AgentToolCall) -> Dict[str, Any]:
+        algorithm_id = str(call.arguments.get("algorithm_id", "") or "").strip()
+        query = str(call.arguments.get("query", "") or "").strip()
+        if not algorithm_id and not query:
+            raise ToolExecutionError("query or algorithm_id is required.")
+        if algorithm_id:
+            return {
+                "resolved": describe(
+                    AgentToolCall(
+                        call_id=call.call_id,
+                        tool_name="processing.describe",
+                        arguments={"algorithm_id": algorithm_id, "limit": 40},
+                    )
+                ),
+                "algorithms": [],
+                "truncated": False,
+            }
+        search = _tool_processing_search(
+            AgentToolCall(
+                call_id=call.call_id,
+                tool_name="processing.search",
+                arguments={"query": query, "limit": 5},
+            )
+        )
+        algorithms = search.get("algorithms", [])
+        resolved = None
+        if len(algorithms) == 1 and isinstance(algorithms[0], dict):
+            candidate = str(algorithms[0].get("algorithm_id", "") or "")
+            if candidate:
+                resolved = describe(
+                    AgentToolCall(
+                        call_id=call.call_id,
+                        tool_name="processing.describe",
+                        arguments={"algorithm_id": candidate, "limit": 40},
+                    )
+                )
+        return {
+            "resolved": resolved,
+            "algorithms": algorithms,
+            "truncated": bool(search.get("truncated", False)),
+        }
+
+    return _handler
+
+
 def _tool_model_summary_factory(model_provider: ModelProvider) -> Callable[[AgentToolCall], Dict[str, Any]]:
     def _handler(call: AgentToolCall) -> Dict[str, Any]:
         limit = _clamp_limit(call.arguments.get("limit"))
@@ -1441,8 +1492,11 @@ def build_default_registry(
     model_provider: ModelProvider,
     token_service: Optional[ContextTokenService] = None,
     active_layer_provider: Optional[ActiveLayerProvider] = None,
+    power_enabled_provider: Optional[Callable[[], bool]] = None,
+    power_resources: Optional[Any] = None,
+    script_library: Optional[Any] = None,
 ) -> AgentToolRegistry:
-    """Build and return the thirteen-tool read-only Agent Workspace registry.
+    """Build the capability-routed Agent Workspace registry.
 
     ``token_service`` issues the opaque freshness tokens for ``model.describe``,
     ``layer.style`` and ``processing.describe``; the dock passes the same
@@ -1450,7 +1504,98 @@ def build_default_registry(
     omitted a fresh service is created (useful for isolated tool tests).
     """
     token_service = token_service or ContextTokenService()
+    power_enabled_provider = power_enabled_provider or (lambda: False)
+    if power_resources is None:
+        class _NullPowerResources:
+            def issue(self, *_args) -> str:
+                return ""
+
+        power_resources = _NullPowerResources()
+    if script_library is None:
+        class _NullScriptLibrary:
+            def list(self):
+                return ()
+
+            def get(self, _script_id):
+                raise ValueError("Power Mode script library is unavailable.")
+
+        script_library = _NullScriptLibrary()
     registry = AgentToolRegistry()
+
+    def _require_power() -> None:
+        if not bool(power_enabled_provider()):
+            raise ToolExecutionError("Power Mode is disabled.")
+
+    def _database_list(_call: AgentToolCall) -> Dict[str, Any]:
+        _require_power()
+        from .power_mode import database_connections
+
+        items = database_connections(power_resources)
+        return {"connections": items, "count": len(items), "truncated": False}
+
+    def _database_describe(call: AgentToolCall) -> Dict[str, Any]:
+        _require_power()
+        from .power_mode import describe_database
+
+        return describe_database(
+            power_resources,
+            str(call.arguments.get("connection_token", "")),
+            _clamp_limit(call.arguments.get("limit")),
+            schema_name=str(call.arguments.get("schema", ""))[:128],
+            table_name=str(call.arguments.get("table", ""))[:160],
+        )
+
+    def _script_list(_call: AgentToolCall) -> Dict[str, Any]:
+        _require_power()
+        items = [
+            {
+                "script_id": item.script_id,
+                "name": item.name,
+                "description": item.description,
+                "script_hash": item.script_hash,
+            }
+            for item in script_library.list()[:50]
+        ]
+        return {
+            "scripts": items,
+            "count": len(items),
+            "truncated": False,
+            "generated_context_token": power_resources.issue(
+                "python", "python", "generated", "Generated PyQGIS"
+            ),
+        }
+
+    def _script_describe(call: AgentToolCall) -> Dict[str, Any]:
+        _require_power()
+        try:
+            item = script_library.get(str(call.arguments.get("script_id", "")))
+        except ValueError:
+            return {"available": False}
+        resource_token = power_resources.issue(
+            "script", "python", item.script_id, item.name
+        )
+        public_parameters = []
+        for name, contract in list(item.parameters.items())[:50]:
+            row = {"name": str(name)[:100]}
+            if isinstance(contract, dict):
+                row["type"] = str(contract.get("type", "value"))[:40]
+                row["description"] = str(contract.get("description", ""))[:300]
+                row["required"] = bool(contract.get("required", False))
+            else:
+                row["type"] = "value"
+                row["description"] = ""
+                row["required"] = False
+            public_parameters.append(row)
+        return {
+            "available": True,
+            "context_token": resource_token,
+            "script_id": item.script_id,
+            "name": item.name,
+            "description": item.description,
+            "script_hash": item.script_hash,
+            "parameters": public_parameters,
+            "execution_modes": ["subprocess", "live"],
+        }
 
     registry.register(
         AgentToolSpec(
@@ -1505,6 +1650,38 @@ def build_default_registry(
             allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
         ),
         _tool_layer_describe,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="processing.resolve",
+            title="Resolve Processing operation",
+            description=(
+                "Resolves an exact algorithm id, or searches a short operation "
+                "name and describes it when unambiguous. Returns one live typed "
+                "signature and freshness receipt without execution."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "query": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": _QUERY_MAX_LENGTH,
+                    },
+                    "algorithm_id": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": _ID_MAX_LENGTH,
+                    },
+                }
+            ),
+            allowed_scopes=(
+                AgentScope.PROJECT,
+                AgentScope.ACTIVE_LAYER,
+                AgentScope.CURRENT_MODEL,
+            ),
+        ),
+        _tool_processing_resolve_factory(token_service),
     )
     registry.register(
         AgentToolSpec(
@@ -1732,5 +1909,91 @@ def build_default_registry(
             allowed_scopes=(AgentScope.PLUGINS, AgentScope.PROJECT),
         ),
         _tool_plugin_capabilities_factory(token_service),
+    )
+    registry.register(
+        AgentToolSpec(
+            name="database.list",
+            title="List database connections",
+            description=(
+                "Power Mode only. Lists stored PostGIS and GeoPackage connection "
+                "names through opaque tokens; never returns URIs or credentials."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(),
+            allowed_scopes=(AgentScope.PROJECT,),
+        ),
+        _database_list,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="database.describe",
+            title="Describe database",
+            description=(
+                "Power Mode only. Returns bounded schema/table names, optional "
+                "column names/types for one selected table, and a fresh opaque "
+                "SQL proposal token without rows, URI or credentials."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "connection_token": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                    },
+                    "limit": _LIMIT_PROPERTY,
+                    "schema": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 128,
+                    },
+                    "table": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 160,
+                    },
+                },
+                required=["connection_token"],
+            ),
+            allowed_scopes=(AgentScope.PROJECT,),
+        ),
+        _database_describe,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="script.list",
+            title="List trusted scripts",
+            description=(
+                "Power Mode only. Lists managed hash-pinned scripts and their "
+                "public parameter contracts; never returns source or paths."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(),
+            allowed_scopes=(AgentScope.PROJECT,),
+        ),
+        _script_list,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="script.describe",
+            title="Describe trusted script",
+            description=(
+                "Power Mode only. Describes one managed script and issues a "
+                "short-lived run receipt; never returns source or file paths."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "script_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                    }
+                },
+                required=["script_id"],
+            ),
+            allowed_scopes=(AgentScope.PROJECT,),
+        ),
+        _script_describe,
     )
     return registry

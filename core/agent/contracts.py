@@ -40,10 +40,10 @@ MAX_PROMPT_TEXT_LENGTH = 12000
 # instructions (~7 200 chars) and every scope-allowed tool's public schema
 # (~3 600 chars in the widest scope), so the fixed context alone is close to
 # 11 000 characters before the user has typed anything or a single tool result
-# has been recorded. Reusing the 12 000-char message bound here left roughly
-# one tool result of headroom and made any real multi-tool run fail with
-# "does not fit within the configured prompt budget" on its third call.
-MAX_AGENT_PROMPT_CHARS = 60000
+# has been recorded. Intent-routed tools, compact static packs, bounded history,
+# and working-trace compaction now keep the complete provider request within the
+# same 12 000-character ceiling instead of widening the prompt.
+MAX_AGENT_PROMPT_CHARS = 12000
 
 MAX_JSON_ARRAY_ITEMS = 500
 MAX_JSON_OBJECT_KEYS = 200

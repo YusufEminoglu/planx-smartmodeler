@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 
 class PromptContextLoader:
@@ -29,6 +29,60 @@ class PromptContextLoader:
             remaining = self.MAX_STATIC_CHARS - used
             if remaining <= 0:
                 break
+            text = text[:remaining]
+            sections.append(f"<!-- {path.name} -->\n{text}")
+            used += len(text)
+        return "\n\n".join(sections)
+
+    def agent_context(
+        self,
+        user_text: str,
+        scope: str,
+        *,
+        power_enabled: bool = False,
+    ) -> str:
+        """Return a compact, task-routed Agent system prompt.
+
+        The full Markdown handbook remains shipped for audit and maintenance,
+        but sending all of it on every provider turn was the dominant fixed
+        token cost. The compact core carries the complete protocol; specialized
+        reference packs are added only when the current request needs them.
+        """
+        folded = str(user_text or "").casefold()
+        names = ["05_AGENT_CORE.md"]
+        expression_terms = (
+            "expression", "field calculator", "calculate field", "formula",
+            "rand(", "$area", "$length", "if(", "case ", "alan hesap",
+            "sütun", "sutun",
+        )
+        if any(term in folded for term in expression_terms):
+            names.append("15_QGIS_EXPRESSIONS.md")
+        if any(
+            term in folded
+            for term in (
+                "osm", "openstreetmap", "overpass", "02agent", "road",
+                "building", "tree", "yol", "bina", "ağaç", "agac",
+            )
+        ):
+            names.append("16_OSM.md")
+        if power_enabled and any(
+            term in folded
+            for term in ("sql", "postgis", "geopackage", "python", "pyqgis", "script")
+        ):
+            names.append("25_POWER_MODE.md")
+        return self._selected_context(names)
+
+    def _selected_context(self, names: Sequence[str]) -> str:
+        sections = []
+        used = 0
+        for name in names:
+            path = self.context_dir / name
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8").strip()
+            remaining = self.MAX_STATIC_CHARS - used
+            if not text or remaining <= 0:
+                continue
             text = text[:remaining]
             sections.append(f"<!-- {path.name} -->\n{text}")
             used += len(text)
