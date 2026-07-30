@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.18.7
+version=0.18.8
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    0.18.8 - Recognize mixed-language attribute filters, explain Ask versus Act immediately, and stop repeated no-progress inspection loops.
     0.18.7 - Make active-layer attribute filters deterministic, preserve retry capabilities, and normalize invalid provider call ids.
     0.18.6 - Accept provider input arguments and recover mislabeled terminal proposals without executing attached tool calls.
     0.18.5 - Raise the bounded Agent prompt budget to 30k characters and keep unrelated Power tool schemas out of normal Processing requests.

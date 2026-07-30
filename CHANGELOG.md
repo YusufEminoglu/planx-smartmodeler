@@ -2,6 +2,30 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.8] - 2026-07-30
+
+### Fixed
+
+- Recognize mixed Turkish/English active-layer filter requests where the field
+  follows `sütun adı` and a quoted value precedes `değerindekileri`, including
+  the exact reported `active katmandaki ... "low" değerindekileri` wording.
+- Stop recognized layer-creating requests immediately in Ask mode with a clear
+  instruction to select `Act (approve to apply)`, explicitly distinguishing
+  Agent mode from Power Mode instead of spending provider turns.
+- Add a no-progress circuit breaker: two consecutive provider turns containing
+  only already-reused read-only inspections now stop with a specific diagnosis
+  before reaching the general twelve-turn safety limit.
+- Preserve both `tekrar yap` and `tekrar dene` retries across intervening
+  diagnostic conversation.
+
+### Testing
+
+- Exercise both field/value word orders, Ask-mode guidance, the no-progress
+  circuit breaker, and both Turkish retry phrases in the pure run-loop suite.
+- Run the exact newly reported mixed-language request end to end on QGIS 3.44
+  and 4.2, confirming a two-feature `low` temporary result and an unchanged
+  three-feature source layer without any provider turn.
+
 ## [0.18.7] - 2026-07-30
 
 ### Fixed

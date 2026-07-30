@@ -335,6 +335,31 @@ class DuplicateCallIdTests(unittest.TestCase):
         self.assertNotEqual(second[0], "c1")
 
 
+class NoProgressCircuitBreakerTests(unittest.TestCase):
+    def test_two_fully_reused_inspection_turns_stop_before_general_limit(self) -> None:
+        loop, _, echo_handler, _ = build_loop(AgentRunLimits(max_turns=5))
+        first = loop.start("inspect something", AgentMode.ASK, AgentScope.PROJECT)
+        second = loop.submit_provider_response(
+            first.request.request_token,
+            tool_calls_turn_json([("c1", "test.echo", "{}")]),
+        )
+        third = loop.submit_provider_response(
+            second.request.request_token,
+            tool_calls_turn_json([("c2", "test.echo", "{}")]),
+        )
+        self.assertEqual(third.kind, RunEventKind.REQUEST_PROVIDER)
+        stopped = loop.submit_provider_response(
+            third.request.request_token,
+            tool_calls_turn_json([("c3", "test.echo", "{}")]),
+        )
+        self.assertEqual(stopped.kind, RunEventKind.FAILED)
+        self.assertEqual(
+            stopped.reason_code, "repeated_inspections_no_progress"
+        )
+        self.assertEqual(len(echo_handler.calls), 1)
+        self.assertLess(loop.turns_used, loop._run_state.limits.max_turns)
+
+
 class UnknownToolTests(unittest.TestCase):
     def test_unknown_tool_produces_a_controlled_denial_and_the_run_continues(self) -> None:
         loop, _, _, _ = build_loop()
@@ -691,6 +716,10 @@ def build_attribute_filter_loop(*, include_field=True):
 
 class DeterministicAttributeFilterTests(unittest.TestCase):
     REQUEST = (
+        "active katmandaki sütun adı built_intensity_bin olan geometirlerden "
+        '"low" değerindekileri filtreleyip yeni bir katman olarak kaydet'
+    )
+    PREVIOUS_WORD_ORDER = (
         'aktif katmanda built_intensity_bin sütununda değeri "low" '
         "olanları yeni katman olarak ver bana"
     )
@@ -717,20 +746,33 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
         self.assertEqual(bindings["VALUE"].value, "low")
         self.assertEqual(bindings["OPERATOR"].value, 0)
 
-    def test_retry_skips_an_intervening_diagnostic_exchange(self) -> None:
+    def test_previous_field_before_column_word_order_remains_supported(self) -> None:
         loop, validator, _calls = build_attribute_filter_loop()
-        loop.session_memory.append(
-            self.REQUEST,
-            "[Attempt did not complete: invalid call id]",
+        event = loop.start(
+            self.PREVIOUS_WORD_ORDER, AgentMode.ACT, AgentScope.PROJECT
         )
-        loop.session_memory.append(
-            "neden yapamıyorsun sorgula",
-            "The previous attempt reached its turn limit.",
-        )
-        event = loop.start("tekrar dene", AgentMode.ACT, AgentScope.ACTIVE_LAYER)
         self.assertEqual(event.kind, RunEventKind.PROPOSAL)
         self.assertEqual(len(validator.proposals), 1)
-        self.assertEqual(validator.proposals[0][3], AgentScope.ACTIVE_LAYER)
+
+    def test_retry_skips_an_intervening_diagnostic_exchange(self) -> None:
+        for retry_text in ("tekrar yap", "tekrar dene"):
+            loop, validator, _calls = build_attribute_filter_loop()
+            loop.session_memory.append(
+                self.REQUEST,
+                "[Attempt did not complete: invalid call id]",
+            )
+            loop.session_memory.append(
+                "neden yapamıyorsun sorgula",
+                "The previous attempt reached its turn limit.",
+            )
+            event = loop.start(
+                retry_text, AgentMode.ACT, AgentScope.ACTIVE_LAYER
+            )
+            self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+            self.assertEqual(len(validator.proposals), 1)
+            self.assertEqual(
+                validator.proposals[0][3], AgentScope.ACTIVE_LAYER
+            )
 
     def test_missing_named_field_fails_before_validation(self) -> None:
         loop, validator, _calls = build_attribute_filter_loop(include_field=False)
@@ -743,7 +785,9 @@ class DeterministicAttributeFilterTests(unittest.TestCase):
     def test_ask_mode_does_not_run_the_local_proposal_path(self) -> None:
         loop, validator, calls = build_attribute_filter_loop()
         event = loop.start(self.REQUEST, AgentMode.ASK, AgentScope.PROJECT)
-        self.assertEqual(event.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(event.kind, RunEventKind.FINAL)
+        self.assertIn("Act (approve to apply)", event.text)
+        self.assertIn("Power Mode", event.text)
         self.assertEqual(calls, [])
         self.assertEqual(validator.proposals, [])
 

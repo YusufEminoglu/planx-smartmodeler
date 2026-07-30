@@ -92,22 +92,41 @@ _LIMIT_REASON_CODES = (
 )
 
 _ATTRIBUTE_FILTER_ALGORITHM = "native:extractbyattribute"
-_ATTRIBUTE_FIELD_RE = re.compile(
+_ACTIVE_LAYER_RE = re.compile(
+    r"\b(?:aktif|active|etkin)\s+katman\w*", re.IGNORECASE
+)
+_ATTRIBUTE_FIELD_BEFORE_RE = re.compile(
     r"(?:\"(?P<quoted>[^\"\r\n]{1,128})\"|"
     r"(?P<plain>[A-Za-z_][A-Za-z0-9_]{0,127}))\s+"
     r"(?:sütun(?:unda|undaki)?|sutun(?:unda|undaki)?|"
     r"alan(?:ında|inda|daki)?|column|field)\b",
     re.IGNORECASE,
 )
-_ATTRIBUTE_VALUE_RE = re.compile(
-    r"(?:değeri|degeri|value(?:\s+is)?|eşit(?:tir)?|esit(?:tir)?|=)\s*"
+_ATTRIBUTE_FIELD_AFTER_RE = re.compile(
+    r"(?:sütun(?:un)?|sutun(?:un)?|alan(?:ın)?|alanin|column|field)\s+"
+    r"(?:adı|adi|ismi|name(?:d)?)\s+"
+    r"(?:\"(?P<quoted>[^\"\r\n]{1,128})\"|"
+    r"(?P<plain>[A-Za-z_][A-Za-z0-9_]{0,127}))",
+    re.IGNORECASE,
+)
+_ATTRIBUTE_VALUE_AFTER_RE = re.compile(
+    r"(?:değer\w*|deger\w*|value(?:\s+is)?|"
+    r"eşit(?:tir)?|esit(?:tir)?|=)\s*"
     r"(?:\"(?P<double>[^\"\r\n]{1,256})\"|"
     r"'(?P<single>[^'\r\n]{1,256})'|"
     r"(?P<plain>[^\s,;.\r\n]{1,256}))",
     re.IGNORECASE,
 )
+_ATTRIBUTE_VALUE_BEFORE_RE = re.compile(
+    r"(?:\"(?P<double>[^\"\r\n]{1,256})\"|"
+    r"'(?P<single>[^'\r\n]{1,256})'|"
+    r"(?P<plain>[A-Za-z0-9_:+-]{1,256}))\s+"
+    r"(?:değer\w*|deger\w*|value\w*)",
+    re.IGNORECASE,
+)
 _FILTER_RETRY_TERMS = (
     "tekrar dene",
+    "tekrar yap",
     "yeniden dene",
     "bir daha dene",
     "try again",
@@ -127,7 +146,7 @@ def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent
     if not isinstance(text, str) or not text.strip():
         return None
     folded = text.casefold()
-    if not any(term in folded for term in ("aktif katman", "active layer")):
+    if _ACTIVE_LAYER_RE.search(text) is None:
         return None
     if not any(
         term in folded
@@ -142,8 +161,26 @@ def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent
         )
     ):
         return None
-    field_match = _ATTRIBUTE_FIELD_RE.search(text)
-    value_match = _ATTRIBUTE_VALUE_RE.search(text)
+    field_match = (
+        _ATTRIBUTE_FIELD_AFTER_RE.search(text)
+        or _ATTRIBUTE_FIELD_BEFORE_RE.search(text)
+    )
+    value_before = _ATTRIBUTE_VALUE_BEFORE_RE.search(text)
+    value_after = _ATTRIBUTE_VALUE_AFTER_RE.search(text)
+    # Prefer an explicitly quoted value on either side of the Turkish value
+    # marker. This avoids treating the preceding word in
+    # ``sütununda değeri "low"`` as the value while still accepting
+    # ``"low" değerindekileri``.
+    if value_before is not None and (
+        value_before.group("double") or value_before.group("single")
+    ):
+        value_match = value_before
+    elif value_after is not None and (
+        value_after.group("double") or value_after.group("single")
+    ):
+        value_match = value_after
+    else:
+        value_match = value_after or value_before
     if field_match is None or value_match is None:
         return None
     field_name = (
@@ -305,6 +342,7 @@ class AgentRunLoop:
         # previous request can never silently supply the new request's context.
         self._proposal_receipts: Dict[Tuple[str, str], str] = {}
         self._recovery_call_counter = 0
+        self._consecutive_fully_reused_turns = 0
 
     def is_active(self) -> bool:
         return self._active and not self._terminal
@@ -515,6 +553,20 @@ class AgentRunLoop:
                     tool_events=tuple(this_turn_events),
                 )
 
+        if call_keys and all(key in cached_before_turn for key in call_keys):
+            self._consecutive_fully_reused_turns += 1
+        else:
+            self._consecutive_fully_reused_turns = 0
+        if self._consecutive_fully_reused_turns >= 2:
+            return self._fail(
+                "The AI repeated the same read-only inspections without making "
+                "progress, so this run was stopped before the general turn "
+                "limit. Rephrase the request or use a supported deterministic "
+                "operation.",
+                "repeated_inspections_no_progress",
+                tool_events=tuple(this_turn_events),
+            )
+
         return self._advance_turn(
             assistant_text=turn.assistant_text, tool_events=tuple(this_turn_events)
         )
@@ -658,8 +710,7 @@ class AgentRunLoop:
         """
 
         if (
-            self._mode not in (AgentMode.PLAN, AgentMode.ACT)
-            or self._scope not in (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER)
+            self._scope not in (AgentScope.PROJECT, AgentScope.ACTIVE_LAYER)
             or self._proposal_validator is None
         ):
             return None
@@ -667,6 +718,14 @@ class AgentRunLoop:
             self._user_text, self.session_memory.exchanges()
         )
         if intent is None:
+            return None
+        if self._mode == AgentMode.ASK:
+            return self._finish(
+                "This request creates a new layer. Select "
+                "'Act (approve to apply)' in Agent mode and send it again; "
+                "Power Mode does not change the Agent mode."
+            )
+        if self._mode not in (AgentMode.PLAN, AgentMode.ACT):
             return None
 
         try:

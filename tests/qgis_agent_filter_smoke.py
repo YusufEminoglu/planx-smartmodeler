@@ -280,8 +280,9 @@ def main() -> int:
                 power_enabled_provider=lambda: True,
             )
             local_event = local_loop.start(
-                'aktif katmanda built_intensity_bin sütununda değeri "low" '
-                "olanları yeni katman olarak ver bana",
+                "active katmandaki sütun adı built_intensity_bin olan "
+                'geometirlerden "low" değerindekileri filtreleyip yeni bir '
+                "katman olarak kaydet",
                 AgentMode.ACT,
                 AgentScope.PROJECT,
             )
