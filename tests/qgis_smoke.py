@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from qgis.PyQt.QtCore import QEvent, QMetaType, QPointF, QTimer, Qt
-from qgis.PyQt.QtGui import QAction, QColor, QIcon, QKeyEvent
+from qgis.PyQt.QtGui import QAction, QColor, QIcon, QImage, QKeyEvent
 from qgis.PyQt.QtWidgets import QApplication, QLineEdit
 from qgis.core import (
     QgsApplication,
@@ -895,6 +895,26 @@ def run_checks() -> str:
         translation.remove()
         icon_path = plugin_root / "planx_smartmodeler" / "icons" / "icon.png"
         icon = QIcon(str(icon_path))
+        icon_image = QImage(str(icon_path))
+        transparent_pixels = sum(
+            1
+            for y in range(icon_image.height())
+            for x in range(icon_image.width())
+            if icon_image.pixelColor(x, y).alpha() == 0
+        )
+        if (
+            icon_image.size().width() != 64
+            or icon_image.size().height() != 64
+            or not icon_image.hasAlphaChannel()
+            or transparent_pixels < 2_048
+            or any(
+                icon_image.pixelColor(x, y).alpha() != 0
+                for x, y in ((0, 0), (63, 0), (0, 63), (63, 63))
+            )
+        ):
+            raise RuntimeError(
+                "Workflow Studio icon background is not transparently packaged."
+            )
         if (
             not view.scene()
             or not prompt.isEnabled()

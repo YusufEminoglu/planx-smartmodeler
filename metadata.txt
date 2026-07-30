@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.16.1
+version=0.16.2
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    0.16.2 - Make the Workflow Studio plugin icon background transparent while preserving its node-and-connection artwork.
     0.16.1 - Harden the shared AI connection bridge, recover malformed provider profiles safely, and modernize bounded OSM output fields.
     0.16.0 - Audit every live Processing algorithm through typed-node and JSON round-trip compatibility, preserve provider-native parameter defaults, and add a dedicated Agent Workspace icon.
     0.15.3 - Add a secret-safe public AI Connections and Agent Workspace bridge for trusted companion plugins.

@@ -2,6 +2,13 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.16.2] - 2026-07-30
+
+### Changed
+
+- Remove the dark rounded-card background from the Workflow Studio plugin icon
+  while preserving its node-and-connection artwork and 64-pixel geometry.
+
 ## [0.16.1] - 2026-07-30
 
 ### Fixed
