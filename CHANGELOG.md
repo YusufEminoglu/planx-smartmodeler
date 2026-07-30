@@ -2,6 +2,26 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.1] - 2026-07-30
+
+### Fixed
+
+- Normalize the bounded tool-call aliases emitted by OpenAI-compatible
+  providers, including `name`/`tool`, `arguments`, missing correlation IDs,
+  and nested function-call objects, while rejecting conflicts and unknown
+  fields.
+- Route Turkish and English active-layer filtering requests to the reviewed
+  `native:extractbyattribute` workflow so user-named values can be written to a
+  new temporary layer.
+- Retain one-step Processing resolution receipts in the agent loop, avoiding an
+  unnecessary describe call and its prompt/token overhead.
+
+### Testing
+
+- Add a real QGIS acceptance test for the reported Turkish
+  `built_intensity_bin = low` request, provider alias shapes, active-layer
+  discovery, and non-destructive temporary-layer output.
+
 ## [0.18.0] - 2026-07-30
 
 ### Added

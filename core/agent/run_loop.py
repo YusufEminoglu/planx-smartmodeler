@@ -389,10 +389,15 @@ class AgentRunLoop:
         data = result.get("data")
         if not isinstance(data, dict):
             return
+        if tool_name == "processing.resolve":
+            resolved = data.get("resolved")
+            if not isinstance(resolved, dict):
+                return
+            data = resolved
         token = data.get("context_token")
         if not isinstance(token, str) or not token:
             return
-        if tool_name == "processing.describe":
+        if tool_name in ("processing.describe", "processing.resolve"):
             target = data.get("algorithm_id")
             key = PROPOSAL_KIND_PROCESSING_RUN
         elif tool_name == "layer.style":

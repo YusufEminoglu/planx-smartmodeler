@@ -4,9 +4,11 @@ QGIS-free: standard library only. Defines the strict five-key ``agent_turn``
 JSON envelope used for every Agent Workspace provider turn, the deterministic
 provider-facing JSON Schema for it, and a strict local parser. Provider output
 is always untrusted, even when a provider claims strict structured-output
-adherence: malformed shape, extra fields, fences, leading/trailing prose, or
-JSON substrings extracted from prose are rejected outright rather than
-repaired. The legacy Phase 02 three-key shape is rejected after Phase 03.
+adherence. The parser accepts a narrow set of authority-neutral tool-call field
+aliases used by real providers, normalizes them to the canonical contract, and
+then performs the same local tool/argument validation. Ambiguous aliases,
+unknown fields, malformed shapes, fences, prose, or JSON substrings extracted
+from prose are rejected.
 
 The envelope now carries an optional, terminal, inert *proposal*: a
 `model_patch` or `layer_style` draft encoded as a JSON-object string, parsed
@@ -51,7 +53,20 @@ _ACTIONS = (ACTION_TOOL_CALLS, ACTION_FINAL, ACTION_PROPOSAL)
 _TURN_TOP_LEVEL_KEYS = frozenset(
     {"action", "assistant_text", "tool_calls", "proposal_kind", "proposal_json"}
 )
-_CALL_KEYS = frozenset({"call_id", "tool_name", "arguments_json"})
+_CALL_ALIAS_KEYS = frozenset(
+    {
+        "call_id",
+        "id",
+        "tool_name",
+        "name",
+        "tool",
+        "arguments_json",
+        "arguments",
+        "args",
+        "function",
+        "type",
+    }
+)
 
 
 class ProtocolError(ValueError):
@@ -168,21 +183,92 @@ def agent_turn_response_schema(max_tool_calls_per_turn: int) -> Dict[str, Any]:
     }
 
 
+def _one_alias(
+    candidates: List[Tuple[str, Any]],
+    index: int,
+    label: str,
+    *,
+    required: bool = True,
+) -> Any:
+    if len(candidates) > 1:
+        raise ProtocolError(
+            f"tool_calls[{index}] has ambiguous {label} aliases: "
+            f"{sorted(name for name, _value in candidates)}."
+        )
+    if not candidates:
+        if required:
+            raise ProtocolError(f"tool_calls[{index}] is missing {label}.")
+        return None
+    return candidates[0][1]
+
+
+def _nested_tool_parts(value: Any, index: int, label: str) -> Tuple[Any, Any]:
+    if not isinstance(value, dict):
+        raise ProtocolError(f"tool_calls[{index}].{label} must be an object.")
+    keys = frozenset(value)
+    expected = frozenset({"name", "arguments"})
+    if keys != expected:
+        raise ProtocolError(
+            f"tool_calls[{index}].{label} has unexpected or missing fields: "
+            f"{sorted(keys ^ expected)}."
+        )
+    return value["name"], value["arguments"]
+
+
+def _normalize_tool_call(item: Dict[str, Any], index: int) -> Tuple[str, str, Any]:
+    """Normalize only field-name/container aliases; never tool authority."""
+    unknown = frozenset(item) - _CALL_ALIAS_KEYS
+    if unknown:
+        raise ProtocolError(
+            f"tool_calls[{index}] has unexpected fields: {sorted(unknown)}."
+        )
+    call_id_candidates = [
+        (key, item[key]) for key in ("call_id", "id") if key in item
+    ]
+    call_id = _one_alias(
+        call_id_candidates, index, "call id", required=False
+    )
+    if call_id is None:
+        # A call id controls only transcript correlation/deduplication. Creating
+        # one locally grants no tool or argument authority.
+        call_id = f"provider_call_{index + 1}"
+
+    tool_candidates = [
+        (key, item[key])
+        for key in ("tool_name", "name", "tool")
+        if key in item and not isinstance(item[key], dict)
+    ]
+    arguments_candidates = [
+        (key, item[key])
+        for key in ("arguments_json", "arguments", "args")
+        if key in item
+    ]
+    if "function" in item:
+        nested_name, nested_arguments = _nested_tool_parts(
+            item["function"], index, "function"
+        )
+        tool_candidates.append(("function.name", nested_name))
+        arguments_candidates.append(("function.arguments", nested_arguments))
+    if "tool" in item and isinstance(item["tool"], dict):
+        nested_name, nested_arguments = _nested_tool_parts(
+            item["tool"], index, "tool"
+        )
+        tool_candidates.append(("tool.name", nested_name))
+        arguments_candidates.append(("tool.arguments", nested_arguments))
+    if "type" in item and item["type"] not in ("function", "tool", "tool_call"):
+        raise ProtocolError(f"tool_calls[{index}] has an invalid type marker.")
+    tool_name = _one_alias(tool_candidates, index, "tool name")
+    arguments = _one_alias(arguments_candidates, index, "arguments")
+    return call_id, tool_name, arguments
+
+
 def _parse_tool_calls(tool_calls_data, max_tool_calls_per_turn: int) -> Tuple[AgentToolCall, ...]:
     seen_call_ids: set = set()
     parsed_calls: List[AgentToolCall] = []
     for index, item in enumerate(tool_calls_data):
         if not isinstance(item, dict):
             raise ProtocolError(f"tool_calls[{index}] must be an object.")
-        item_keys = frozenset(item.keys())
-        if item_keys != _CALL_KEYS:
-            raise ProtocolError(
-                f"tool_calls[{index}] has unexpected or missing fields: "
-                f"{sorted(item_keys ^ _CALL_KEYS)}."
-            )
-        call_id = item["call_id"]
-        tool_name = item["tool_name"]
-        arguments_json = item["arguments_json"]
+        call_id, tool_name, arguments_value = _normalize_tool_call(item, index)
         if not isinstance(call_id, str) or not CALL_ID_PATTERN.fullmatch(call_id):
             raise ProtocolError(f"tool_calls[{index}] has an invalid call_id: {call_id!r}.")
         if call_id in seen_call_ids:
@@ -190,8 +276,16 @@ def _parse_tool_calls(tool_calls_data, max_tool_calls_per_turn: int) -> Tuple[Ag
         seen_call_ids.add(call_id)
         if not isinstance(tool_name, str) or not TOOL_NAME_PATTERN.fullmatch(tool_name):
             raise ProtocolError(f"tool_calls[{index}] has an invalid tool_name: {tool_name!r}.")
-        if not isinstance(arguments_json, str):
-            raise ProtocolError(f"tool_calls[{index}].arguments_json must be a string.")
+        if isinstance(arguments_value, dict):
+            arguments_json = json.dumps(
+                arguments_value, ensure_ascii=False, separators=(",", ":")
+            )
+        elif isinstance(arguments_value, str):
+            arguments_json = arguments_value
+        else:
+            raise ProtocolError(
+                f"tool_calls[{index}] arguments must be an object or JSON-object string."
+            )
         if len(arguments_json) > MAX_ARGUMENTS_JSON_CHARS:
             raise ProtocolError(
                 f"tool_calls[{index}].arguments_json exceeds the "

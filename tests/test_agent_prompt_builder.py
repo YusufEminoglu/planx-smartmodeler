@@ -97,6 +97,26 @@ class ScopeFilterTests(unittest.TestCase):
         self.assertIn("plugin.capabilities", selected_names)
         self.assertNotIn("layer.style", selected_names)
 
+    def test_turkish_attribute_filter_routes_to_processing_and_layer_metadata(self) -> None:
+        names = (
+            "project.summary", "layer.list", "layer.describe",
+            "processing.resolve", "processing.search", "processing.describe",
+            "expression.search", "layer.style",
+        )
+        tools = [make_tool(name, [AgentScope.ACTIVE_LAYER]) for name in names]
+        selected = select_tools_for_request(
+            tools,
+            AgentScope.ACTIVE_LAYER,
+            '"built_intensity_bin" sütun değeri low olanları filtreleyip '
+            "yeni bir katman olarak üret",
+        )
+        selected_names = {item.name for item in selected}
+        self.assertIn("layer.list", selected_names)
+        self.assertIn("layer.describe", selected_names)
+        self.assertIn("processing.resolve", selected_names)
+        self.assertIn("processing.describe", selected_names)
+        self.assertNotIn("layer.style", selected_names)
+
 
 class DeterminismTests(unittest.TestCase):
     def test_identical_inputs_produce_identical_output(self) -> None:

@@ -87,6 +87,84 @@ class ValidTurnParsingTests(unittest.TestCase):
         self.assertEqual([call.call_id for call in turn.tool_calls], ["c1", "c2"])
         self.assertEqual(turn.tool_calls[1].arguments, {"layer_id": "l1"})
 
+    def test_normalizes_id_name_arguments_provider_shape(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "checking",
+            [
+                {
+                    "id": "provider-1",
+                    "name": "layer.list",
+                    "arguments": {"limit": 20},
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.call_id, "provider-1")
+        self.assertEqual(call.tool_name, "layer.list")
+        self.assertEqual(call.arguments, {"limit": 20})
+
+    def test_missing_provider_call_id_gets_authority_neutral_local_id(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [{"name": "layer.list", "arguments": {}}],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.call_id, "provider_call_1")
+        self.assertEqual(call.tool_name, "layer.list")
+
+    def test_normalizes_tool_arguments_provider_shape(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "tool": "processing.search",
+                    "arguments": {"query": "osm konak roads"},
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.tool_name, "processing.search")
+        self.assertEqual(call.arguments["query"], "osm konak roads")
+
+    def test_normalizes_standard_nested_function_shape(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "layer.describe",
+                        "arguments": '{"layer_id":"active-id"}',
+                    },
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.tool_name, "layer.describe")
+        self.assertEqual(call.arguments, {"layer_id": "active-id"})
+
+    def test_normalizes_nested_tool_shape(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "tool": {
+                        "name": "processing.resolve",
+                        "arguments": {"query": "extract by attribute"},
+                    }
+                }
+            ],
+        )
+        call = parse_agent_turn(raw, 3).tool_calls[0]
+        self.assertEqual(call.tool_name, "processing.resolve")
+        self.assertEqual(call.arguments, {"query": "extract by attribute"})
+
 
 class MalformedTurnRejectionTests(unittest.TestCase):
     def test_oversized_raw_response_is_rejected_before_json_parsing(self) -> None:
@@ -293,6 +371,53 @@ class MalformedTurnRejectionTests(unittest.TestCase):
                     "tool_name": "project.summary",
                     "arguments_json": "{}",
                     "approved": True,
+                }
+            ],
+        )
+        with self.assertRaises(ProtocolError):
+            parse_agent_turn(raw, 3)
+
+    def test_conflicting_tool_aliases_are_rejected(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "name": "layer.list",
+                    "tool": "processing.search",
+                    "arguments": {},
+                }
+            ],
+        )
+        with self.assertRaises(ProtocolError):
+            parse_agent_turn(raw, 3)
+
+    def test_conflicting_argument_aliases_are_rejected(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "name": "layer.list",
+                    "arguments": {},
+                    "arguments_json": "{}",
+                }
+            ],
+        )
+        with self.assertRaises(ProtocolError):
+            parse_agent_turn(raw, 3)
+
+    def test_unknown_nested_function_field_is_rejected(self) -> None:
+        raw = _turn_json(
+            ACTION_TOOL_CALLS,
+            "",
+            [
+                {
+                    "function": {
+                        "name": "layer.list",
+                        "arguments": {},
+                        "approved": True,
+                    }
                 }
             ],
         )

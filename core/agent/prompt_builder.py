@@ -184,7 +184,9 @@ def select_tools_for_request(
     processing_terms = (
         "process", "algorithm", "buffer", "reproject", "extract", "calculate",
         "field", "expression", "rand(", "$area", "$length", "clip", "merge",
-        "dissolve", "processing", "sütun", "sutun", "alan hesap",
+        "dissolve", "processing", "filter", "filtre", "süz", "suz",
+        "extract by attribute", "yeni katman", "katman olarak üret",
+        "sütun", "sutun", "alan hesap",
     )
     if any(term in folded for term in processing_terms):
         wanted.update(
