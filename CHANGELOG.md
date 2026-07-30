@@ -2,6 +2,24 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [0.18.5] - 2026-07-30
+
+### Fixed
+
+- Raise the bounded combined Agent prompt budget from 12,000 to 30,000
+  characters so the compact Power Mode instruction pack, routed Processing
+  schemas, current request, and bounded trace can coexist.
+- Route Power database/script discovery schemas only to explicit SQL,
+  database, Python, PyQGIS, script, or Power tasks and their short
+  continuations; enabling Power Mode no longer bloats an ordinary Processing
+  filter request.
+
+### Testing
+
+- Run the reported Turkish active-layer attribute filter with Power Mode
+  enabled and Project scope on QGIS 3.44 and 4.2, verifying prompt construction
+  and the final two-feature temporary output.
+
 ## [0.18.4] - 2026-07-30
 
 ### Changed

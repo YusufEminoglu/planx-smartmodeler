@@ -695,7 +695,8 @@ class ToolResultTests(unittest.TestCase):
 
 class RunLimitsValidationTests(unittest.TestCase):
     def test_default_limits_are_valid(self) -> None:
-        AgentRunLimits()
+        limits = AgentRunLimits()
+        self.assertEqual(limits.max_prompt_chars, 30_000)
 
     def test_rejects_the_reported_adversarial_object(self) -> None:
         # Regression for blocking finding 3's exact evidence payload.

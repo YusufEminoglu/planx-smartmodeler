@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=4.0
 qgisMaximumVersion=4.99
 description=QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=0.18.4
+version=0.18.5
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    0.18.5 - Raise the bounded Agent prompt budget to 30k characters and keep unrelated Power tool schemas out of normal Processing requests.
     0.18.4 - Replace low token blocks with 300k/100k notices, reuse repeated inspections, harden provider proposal aliases, and keep Power Mode capabilities available.
     0.18.3 - Preserve Processing tools across short follow-ups and accept bounded kind/processing provider aliases.
     0.18.2 - Accept the provider-emitted parameters tool-call alias with strict conflict and argument validation.

@@ -62,6 +62,7 @@ def main() -> int:
             RuntimeProposalValidator,
         )
         from planx_smartmodeler.core.agent.runtime_tools import build_default_registry
+        from planx_smartmodeler.core.prompt_context import PromptContextLoader
 
         project = QgsProject.instance()
         before = set(project.mapLayers())
@@ -85,6 +86,7 @@ def main() -> int:
                 lambda: None,
                 tokens,
                 active_layer_provider=lambda: source,
+                power_enabled_provider=lambda: True,
             )
             controller = AgentController(registry)
             validator = RuntimeProposalValidator(
@@ -96,6 +98,12 @@ def main() -> int:
                 controller,
                 "Use the advertised QGIS tools and return one validated proposal.",
                 proposal_validator=validator.validate,
+                instruction_provider=lambda text, scope, power: (
+                    PromptContextLoader(
+                        context_dir=source_root / "agent_context"
+                    ).agent_context(text, scope, power_enabled=power)
+                ),
+                power_enabled_provider=lambda: True,
             )
             loop.session_memory.append(
                 '"built_intensity_bin" sütun değeri low olanları filtreleyip '
@@ -105,7 +113,7 @@ def main() -> int:
             request = loop.start(
                 "hazır",
                 AgentMode.ACT,
-                AgentScope.ACTIVE_LAYER,
+                AgentScope.PROJECT,
             )
             advertised = {
                 item["name"] for item in json.loads(request.request.user_prompt)["tools"]
@@ -113,6 +121,15 @@ def main() -> int:
             if not {"layer.list", "layer.describe", "processing.resolve"} <= advertised:
                 raise RuntimeError(
                     "The Turkish filter continuation did not preserve its Processing pack."
+                )
+            if advertised & {
+                "database.list",
+                "database.describe",
+                "script.list",
+                "script.describe",
+            }:
+                raise RuntimeError(
+                    "A normal filter advertised unrelated Power discovery tools."
                 )
 
             inspected = loop.submit_provider_response(

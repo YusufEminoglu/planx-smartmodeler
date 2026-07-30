@@ -35,15 +35,13 @@ MAX_RESULT_TEXT_LENGTH = 20000
 MAX_PROMPT_TEXT_LENGTH = 12000
 
 # Default budget for the *combined* system + conversation prompt of one agent
-# turn. This is a different quantity from MAX_PROMPT_TEXT_LENGTH, which bounds
-# a single free-text message: a turn's prompt also carries the static agent
-# instructions (~7 200 chars) and every scope-allowed tool's public schema
-# (~3 600 chars in the widest scope), so the fixed context alone is close to
-# 11 000 characters before the user has typed anything or a single tool result
-# has been recorded. Intent-routed tools, compact static packs, bounded history,
-# and working-trace compaction now keep the complete provider request within the
-# same 12 000-character ceiling instead of widening the prompt.
-MAX_AGENT_PROMPT_CHARS = 12000
+# turn. This is distinct from MAX_PROMPT_TEXT_LENGTH, which bounds one user
+# message. The compact core, a task pack, routed tool schemas, bounded history,
+# and working trace can legitimately exceed 12k characters in Power Mode.
+# 30k remains far below the validated 100k hard maximum and the prompt builder
+# still applies all per-component bounds, so this adds headroom without making
+# history or tool results unbounded.
+MAX_AGENT_PROMPT_CHARS = 30_000
 
 MAX_JSON_ARRAY_ITEMS = 500
 MAX_JSON_OBJECT_KEYS = 200

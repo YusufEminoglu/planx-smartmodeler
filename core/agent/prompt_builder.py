@@ -229,10 +229,17 @@ def select_tools_for_request(
         for term in ("style", "symbol", "label", "renderer", "stil", "sembol", "etiket")
     ):
         wanted.update(("layer.list", "layer.describe", "layer.style"))
-    if power_enabled:
-        # Power Mode is an explicit user choice. Keep its bounded read-only
-        # discovery tools advertised for the full Project-scope run, including
-        # short follow-ups where the current message no longer says SQL/Python.
+    if power_enabled and any(
+        term in folded
+        for term in (
+            "sql", "postgis", "geopackage", "database", "veritaban",
+            "python", "pyqgis", "script", "betik", "power mode", "güç modu",
+        )
+    ):
+        # Power Mode enables these capabilities, but does not make them useful
+        # for every request. Route the bounded discovery schemas only to an
+        # explicit Power task (or its short continuation, already folded with
+        # the previous request above). A normal filter stays a Processing task.
         wanted.update(
             (
                 "database.list",

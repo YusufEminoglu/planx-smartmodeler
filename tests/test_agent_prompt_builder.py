@@ -79,18 +79,33 @@ class ScopeFilterTests(unittest.TestCase):
         self.assertNotIn("database.list", selected_names)
         self.assertNotIn("script.list", selected_names)
 
-    def test_enabled_power_mode_always_advertises_its_discovery_tools(self) -> None:
+    def test_enabled_power_mode_routes_discovery_tools_only_to_power_tasks(self) -> None:
         names = (
             "project.summary", "layer.list", "layer.describe",
             "database.list", "database.describe",
             "script.list", "script.describe",
         )
         tools = [make_tool(name, [AgentScope.PROJECT]) for name in names]
+        filter_selected = select_tools_for_request(
+            tools,
+            AgentScope.PROJECT,
+            "Filter the active layer into a new layer",
+            power_enabled=True,
+        )
+        self.assertNotIn(
+            "database.list", {item.name for item in filter_selected}
+        )
         selected = select_tools_for_request(
             tools,
             AgentScope.PROJECT,
             "hazır",
             power_enabled=True,
+            session_history=(
+                SessionExchange(
+                    "Run this PyQGIS script on the active layer.",
+                    "Activate the layer and tell me when ready.",
+                ),
+            ),
         )
         selected_names = {item.name for item in selected}
         self.assertTrue(
