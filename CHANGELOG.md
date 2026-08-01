@@ -2,6 +2,33 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [1.0.0] - 2026-08-01
+
+### Added
+
+- Declare the production release of the typed QGIS Processing workflow studio,
+  native `.model3` interchange, supervised Agent Workspace, bounded OSM tools,
+  and opt-in reviewed Power Mode.
+
+### Fixed
+
+- Carry the complete 0.18.6--0.19.1 regression set into the production release:
+  provider response aliases, invalid correlation ids, Turkish and English
+  active/named-layer filters, retry continuity, repeated-inspection recovery,
+  numeric threshold operators, and exact field lookup beyond bounded previews.
+- Keep connected Workflow Studio requests on the same multi-turn,
+  application-validated proposal path as Agent Workspace, with no execution
+  before the user clicks Apply or Run.
+
+### Testing
+
+- Require the full pure-Python contract/fuzz/document suite, Hub-equivalent
+  security and Qt 6 scans, and every registered real-QGIS acceptance module on
+  QGIS 3.44 LTR and QGIS 4.2.
+- Require clean-profile ZIP installation, workflow lifecycle/interchange/run
+  checks, connected-provider privacy checks, and reproducible package manifest
+  and SHA-256 verification before the final tag is pushed.
+
 ## [0.19.1] - 2026-07-30
 
 ### Fixed

@@ -1,6 +1,7 @@
 # SmartModeler GIS V1.0 delivery plan
 
-Date: 2026-07-26
+Date: 2026-08-01
+Status: release acceptance complete for v1.0.0
 
 This is the release program from the audited v0.5.3 baseline to a production
 V1.0. Each milestone is a separately validated, committed, tagged, and pushed
@@ -59,3 +60,25 @@ confirmations, bounded subprocess execution, and no claim of sandboxing.
   unload, and shutdown paths.
 - Verify keyboard-only operation and screen-reader labels.
 - Rebuild the ZIP from the tagged commit and compare its manifest and hash.
+
+## V1.0 acceptance record
+
+The production candidate was accepted on 2026-08-01 with the repository's
+canonical verification pipeline. The complete pure-Python suite reported 728
+passing tests and 3,445 passing subtests. All nine registered real-QGIS modules
+passed independently on QGIS 3.44 LTR and QGIS 4.2. Plugin validation completed
+without warnings; the Hub-equivalent security gate was clean and the Qt 6 scan
+reported no errors.
+
+The QGIS 4 visual inspection opened both Agent Workspace and Workflow Studio,
+confirmed the explicit approval and Power Mode warnings, exposed the complete
+keyboard/screen-reader control tree, and discovered 1,069 executable algorithms
+in the active installation. The release ZIP passed root/version/manifest checks
+and two consecutive builds produced identical bytes.
+
+The available connected-provider profiles contained no stored API key. The
+live-provider transport was therefore not invoked. The UI correctly failed
+closed without sending a request, while the provider-neutral request/response,
+privacy, retry, cancellation, and proposal contracts remained covered by the
+automated suite on both QGIS runtimes. This environment limitation does not
+weaken the application-owned validation or explicit-approval boundary.

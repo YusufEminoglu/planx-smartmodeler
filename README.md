@@ -1,9 +1,15 @@
 # SmartModeler GIS
 
 [![QGIS](https://img.shields.io/badge/QGIS-4.0%2B-589632.svg)](https://qgis.org)
+[![Release](https://img.shields.io/badge/release-1.0.0-2f80ed.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
 SmartModeler GIS is a QGIS 4-only visual studio for building and running real QGIS Processing workflows. It combines a typed node canvas, live algorithm discovery, validated AI planning, native `.model3` interchange, and a focused dark Qt 6 interface.
+
+Version 1.0.0 is the production release. Every action proposed by a connected
+provider remains inert until it passes local validation and the user explicitly
+approves it; deterministic offline workflow generation remains available
+without a network connection.
 
 ## Current capabilities
 
