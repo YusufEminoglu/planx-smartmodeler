@@ -40,7 +40,15 @@ class AiMcpBridge:
                 {"type": "integer"},
                 {"type": "boolean"},
                 {"type": "null"},
-                {"type": "array", "items": {"type": "string"}},
+                {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                        ]
+                    },
+                },
             ]
         }
         return {
@@ -237,7 +245,8 @@ class AiMcpBridge:
         text = prompt_text.lower()
         graph = GraphModel("Offline starter")
         warnings = [
-            "Offline mode created a conservative starter. Review inputs and parameters before running."
+            "Offline mode created a conservative starter. Review inputs and "
+            "parameters before running."
         ]
 
         if any(term in text for term in ("dem", "slope", "terrain", "raster")):
@@ -490,7 +499,8 @@ class AiMcpBridge:
                     node, key, value
                 ):
                     raise AiResponseError(
-                        "AI proposed a restricted or incompatible parameter value."
+                        "AI proposed a restricted or incompatible value for "
+                        f"{algorithm_id}.{key}."
                     )
                 node.parameters[key] = value
             if baseline_node is not None:
@@ -600,8 +610,15 @@ class AiMcpBridge:
             if isinstance(value, float) and not math.isfinite(value):
                 raise AiResponseError("AI parameter numbers must be finite.")
             return
-        if isinstance(value, list) and len(value) <= 200 and all(
-            isinstance(item, str) and len(item) <= 2000 for item in value
-        ):
-            return
+        if isinstance(value, list) and len(value) <= 200:
+            if all(
+                (isinstance(item, str) and len(item) <= 2000)
+                or (
+                    isinstance(item, int)
+                    and not isinstance(item, bool)
+                    and abs(item) <= 1_000_000_000
+                )
+                for item in value
+            ):
+                return
         raise AiResponseError("AI parameter value has an unsupported type or size.")

@@ -252,6 +252,18 @@ class AlgorithmCatalog:
             )
         if socket_type == SocketType.BOOLEAN:
             return isinstance(value, bool)
+        if socket_type == SocketType.ENUM:
+            values = value if isinstance(value, list) else [value]
+            return (
+                bool(values)
+                and len(values) <= 200
+                and all(
+                    isinstance(item, int)
+                    and not isinstance(item, bool)
+                    and 0 <= item <= 1_000_000_000
+                    for item in values
+                )
+            )
         if socket_type in (SocketType.FIELD, SocketType.STRING):
             return isinstance(value, str) and cls._safe_ai_text(value)
         if value is None or isinstance(value, bool):
@@ -542,10 +554,12 @@ class AlgorithmCatalog:
                     for port in node.inputs.values()
                 )
                 outputs = ", ".join(
-                    f"{port.port_id}:{port.socket_type}" for port in node.outputs.values()
+                    f"{port.port_id}:{port.socket_type}"
+                    for port in node.outputs.values()
                 )
                 lines.append(
-                    f"- {record.algorithm_id} | {record.name} | inputs=[{inputs}] | outputs=[{outputs}]"
+                    f"- {record.algorithm_id} | {record.name} | "
+                    f"inputs=[{inputs}] | outputs=[{outputs}]"
                 )
             except (RuntimeError, ValueError):
                 continue

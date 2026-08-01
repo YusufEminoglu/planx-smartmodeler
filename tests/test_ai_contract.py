@@ -42,6 +42,22 @@ class AiContractTests(unittest.TestCase):
         with self.assertRaises(AiResponseError):
             AiMcpBridge._validate_parameter_value(float("nan"))
 
+    def test_contract_accepts_bounded_enum_index_lists(self) -> None:
+        value_schema = AiMcpBridge.response_schema()["properties"]["nodes"][
+            "items"
+        ]["properties"]["parameters"]["items"]["properties"]["value"]
+        array_schema = value_schema["anyOf"][-1]
+        self.assertEqual(
+            array_schema["items"]["anyOf"],
+            [{"type": "string"}, {"type": "integer"}],
+        )
+        AiMcpBridge._validate_parameter_value([0, 2, 5])
+        AiMcpBridge._validate_parameter_value(["roads", "parks"])
+        for invalid in ([True], [1.5], [1_000_000_001], ["x" * 2001]):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(AiResponseError):
+                    AiMcpBridge._validate_parameter_value(invalid)
+
     def test_ai_catalog_blocks_side_effecting_algorithm_ids(self) -> None:
         self.assertFalse(AlgorithmCatalog.ai_algorithm_allowed("native:filedownloader"))
         self.assertFalse(AlgorithmCatalog.ai_algorithm_allowed("postgis:executesql"))
@@ -73,6 +89,7 @@ class AiContractTests(unittest.TestCase):
         node.add_input("VALUE", "Value", SocketType.STRING)
         node.add_input("DISTANCE", "Distance", SocketType.NUMBER)
         node.add_input("FLAG", "Flag", SocketType.BOOLEAN)
+        node.add_input("PREDICATE", "Predicate", SocketType.ENUM)
         node.add_input("FILE", "File", SocketType.FILE)
         self.assertTrue(AlgorithmCatalog.ai_parameter_value_allowed(node, "VALUE", "bus_stop"))
         self.assertFalse(
@@ -85,9 +102,48 @@ class AiContractTests(unittest.TestCase):
         self.assertFalse(AlgorithmCatalog.ai_parameter_value_allowed(node, "DISTANCE", True))
         self.assertTrue(AlgorithmCatalog.ai_parameter_value_allowed(node, "FLAG", False))
         self.assertFalse(AlgorithmCatalog.ai_parameter_value_allowed(node, "FLAG", 0))
+        self.assertTrue(
+            AlgorithmCatalog.ai_parameter_value_allowed(
+                node, "PREDICATE", [0, 2]
+            )
+        )
+        self.assertTrue(
+            AlgorithmCatalog.ai_parameter_value_allowed(node, "PREDICATE", 0)
+        )
+        self.assertFalse(
+            AlgorithmCatalog.ai_parameter_value_allowed(
+                node, "PREDICATE", [True]
+            )
+        )
+        self.assertFalse(
+            AlgorithmCatalog.ai_parameter_value_allowed(
+                node, "PREDICATE", [-1]
+            )
+        )
         self.assertFalse(
             AlgorithmCatalog.ai_parameter_value_allowed(node, "FILE", "report.csv")
         )
+
+    def test_rejected_parameter_identifies_only_algorithm_and_port(self) -> None:
+        payload = {
+            "title": "Invalid numeric input",
+            "summary": "Invalid parameter type.",
+            "nodes": [
+                {
+                    "id": "distance",
+                    "algorithm_id": "smart:number",
+                    "title": "Distance",
+                    "parameters": [{"name": "VALUE", "value": "far"}],
+                }
+            ],
+            "edges": [],
+            "warnings": [],
+        }
+        with self.assertRaisesRegex(
+            AiResponseError,
+            r"smart:number\.VALUE",
+        ):
+            AiMcpBridge.parse_response(json.dumps(payload))
 
     def test_current_workflow_context_and_change_summary(self) -> None:
         before = GraphModel("Current")

@@ -81,7 +81,13 @@ class MicroPackageCatalog:
                     len(package["nodes"]),
                 )
             )
-        return sorted(result, key=lambda item: item.name.lower())
+        return sorted(
+            result,
+            key=lambda item: (
+                0 if "showcase" in item.tags else 1,
+                item.name.lower(),
+            ),
+        )
 
     @classmethod
     def instantiate(cls, package_id: str, catalog=None) -> GraphModel:

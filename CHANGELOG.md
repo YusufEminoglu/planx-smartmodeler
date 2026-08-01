@@ -2,6 +2,34 @@
 
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
+## [1.1.0] - 2026-08-01
+
+### Added
+
+- Add five original, multi-branch showcase workflows for walkable-city access,
+  blue-green resilience, urban morphology, flood readiness, and growth
+  constraints: 66 nodes and 65 typed connections in total.
+- Present showcase graphs first in the expanded Example workflows gallery with
+  node counts, descriptions, tags, keyboard access, and automatic fit-to-canvas.
+- Add a QGIS-profile-independent headless gallery acceptance module that builds,
+  lays out, renders, and exports every showcase on QGIS 3.44 LTR and QGIS 4.2.
+- Add an opt-in DeepSeek live transport test that reads its credential only from
+  a one-shot environment variable and verifies the full Workflow Studio
+  network, JSON contract, graph validation, and native-model pipeline.
+
+### Fixed
+
+- Accept bounded integer lists in the AI graph contract for QGIS Processing
+  enum parameters that allow multiple selections, while continuing to reject
+  booleans, floats, negative indices, oversized values, and mixed unsafe data.
+- Identify rejected provider parameters by bounded algorithm and port id without
+  echoing the rejected value, prompt, endpoint, or credential.
+
+### Testing
+
+- Confirm a real `deepseek-v4-flash` response as a locally validated seven-node,
+  six-edge native QGIS workflow without persisting the API key or project data.
+
 ## [1.0.0] - 2026-08-01
 
 ### Added

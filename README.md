@@ -1,12 +1,12 @@
 # SmartModeler GIS
 
 [![QGIS](https://img.shields.io/badge/QGIS-4.0%2B-589632.svg)](https://qgis.org)
-[![Release](https://img.shields.io/badge/release-1.0.0-2f80ed.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-1.1.0-2f80ed.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
 SmartModeler GIS is a QGIS 4-only visual studio for building and running real QGIS Processing workflows. It combines a typed node canvas, live algorithm discovery, validated AI planning, native `.model3` interchange, and a focused dark Qt 6 interface.
 
-Version 1.0.0 is the production release. Every action proposed by a connected
+Version 1.1.0 is the current production release. Every action proposed by a connected
 provider remains inert until it passes local validation and the user explicitly
 approves it; deterministic offline workflow generation remains available
 without a network connection.
@@ -257,6 +257,28 @@ The auditable instruction set lives in [`ai_context/`](ai_context/):
 5. Optionally configure an AI profile and describe the workflow in the prompt bar.
 6. Save a portable SmartModeler JSON file, a QGIS `.model3` model, or a QGIS
    Python algorithm.
+
+### Example workflow gallery
+
+The **Example workflows** gallery places five complete showcase graphs before
+the smaller starter recipes. Double-click one to load and fit the whole graph;
+the inputs remain deliberately unconfigured so the example never guesses which
+project layers to use.
+
+- **Walkable City Atlas** — 13 nodes for pedestrian corridors, reachable
+  buildings, amenity counts, and service cells.
+- **Blue-Green Resilience** — 14 nodes with parallel park and water influence
+  branches, served buildings, a combined network, and an overlap core.
+- **Urban Morphology Lab** — 11 nodes deriving building edges, centres,
+  Voronoi cells, generalized grain, and continuous urban fabric.
+- **Flood Readiness Atlas** — 15 mixed raster/vector nodes for slope, aspect,
+  hillshade, flood influence, and terrain-enriched exposure points.
+- **Growth Constraint Atlas** — 13 nodes for protected buffers, developable
+  land, settlement fabric, growth cells, and a strategic envelope.
+
+Every showcase uses installed QGIS Processing algorithms, exports to native
+`.model3`, and is validated without accessing feature values or changing the
+open project.
 
 ### Agent Workspace: Ask, Plan, Act
 

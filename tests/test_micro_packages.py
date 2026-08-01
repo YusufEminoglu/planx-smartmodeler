@@ -17,6 +17,23 @@ class FakeCatalog:
         "native:slope",
         "native:centroids",
         "native:clip",
+        "native:fixgeometries",
+        "native:multiparttosingleparts",
+        "native:smoothgeometry",
+        "native:intersection",
+        "native:countpointsinpolygon",
+        "native:voronoipolygons",
+        "native:union",
+        "native:boundary",
+        "native:convexhull",
+        "native:polygonstolines",
+        "native:simplifygeometries",
+        "native:aspect",
+        "native:hillshade",
+        "native:extractbylocation",
+        "native:rastersampling",
+        "native:difference",
+        "native:dissolve",
     }
 
     @classmethod
@@ -44,6 +61,8 @@ class FakeCatalog:
         elif algorithm_id == "native:buffer":
             node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
             node.add_input("DISTANCE", "Distance", SocketType.NUMBER)
+            node.add_input("SEGMENTS", "Segments", SocketType.NUMBER)
+            node.add_input("DISSOLVE", "Dissolve", SocketType.BOOLEAN)
             node.add_output("OUTPUT", "Output", SocketType.VECTOR)
         elif algorithm_id == "native:extractbyexpression":
             node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
@@ -51,13 +70,79 @@ class FakeCatalog:
             node.add_output("OUTPUT", "Output", SocketType.VECTOR)
         elif algorithm_id == "native:slope":
             node.add_input("INPUT", "Input", SocketType.RASTER, required=True)
+            node.add_input("Z_FACTOR", "Z factor", SocketType.NUMBER)
             node.add_output("OUTPUT", "Output", SocketType.RASTER)
         elif algorithm_id == "native:centroids":
             node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
+            node.add_input("ALL_PARTS", "All parts", SocketType.BOOLEAN)
             node.add_output("OUTPUT", "Output", SocketType.VECTOR)
         elif algorithm_id == "native:clip":
             node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
             node.add_input("OVERLAY", "Overlay", SocketType.VECTOR, required=True)
+            node.add_output("OUTPUT", "Output", SocketType.VECTOR)
+        elif algorithm_id in {
+            "native:fixgeometries",
+            "native:multiparttosingleparts",
+            "native:boundary",
+            "native:convexhull",
+            "native:polygonstolines",
+            "native:dissolve",
+        }:
+            node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
+            node.add_output("OUTPUT", "Output", SocketType.VECTOR)
+        elif algorithm_id in {
+            "native:intersection",
+            "native:union",
+            "native:difference",
+        }:
+            node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
+            node.add_input("OVERLAY", "Overlay", SocketType.VECTOR, required=True)
+            node.add_output("OUTPUT", "Output", SocketType.VECTOR)
+        elif algorithm_id == "native:smoothgeometry":
+            node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
+            node.add_input("ITERATIONS", "Iterations", SocketType.NUMBER)
+            node.add_input("OFFSET", "Offset", SocketType.NUMBER)
+            node.add_output("OUTPUT", "Output", SocketType.VECTOR)
+        elif algorithm_id == "native:simplifygeometries":
+            node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
+            node.add_input("METHOD", "Method", SocketType.ENUM)
+            node.add_input("TOLERANCE", "Tolerance", SocketType.NUMBER)
+            node.add_output("OUTPUT", "Output", SocketType.VECTOR)
+        elif algorithm_id == "native:countpointsinpolygon":
+            node.add_input(
+                "POLYGONS", "Polygons", SocketType.VECTOR, required=True
+            )
+            node.add_input("POINTS", "Points", SocketType.VECTOR, required=True)
+            node.add_input("FIELD", "Field", SocketType.STRING)
+            node.add_output("OUTPUT", "Output", SocketType.VECTOR)
+        elif algorithm_id == "native:voronoipolygons":
+            node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
+            node.add_input("BUFFER", "Buffer", SocketType.NUMBER)
+            node.add_input("TOLERANCE", "Tolerance", SocketType.NUMBER)
+            node.add_input(
+                "COPY_ATTRIBUTES", "Copy attributes", SocketType.BOOLEAN
+            )
+            node.add_output("OUTPUT", "Output", SocketType.VECTOR)
+        elif algorithm_id in {"native:aspect", "native:hillshade"}:
+            node.add_input("INPUT", "Input", SocketType.RASTER, required=True)
+            node.add_input("Z_FACTOR", "Z factor", SocketType.NUMBER)
+            if algorithm_id == "native:hillshade":
+                node.add_input("AZIMUTH", "Azimuth", SocketType.NUMBER)
+                node.add_input("V_ANGLE", "Vertical angle", SocketType.NUMBER)
+            node.add_output("OUTPUT", "Output", SocketType.RASTER)
+        elif algorithm_id == "native:extractbylocation":
+            node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
+            node.add_input(
+                "INTERSECT", "Intersect", SocketType.VECTOR, required=True
+            )
+            node.add_input("PREDICATE", "Predicate", SocketType.ENUM)
+            node.add_output("OUTPUT", "Output", SocketType.VECTOR)
+        elif algorithm_id == "native:rastersampling":
+            node.add_input("INPUT", "Input", SocketType.VECTOR, required=True)
+            node.add_input(
+                "RASTERCOPY", "Raster", SocketType.RASTER, required=True
+            )
+            node.add_input("COLUMN_PREFIX", "Column prefix", SocketType.STRING)
             node.add_output("OUTPUT", "Output", SocketType.VECTOR)
         return node
 
@@ -65,7 +150,8 @@ class FakeCatalog:
 class MicroPackageCatalogTests(unittest.TestCase):
     def test_shipped_catalog_builds_every_available_graph(self):
         summaries = MicroPackageCatalog.available(FakeCatalog)
-        self.assertEqual(len(summaries), 5)
+        self.assertEqual(len(summaries), 10)
+        self.assertTrue(all("showcase" in item.tags for item in summaries[:5]))
         for summary in summaries:
             graph = MicroPackageCatalog.instantiate(
                 summary.package_id, FakeCatalog
@@ -77,6 +163,14 @@ class MicroPackageCatalogTests(unittest.TestCase):
                 len(graph.get_topological_order()), len(graph.nodes)
             )
             self.assertTrue(any(node.x for node in graph.nodes.values()))
+
+        showcases = [item for item in summaries if "showcase" in item.tags]
+        self.assertEqual(len(showcases), 5)
+        self.assertGreaterEqual(min(item.node_count for item in showcases), 11)
+        self.assertGreaterEqual(
+            sum(item.node_count for item in showcases),
+            60,
+        )
 
     def test_unavailable_algorithm_hides_package_and_fails_instantiation(self):
         class MissingSlopeCatalog(FakeCatalog):

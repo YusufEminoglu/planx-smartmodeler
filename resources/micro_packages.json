@@ -86,6 +86,220 @@
       "outputs": [
         {"name": "CLIPPED", "node_id": "clip", "output_name": "OUTPUT", "description": "Clipped features", "mandatory": true, "default": null}
       ]
+    },
+    {
+      "id": "showcase_walkable_city",
+      "name": "Showcase · Walkable City Atlas",
+      "description": "A branching 15-minute-city study that cleans buildings, streets, and amenities; builds walkability corridors; and publishes reachable buildings plus amenity counts.",
+      "tags": ["showcase", "urban", "accessibility", "walkability"],
+      "nodes": [
+        {"id": "buildings", "algorithm_id": "smart:input_layer", "title": "Building footprints", "parameters": {}},
+        {"id": "streets", "algorithm_id": "smart:input_layer", "title": "Walkable street network", "parameters": {}},
+        {"id": "amenities", "algorithm_id": "smart:input_layer", "title": "Daily amenities", "parameters": {}},
+        {"id": "fix_buildings", "algorithm_id": "native:fixgeometries", "title": "Repair buildings", "parameters": {}},
+        {"id": "fix_streets", "algorithm_id": "native:fixgeometries", "title": "Repair street network", "parameters": {}},
+        {"id": "fix_amenities", "algorithm_id": "native:fixgeometries", "title": "Repair amenities", "parameters": {}},
+        {"id": "amenity_points", "algorithm_id": "native:centroids", "title": "Amenity destinations", "parameters": {"ALL_PARTS": false}},
+        {"id": "walk_buffer", "algorithm_id": "native:buffer", "title": "800 m walkability corridors", "parameters": {"DISTANCE": 800.0, "SEGMENTS": 12, "DISSOLVE": true}},
+        {"id": "smooth_corridors", "algorithm_id": "native:smoothgeometry", "title": "Smooth accessibility envelope", "parameters": {"ITERATIONS": 2, "OFFSET": 0.25}},
+        {"id": "reachable_buildings", "algorithm_id": "native:intersection", "title": "Buildings inside walkable city", "parameters": {}},
+        {"id": "amenity_counts", "algorithm_id": "native:countpointsinpolygon", "title": "Count amenities by corridor", "parameters": {"FIELD": "amenity_count"}},
+        {"id": "building_centres", "algorithm_id": "native:centroids", "title": "Reachable building centres", "parameters": {"ALL_PARTS": false}},
+        {"id": "service_cells", "algorithm_id": "native:voronoipolygons", "title": "Urban service cells", "parameters": {"BUFFER": 5.0, "TOLERANCE": 0.0, "COPY_ATTRIBUTES": true}}
+      ],
+      "connections": [
+        {"from_node": "buildings", "from_port": "OUTPUT", "to_node": "fix_buildings", "to_port": "INPUT"},
+        {"from_node": "streets", "from_port": "OUTPUT", "to_node": "fix_streets", "to_port": "INPUT"},
+        {"from_node": "amenities", "from_port": "OUTPUT", "to_node": "fix_amenities", "to_port": "INPUT"},
+        {"from_node": "fix_amenities", "from_port": "OUTPUT", "to_node": "amenity_points", "to_port": "INPUT"},
+        {"from_node": "fix_streets", "from_port": "OUTPUT", "to_node": "walk_buffer", "to_port": "INPUT"},
+        {"from_node": "walk_buffer", "from_port": "OUTPUT", "to_node": "smooth_corridors", "to_port": "INPUT"},
+        {"from_node": "fix_buildings", "from_port": "OUTPUT", "to_node": "reachable_buildings", "to_port": "INPUT"},
+        {"from_node": "smooth_corridors", "from_port": "OUTPUT", "to_node": "reachable_buildings", "to_port": "OVERLAY"},
+        {"from_node": "smooth_corridors", "from_port": "OUTPUT", "to_node": "amenity_counts", "to_port": "POLYGONS"},
+        {"from_node": "amenity_points", "from_port": "OUTPUT", "to_node": "amenity_counts", "to_port": "POINTS"},
+        {"from_node": "reachable_buildings", "from_port": "OUTPUT", "to_node": "building_centres", "to_port": "INPUT"},
+        {"from_node": "building_centres", "from_port": "OUTPUT", "to_node": "service_cells", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "WALKABILITY_ENVELOPE", "node_id": "smooth_corridors", "output_name": "OUTPUT", "description": "Smoothed pedestrian accessibility envelope", "mandatory": true, "default": null},
+        {"name": "REACHABLE_BUILDINGS", "node_id": "reachable_buildings", "output_name": "OUTPUT", "description": "Buildings intersecting the walkability envelope", "mandatory": true, "default": null},
+        {"name": "AMENITY_COUNTS", "node_id": "amenity_counts", "output_name": "OUTPUT", "description": "Walkability polygons enriched with amenity counts", "mandatory": true, "default": null},
+        {"name": "SERVICE_CELLS", "node_id": "service_cells", "output_name": "OUTPUT", "description": "Voronoi service territories for reachable buildings", "mandatory": false, "default": null}
+      ]
+    },
+    {
+      "id": "showcase_blue_green_resilience",
+      "name": "Showcase · Blue-Green Resilience",
+      "description": "A parallel resilience workflow that repairs parks, waterways, and buildings; creates blue-green influence corridors; and identifies structures served by each network.",
+      "tags": ["showcase", "resilience", "green", "water"],
+      "nodes": [
+        {"id": "parks", "algorithm_id": "smart:input_layer", "title": "Parks and urban forests", "parameters": {}},
+        {"id": "waterways", "algorithm_id": "smart:input_layer", "title": "Blue network", "parameters": {}},
+        {"id": "buildings", "algorithm_id": "smart:input_layer", "title": "Building footprints", "parameters": {}},
+        {"id": "fix_parks", "algorithm_id": "native:fixgeometries", "title": "Repair green spaces", "parameters": {}},
+        {"id": "fix_water", "algorithm_id": "native:fixgeometries", "title": "Repair waterways", "parameters": {}},
+        {"id": "fix_buildings", "algorithm_id": "native:fixgeometries", "title": "Repair buildings", "parameters": {}},
+        {"id": "park_buffer", "algorithm_id": "native:buffer", "title": "300 m green influence", "parameters": {"DISTANCE": 300.0, "SEGMENTS": 12, "DISSOLVE": true}},
+        {"id": "water_buffer", "algorithm_id": "native:buffer", "title": "150 m blue influence", "parameters": {"DISTANCE": 150.0, "SEGMENTS": 12, "DISSOLVE": true}},
+        {"id": "smooth_green", "algorithm_id": "native:smoothgeometry", "title": "Green resilience envelope", "parameters": {"ITERATIONS": 2, "OFFSET": 0.25}},
+        {"id": "smooth_blue", "algorithm_id": "native:smoothgeometry", "title": "Blue resilience envelope", "parameters": {"ITERATIONS": 2, "OFFSET": 0.25}},
+        {"id": "green_served", "algorithm_id": "native:intersection", "title": "Buildings served by green space", "parameters": {}},
+        {"id": "blue_served", "algorithm_id": "native:intersection", "title": "Buildings near waterways", "parameters": {}},
+        {"id": "combined_envelope", "algorithm_id": "native:union", "title": "Combined blue-green network", "parameters": {}},
+        {"id": "resilience_core", "algorithm_id": "native:intersection", "title": "Blue-green overlap core", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "parks", "from_port": "OUTPUT", "to_node": "fix_parks", "to_port": "INPUT"},
+        {"from_node": "waterways", "from_port": "OUTPUT", "to_node": "fix_water", "to_port": "INPUT"},
+        {"from_node": "buildings", "from_port": "OUTPUT", "to_node": "fix_buildings", "to_port": "INPUT"},
+        {"from_node": "fix_parks", "from_port": "OUTPUT", "to_node": "park_buffer", "to_port": "INPUT"},
+        {"from_node": "fix_water", "from_port": "OUTPUT", "to_node": "water_buffer", "to_port": "INPUT"},
+        {"from_node": "park_buffer", "from_port": "OUTPUT", "to_node": "smooth_green", "to_port": "INPUT"},
+        {"from_node": "water_buffer", "from_port": "OUTPUT", "to_node": "smooth_blue", "to_port": "INPUT"},
+        {"from_node": "fix_buildings", "from_port": "OUTPUT", "to_node": "green_served", "to_port": "INPUT"},
+        {"from_node": "smooth_green", "from_port": "OUTPUT", "to_node": "green_served", "to_port": "OVERLAY"},
+        {"from_node": "fix_buildings", "from_port": "OUTPUT", "to_node": "blue_served", "to_port": "INPUT"},
+        {"from_node": "smooth_blue", "from_port": "OUTPUT", "to_node": "blue_served", "to_port": "OVERLAY"},
+        {"from_node": "smooth_green", "from_port": "OUTPUT", "to_node": "combined_envelope", "to_port": "INPUT"},
+        {"from_node": "smooth_blue", "from_port": "OUTPUT", "to_node": "combined_envelope", "to_port": "OVERLAY"},
+        {"from_node": "smooth_green", "from_port": "OUTPUT", "to_node": "resilience_core", "to_port": "INPUT"},
+        {"from_node": "smooth_blue", "from_port": "OUTPUT", "to_node": "resilience_core", "to_port": "OVERLAY"}
+      ],
+      "outputs": [
+        {"name": "BLUE_GREEN_NETWORK", "node_id": "combined_envelope", "output_name": "OUTPUT", "description": "Combined blue-green influence network", "mandatory": true, "default": null},
+        {"name": "RESILIENCE_CORE", "node_id": "resilience_core", "output_name": "OUTPUT", "description": "Areas influenced by both blue and green systems", "mandatory": true, "default": null},
+        {"name": "GREEN_SERVED_BUILDINGS", "node_id": "green_served", "output_name": "OUTPUT", "description": "Buildings served by green space", "mandatory": false, "default": null},
+        {"name": "BLUE_SERVED_BUILDINGS", "node_id": "blue_served", "output_name": "OUTPUT", "description": "Buildings near the blue network", "mandatory": false, "default": null}
+      ]
+    },
+    {
+      "id": "showcase_urban_morphology",
+      "name": "Showcase · Urban Morphology Lab",
+      "description": "A multi-output morphology graph that repairs and separates building fabric, then derives edges, centres, blocks, service cells, and generalized urban form.",
+      "tags": ["showcase", "urban", "morphology", "geometry"],
+      "nodes": [
+        {"id": "buildings", "algorithm_id": "smart:input_layer", "title": "Urban building fabric", "parameters": {}},
+        {"id": "fix", "algorithm_id": "native:fixgeometries", "title": "Repair building geometries", "parameters": {}},
+        {"id": "singleparts", "algorithm_id": "native:multiparttosingleparts", "title": "Explode multipart buildings", "parameters": {}},
+        {"id": "boundaries", "algorithm_id": "native:boundary", "title": "Building edge network", "parameters": {}},
+        {"id": "centres", "algorithm_id": "native:centroids", "title": "Building centres", "parameters": {"ALL_PARTS": false}},
+        {"id": "hull", "algorithm_id": "native:convexhull", "title": "Urban footprint envelope", "parameters": {}},
+        {"id": "cells", "algorithm_id": "native:voronoipolygons", "title": "Morphological service cells", "parameters": {"BUFFER": 8.0, "TOLERANCE": 0.0, "COPY_ATTRIBUTES": true}},
+        {"id": "cell_edges", "algorithm_id": "native:polygonstolines", "title": "Cell boundary network", "parameters": {}},
+        {"id": "generalized", "algorithm_id": "native:simplifygeometries", "title": "Generalized urban grain", "parameters": {"METHOD": 0, "TOLERANCE": 2.0}},
+        {"id": "building_zones", "algorithm_id": "native:buffer", "title": "Building influence zones", "parameters": {"DISTANCE": 25.0, "SEGMENTS": 8, "DISSOLVE": true}},
+        {"id": "smooth_zones", "algorithm_id": "native:smoothgeometry", "title": "Continuous urban fabric", "parameters": {"ITERATIONS": 3, "OFFSET": 0.25}}
+      ],
+      "connections": [
+        {"from_node": "buildings", "from_port": "OUTPUT", "to_node": "fix", "to_port": "INPUT"},
+        {"from_node": "fix", "from_port": "OUTPUT", "to_node": "singleparts", "to_port": "INPUT"},
+        {"from_node": "singleparts", "from_port": "OUTPUT", "to_node": "boundaries", "to_port": "INPUT"},
+        {"from_node": "singleparts", "from_port": "OUTPUT", "to_node": "centres", "to_port": "INPUT"},
+        {"from_node": "singleparts", "from_port": "OUTPUT", "to_node": "hull", "to_port": "INPUT"},
+        {"from_node": "centres", "from_port": "OUTPUT", "to_node": "cells", "to_port": "INPUT"},
+        {"from_node": "cells", "from_port": "OUTPUT", "to_node": "cell_edges", "to_port": "INPUT"},
+        {"from_node": "singleparts", "from_port": "OUTPUT", "to_node": "generalized", "to_port": "INPUT"},
+        {"from_node": "centres", "from_port": "OUTPUT", "to_node": "building_zones", "to_port": "INPUT"},
+        {"from_node": "building_zones", "from_port": "OUTPUT", "to_node": "smooth_zones", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "BUILDING_EDGES", "node_id": "boundaries", "output_name": "OUTPUT", "description": "Building edge network", "mandatory": false, "default": null},
+        {"name": "BUILDING_CENTRES", "node_id": "centres", "output_name": "OUTPUT", "description": "Building centroid layer", "mandatory": true, "default": null},
+        {"name": "URBAN_ENVELOPE", "node_id": "hull", "output_name": "OUTPUT", "description": "Convex urban footprint envelope", "mandatory": false, "default": null},
+        {"name": "MORPHOLOGY_CELLS", "node_id": "cells", "output_name": "OUTPUT", "description": "Voronoi morphology cells", "mandatory": true, "default": null},
+        {"name": "CELL_EDGES", "node_id": "cell_edges", "output_name": "OUTPUT", "description": "Morphological cell boundary network", "mandatory": false, "default": null},
+        {"name": "CONTINUOUS_URBAN_FABRIC", "node_id": "smooth_zones", "output_name": "OUTPUT", "description": "Smoothed continuous urban fabric", "mandatory": true, "default": null}
+      ]
+    },
+    {
+      "id": "showcase_flood_readiness",
+      "name": "Showcase · Flood Readiness Atlas",
+      "description": "A mixed raster-vector workflow that fans a terrain model into slope, aspect, and hillshade while tracing water influence and enriching exposed building centres with terrain values.",
+      "tags": ["showcase", "raster", "flood", "terrain"],
+      "nodes": [
+        {"id": "elevation", "algorithm_id": "smart:raster_layer", "title": "Digital elevation model", "parameters": {}},
+        {"id": "buildings", "algorithm_id": "smart:input_layer", "title": "Building footprints", "parameters": {}},
+        {"id": "waterways", "algorithm_id": "smart:input_layer", "title": "Water and drainage network", "parameters": {}},
+        {"id": "slope", "algorithm_id": "native:slope", "title": "Terrain slope", "parameters": {"Z_FACTOR": 1.0}},
+        {"id": "aspect", "algorithm_id": "native:aspect", "title": "Terrain aspect", "parameters": {"Z_FACTOR": 1.0}},
+        {"id": "hillshade", "algorithm_id": "native:hillshade", "title": "Relief hillshade", "parameters": {"Z_FACTOR": 1.0, "AZIMUTH": 315.0, "V_ANGLE": 45.0}},
+        {"id": "fix_buildings", "algorithm_id": "native:fixgeometries", "title": "Repair buildings", "parameters": {}},
+        {"id": "building_centres", "algorithm_id": "native:centroids", "title": "Building exposure points", "parameters": {"ALL_PARTS": false}},
+        {"id": "fix_water", "algorithm_id": "native:fixgeometries", "title": "Repair drainage network", "parameters": {}},
+        {"id": "water_buffer", "algorithm_id": "native:buffer", "title": "Flood influence corridor", "parameters": {"DISTANCE": 250.0, "SEGMENTS": 12, "DISSOLVE": true}},
+        {"id": "smooth_flood", "algorithm_id": "native:smoothgeometry", "title": "Smoothed flood influence", "parameters": {"ITERATIONS": 2, "OFFSET": 0.25}},
+        {"id": "exposed_points", "algorithm_id": "native:extractbylocation", "title": "Buildings in flood influence", "parameters": {"PREDICATE": [0]}},
+        {"id": "sample_slope", "algorithm_id": "native:rastersampling", "title": "Attach slope values", "parameters": {"COLUMN_PREFIX": "slope_"}},
+        {"id": "sample_aspect", "algorithm_id": "native:rastersampling", "title": "Attach aspect values", "parameters": {"COLUMN_PREFIX": "aspect_"}},
+        {"id": "sample_relief", "algorithm_id": "native:rastersampling", "title": "Attach relief values", "parameters": {"COLUMN_PREFIX": "relief_"}}
+      ],
+      "connections": [
+        {"from_node": "elevation", "from_port": "OUTPUT", "to_node": "slope", "to_port": "INPUT"},
+        {"from_node": "elevation", "from_port": "OUTPUT", "to_node": "aspect", "to_port": "INPUT"},
+        {"from_node": "elevation", "from_port": "OUTPUT", "to_node": "hillshade", "to_port": "INPUT"},
+        {"from_node": "buildings", "from_port": "OUTPUT", "to_node": "fix_buildings", "to_port": "INPUT"},
+        {"from_node": "fix_buildings", "from_port": "OUTPUT", "to_node": "building_centres", "to_port": "INPUT"},
+        {"from_node": "waterways", "from_port": "OUTPUT", "to_node": "fix_water", "to_port": "INPUT"},
+        {"from_node": "fix_water", "from_port": "OUTPUT", "to_node": "water_buffer", "to_port": "INPUT"},
+        {"from_node": "water_buffer", "from_port": "OUTPUT", "to_node": "smooth_flood", "to_port": "INPUT"},
+        {"from_node": "building_centres", "from_port": "OUTPUT", "to_node": "exposed_points", "to_port": "INPUT"},
+        {"from_node": "smooth_flood", "from_port": "OUTPUT", "to_node": "exposed_points", "to_port": "INTERSECT"},
+        {"from_node": "exposed_points", "from_port": "OUTPUT", "to_node": "sample_slope", "to_port": "INPUT"},
+        {"from_node": "slope", "from_port": "OUTPUT", "to_node": "sample_slope", "to_port": "RASTERCOPY"},
+        {"from_node": "sample_slope", "from_port": "OUTPUT", "to_node": "sample_aspect", "to_port": "INPUT"},
+        {"from_node": "aspect", "from_port": "OUTPUT", "to_node": "sample_aspect", "to_port": "RASTERCOPY"},
+        {"from_node": "sample_aspect", "from_port": "OUTPUT", "to_node": "sample_relief", "to_port": "INPUT"},
+        {"from_node": "hillshade", "from_port": "OUTPUT", "to_node": "sample_relief", "to_port": "RASTERCOPY"}
+      ],
+      "outputs": [
+        {"name": "SLOPE", "node_id": "slope", "output_name": "OUTPUT", "description": "Slope raster", "mandatory": false, "default": null},
+        {"name": "ASPECT", "node_id": "aspect", "output_name": "OUTPUT", "description": "Aspect raster", "mandatory": false, "default": null},
+        {"name": "HILLSHADE", "node_id": "hillshade", "output_name": "OUTPUT", "description": "Relief hillshade raster", "mandatory": false, "default": null},
+        {"name": "FLOOD_INFLUENCE", "node_id": "smooth_flood", "output_name": "OUTPUT", "description": "Smoothed flood influence corridor", "mandatory": true, "default": null},
+        {"name": "EXPOSED_BUILDINGS", "node_id": "sample_relief", "output_name": "OUTPUT", "description": "Exposed building centres enriched with terrain values", "mandatory": true, "default": null}
+      ]
+    },
+    {
+      "id": "showcase_growth_constraints",
+      "name": "Showcase · Growth Constraint Atlas",
+      "description": "A scenario-planning graph that repairs planned growth, existing urban fabric, and constraints; removes protected influence areas; and publishes developable land with a connected settlement envelope.",
+      "tags": ["showcase", "planning", "growth", "constraints"],
+      "nodes": [
+        {"id": "growth", "algorithm_id": "smart:input_layer", "title": "Planned growth areas", "parameters": {}},
+        {"id": "existing", "algorithm_id": "smart:input_layer", "title": "Existing urban fabric", "parameters": {}},
+        {"id": "constraints", "algorithm_id": "smart:input_layer", "title": "Protected and hazardous areas", "parameters": {}},
+        {"id": "fix_growth", "algorithm_id": "native:fixgeometries", "title": "Repair growth areas", "parameters": {}},
+        {"id": "fix_existing", "algorithm_id": "native:fixgeometries", "title": "Repair existing fabric", "parameters": {}},
+        {"id": "fix_constraints", "algorithm_id": "native:fixgeometries", "title": "Repair constraints", "parameters": {}},
+        {"id": "constraint_buffer", "algorithm_id": "native:buffer", "title": "Constraint protection zones", "parameters": {"DISTANCE": 100.0, "SEGMENTS": 10, "DISSOLVE": true}},
+        {"id": "developable", "algorithm_id": "native:difference", "title": "Remove protected influence", "parameters": {}},
+        {"id": "combined_growth", "algorithm_id": "native:union", "title": "Existing and planned city", "parameters": {}},
+        {"id": "dissolved_city", "algorithm_id": "native:dissolve", "title": "Connected settlement fabric", "parameters": {}},
+        {"id": "growth_centres", "algorithm_id": "native:centroids", "title": "Development opportunity centres", "parameters": {"ALL_PARTS": true}},
+        {"id": "growth_cells", "algorithm_id": "native:voronoipolygons", "title": "Growth influence cells", "parameters": {"BUFFER": 10.0, "TOLERANCE": 0.0, "COPY_ATTRIBUTES": true}},
+        {"id": "settlement_hull", "algorithm_id": "native:convexhull", "title": "Strategic settlement envelope", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "growth", "from_port": "OUTPUT", "to_node": "fix_growth", "to_port": "INPUT"},
+        {"from_node": "existing", "from_port": "OUTPUT", "to_node": "fix_existing", "to_port": "INPUT"},
+        {"from_node": "constraints", "from_port": "OUTPUT", "to_node": "fix_constraints", "to_port": "INPUT"},
+        {"from_node": "fix_constraints", "from_port": "OUTPUT", "to_node": "constraint_buffer", "to_port": "INPUT"},
+        {"from_node": "fix_growth", "from_port": "OUTPUT", "to_node": "developable", "to_port": "INPUT"},
+        {"from_node": "constraint_buffer", "from_port": "OUTPUT", "to_node": "developable", "to_port": "OVERLAY"},
+        {"from_node": "fix_existing", "from_port": "OUTPUT", "to_node": "combined_growth", "to_port": "INPUT"},
+        {"from_node": "developable", "from_port": "OUTPUT", "to_node": "combined_growth", "to_port": "OVERLAY"},
+        {"from_node": "combined_growth", "from_port": "OUTPUT", "to_node": "dissolved_city", "to_port": "INPUT"},
+        {"from_node": "developable", "from_port": "OUTPUT", "to_node": "growth_centres", "to_port": "INPUT"},
+        {"from_node": "growth_centres", "from_port": "OUTPUT", "to_node": "growth_cells", "to_port": "INPUT"},
+        {"from_node": "dissolved_city", "from_port": "OUTPUT", "to_node": "settlement_hull", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "DEVELOPABLE_LAND", "node_id": "developable", "output_name": "OUTPUT", "description": "Planned growth after removing protected influence", "mandatory": true, "default": null},
+        {"name": "SETTLEMENT_FABRIC", "node_id": "dissolved_city", "output_name": "OUTPUT", "description": "Combined existing and developable settlement fabric", "mandatory": true, "default": null},
+        {"name": "GROWTH_CELLS", "node_id": "growth_cells", "output_name": "OUTPUT", "description": "Influence cells around development opportunities", "mandatory": false, "default": null},
+        {"name": "STRATEGIC_ENVELOPE", "node_id": "settlement_hull", "output_name": "OUTPUT", "description": "Strategic convex settlement envelope", "mandatory": false, "default": null}
+      ]
     }
   ]
 }

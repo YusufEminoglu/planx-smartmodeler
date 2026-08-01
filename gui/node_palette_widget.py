@@ -59,14 +59,21 @@ class NodePaletteWidget(QWidget):
         self.count_label.setObjectName("mutedLabel")
         layout.addWidget(self.count_label)
 
-        presets = QGroupBox("Starter workflows")
+        presets = QGroupBox("Example workflows")
         preset_layout = QVBoxLayout(presets)
-        self.preset_list = QListWidget()
-        self.preset_list.setAccessibleName("Starter workflows")
-        self.preset_list.setAccessibleDescription(
-            "Choose a workflow and press Enter or double-click to load it."
+        preset_help = QLabel(
+            "Load a complete graph, inspect its branches, then replace the inputs."
         )
-        self.preset_list.setMaximumHeight(125)
+        preset_help.setObjectName("mutedLabel")
+        preset_help.setWordWrap(True)
+        preset_layout.addWidget(preset_help)
+        self.preset_list = QListWidget()
+        self.preset_list.setAccessibleName("Example workflows")
+        self.preset_list.setAccessibleDescription(
+            "Showcase workflows appear first. Choose one and press Enter or "
+            "double-click to load its complete graph."
+        )
+        self.preset_list.setMaximumHeight(230)
         self.preset_list.itemDoubleClicked.connect(self.on_preset_double_clicked)
         self.preset_list.itemActivated.connect(self.on_preset_double_clicked)
         preset_layout.addWidget(self.preset_list)
@@ -98,8 +105,16 @@ class NodePaletteWidget(QWidget):
     def populate_presets(self) -> None:
         self.preset_list.clear()
         for template in SmartProposalEngine.get_starter_templates():
-            item = QListWidgetItem(template["name"])
-            item.setToolTip(template["description"])
+            node_count = int(template["node_count"])
+            item = QListWidgetItem(
+                f"{template['name']}  ·  {node_count} nodes"
+            )
+            tags = ", ".join(str(tag) for tag in template["tags"])
+            item.setToolTip(f"{template['description']}\n\nTags: {tags}")
+            item.setData(
+                Qt.ItemDataRole.AccessibleDescriptionRole,
+                f"{template['description']} This workflow has {node_count} nodes.",
+            )
             item.setData(Qt.ItemDataRole.UserRole, template["id"])
             self.preset_list.addItem(item)
 
