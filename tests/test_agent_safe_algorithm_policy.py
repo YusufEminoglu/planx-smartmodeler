@@ -66,7 +66,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 24)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 25)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
         self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))
@@ -88,6 +88,9 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertIsNotNone(
             self.policy.record_for("zero2agentosm:download_custom_tag")
         )
+        self.assertIsNotNone(
+            self.policy.record_for("zero2agentosm:download_advanced")
+        )
         self.assertIsNone(self.policy.record_for("native:refactorfields"))
 
     def test_zero2agent_osm_signatures_are_narrow_network_adapters(self) -> None:
@@ -106,6 +109,56 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         self.assertEqual(
             decision.record.destinations,
             ("OUTPUT_POINTS", "OUTPUT_LINES", "OUTPUT_POLYGONS"),
+        )
+
+        advanced_params = [
+            _p("MATCH_MODE", {"QgsProcessingParameterEnum"}, default=True),
+            _p("GEOMETRY", {"QgsProcessingParameterEnum"}, default=True),
+        ]
+        for index in range(1, 5):
+            advanced_params.extend(
+                (
+                    _p(
+                        f"KEY_{index}",
+                        {"QgsProcessingParameterString"},
+                        optional=index > 1,
+                    ),
+                    _p(
+                        f"VALUE_{index}",
+                        {"QgsProcessingParameterString"},
+                        optional=True,
+                        default=True,
+                    ),
+                )
+            )
+        advanced_params.extend(
+            (
+                _p("EXTENT", {"QgsProcessingParameterExtent"}),
+                _p(
+                    "OUTPUT_POINTS",
+                    {"QgsProcessingParameterFeatureSink"},
+                    dest=True,
+                ),
+                _p(
+                    "OUTPUT_LINES",
+                    {"QgsProcessingParameterFeatureSink"},
+                    dest=True,
+                ),
+                _p(
+                    "OUTPUT_POLYGONS",
+                    {"QgsProcessingParameterFeatureSink"},
+                    dest=True,
+                ),
+            )
+        )
+        advanced_decision = self.policy.is_runnable(
+            "zero2agentosm:download_advanced", advanced_params
+        )
+        self.assertTrue(advanced_decision.allowed)
+        self.assertTrue(advanced_decision.record.network_access)
+        self.assertEqual(
+            advanced_decision.record.required_params,
+            ("KEY_1", "EXTENT"),
         )
 
     def test_builtin_osm_algorithms_are_narrow_network_adapters(self) -> None:

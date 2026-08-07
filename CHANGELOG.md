@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.1.1] - 2026-08-07
+
+- Expanded reference manual 3x: 83 refs, OSM theory, workflow math, AI-assisted design
+
 All notable changes to SmartModeler GIS are documented here. The project follows Keep a Changelog and Semantic Versioning.
 
 ## [1.1.0] - 2026-08-01

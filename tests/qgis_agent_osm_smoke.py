@@ -226,6 +226,86 @@ class SmartModelerAgentOsmSmoke(QgsProcessingAlgorithm):
                     "The urban-context proposal did not retain all geometry outputs."
                 )
 
+            advanced = controller.execute(
+                AgentToolCall(
+                    call_id="advanced_osm_describe",
+                    tool_name="processing.describe",
+                    arguments={
+                        "algorithm_id": "zero2agentosm:download_advanced"
+                    },
+                ),
+                AgentMode.PLAN,
+                AgentScope.PROJECT,
+            )
+            if (
+                advanced.status != AgentResultStatus.SUCCESS
+                or not advanced.data.get("agent_runnable")
+            ):
+                raise RuntimeError(
+                    "02Agent OSM advanced endpoint is not runnable."
+                )
+            advanced_parameters = {
+                row["name"]: row
+                for row in advanced.data.get("parameters", [])
+            }
+            if (
+                advanced_parameters["MATCH_MODE"]["proposal_binding"] != "enum"
+                or advanced_parameters["KEY_1"]["proposal_binding"] != "osm_tag"
+                or advanced_parameters["EXTENT"]["alternative_binding"]
+                != "layer_extent"
+            ):
+                raise RuntimeError(
+                    "02Agent OSM advanced bindings do not match the reviewed signature."
+                )
+            advanced_proposal = parse_proposal(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "context_token": advanced.data["context_token"],
+                        "algorithm_id": "zero2agentosm:download_advanced",
+                        "title": "Download accessible schools",
+                        "summary": (
+                            "Create temporary polygons matching school and "
+                            "wheelchair-access tags in one bounded request."
+                        ),
+                        "inputs": {
+                            "MATCH_MODE": {"enum": 1},
+                            "GEOMETRY": {"enum": 3},
+                            "KEY_1": {"osm_tag": "amenity"},
+                            "VALUE_1": {"osm_tag": "school"},
+                            "KEY_2": {"osm_tag": "wheelchair"},
+                            "VALUE_2": {"osm_tag": "yes"},
+                            "EXTENT": {"layer_extent": extent_layer.id()},
+                        },
+                        "warnings": [],
+                    }
+                ),
+            )
+            advanced_validator = RuntimeProposalValidator(
+                lambda: None, token_service
+            )
+            advanced_validation = advanced_validator.validate(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                advanced_proposal,
+                AgentMode.ACT,
+                AgentScope.PROJECT,
+            )
+            if not advanced_validation.ok:
+                raise RuntimeError(
+                    "Advanced 02Agent OSM proposal validation failed: "
+                    f"{advanced_validation.reason_code}"
+                )
+            advanced_ingredients = advanced_validator.take_last_validated()
+            if (
+                not advanced_ingredients
+                or tuple(advanced_ingredients.get("destinations", ()))
+                != ("OUTPUT_POINTS", "OUTPUT_LINES", "OUTPUT_POLYGONS")
+            ):
+                raise RuntimeError(
+                    "The advanced OSM proposal did not retain temporary outputs."
+                )
+
             planx_algorithm = QgsApplication.processingRegistry().algorithmById(
                 "planx:networkcentrality"
             )

@@ -543,6 +543,30 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         ),
         network_access=True,
     ),
+    "zero2agentosm:download_advanced": AllowedAlgorithm(
+        algorithm_id="zero2agentosm:download_advanced",
+        bindable={
+            "MATCH_MODE": ENUM,
+            "GEOMETRY": ENUM,
+            "KEY_1": OSM_TAG,
+            "VALUE_1": OSM_TAG,
+            "KEY_2": OSM_TAG,
+            "VALUE_2": OSM_TAG,
+            "KEY_3": OSM_TAG,
+            "VALUE_3": OSM_TAG,
+            "KEY_4": OSM_TAG,
+            "VALUE_4": OSM_TAG,
+            "EXTENT": MAP_EXTENT,
+        },
+        required_layer_params=(),
+        required_params=("KEY_1", "EXTENT"),
+        destinations=(
+            "OUTPUT_POINTS",
+            "OUTPUT_LINES",
+            "OUTPUT_POLYGONS",
+        ),
+        network_access=True,
+    ),
     # SmartModeler's own direct OSM acquisition algorithms.  Each algorithm
     # fixes its geometry family in code and exposes only a plain key/value pair
     # plus a QGIS-owned canvas or project-layer extent. Endpoints, Overpass QL,

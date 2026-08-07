@@ -80,6 +80,12 @@ preset before splitting it into separately approved downloads. In particular,
 roads + buildings + trees maps to the 02Agent Urban context preset and should
 produce all requested geometry families in one run when that preset is live.
 
+When the user gives two to four explicit OSM tag conditions that do not match a
+curated preset, prefer the reviewed `zero2agentosm:download_advanced` endpoint
+when live inspection marks it runnable. Its match-mode and geometry enums plus
+four bounded key/value rows are the entire authority; never invent raw Overpass
+text or an endpoint.
+
 When live inspection marks a parameter as non-required with
 `default_behavior:"omit_to_use_qgis_default"`, omit it unless the user
 explicitly asks for an override. Do not ask for it or invent an "ideal" value.
