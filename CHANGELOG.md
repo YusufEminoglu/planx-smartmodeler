@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.1.2] - 2026-08-07
+
+- Add floating Save as PDF button to reference manual
+
 ## [1.1.1] - 2026-08-07
 
 - Expanded reference manual 3x: 83 refs, OSM theory, workflow math, AI-assisted design
