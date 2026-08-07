@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartModeler GIS — Reference Manual</title>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=Newsreader:opsz,wght@14..64,400;14..64,500;14..64,600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafaf7; --fg: #1e1e1a; --muted: #6b6b5e; --faint: #a3a396;
+  --border: #e2e0d5; --accent: #5c6bc0; --accent-dark: #3f51b5; --accent-light: #eef0fb; --accent-subtle: #e8eaf6;
+  --sidebar-bg: #f5f3ed; --sidebar-fg: #3d3d33;
+  --card-bg: #ffffff; --card-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --code-bg: #f3f1ea; --table-stripe: #fafaf6; --radius: 8px;
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Newsreader', 'Georgia', serif;
+  font-size: 15px; line-height: 1.65;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171712; --fg: #e0ded5; --muted: #99998a; --faint: #6b6b5e;
+    --border: #2e2e26; --accent: #7986cb; --accent-dark: #5c6bc0; --accent-light: #1a1d35; --accent-subtle: #151830;
+    --sidebar-bg: #1c1c16; --sidebar-fg: #cccbbf;
+    --card-bg: #1e1e18; --card-shadow: 0 1px 3px rgba(0,0,0,.3);
+    --code-bg: #22221a; --table-stripe: #1a1a15;
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-ui); background: var(--bg); color: var(--fg); display: flex; min-height: 100vh; font-weight: 400; letter-spacing: -0.01em; }
+
+#sidebar { width: 290px; min-width: 290px; height: 100vh; position: sticky; top: 0; background: var(--sidebar-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; z-index: 100; }
+#sidebar-header { padding: 22px 22px 14px; border-bottom: 1px solid var(--border); }
+#sidebar-header .logo { font-family: var(--font-heading); font-size: 1.55em; font-weight: 600; color: var(--accent); letter-spacing: -0.02em; }
+#sidebar-header .subtitle { font-size: .75em; color: var(--muted); margin-top: 2px; font-weight: 400; letter-spacing: 0; }
+#search-wrap { padding: 12px 16px; }
+#search { width: 100%; padding: 9px 13px; border: 1px solid var(--border); border-radius: 7px; font-size: .85em; background: var(--card-bg); color: var(--fg); outline: none; font-family: var(--font-ui); transition: border-color .15s, box-shadow .15s; }
+#search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
+#toc { flex: 1; overflow-y: auto; padding: 2px 0 8px; list-style: none; }
+.toc-group { border-bottom: 1px solid var(--border); }
+.toc-group-btn { display: block; width: 100%; text-align: left; padding: 9px 22px; background: none; border: none; font-size: .82em; font-weight: 600; color: var(--sidebar-fg); cursor: pointer; font-family: var(--font-ui); letter-spacing: -0.01em; transition: background .12s; border-left: 3px solid transparent; }
+.toc-group-btn:hover { background: var(--accent-subtle); }
+.toc-group-btn .arrow { font-size: .65em; transition: transform .2s; display: inline-block; margin-right: 4px; opacity: .5; }
+.toc-group-btn[aria-expanded="false"] .arrow { transform: rotate(-90deg); }
+.toc-algs { list-style: none; overflow: hidden; padding-bottom: 2px; }
+.toc-algs li a { display: block; padding: 5px 22px 5px 34px; font-size: .8em; color: var(--sidebar-fg); text-decoration: none; border-left: 3px solid transparent; transition: background .1s, border-color .1s; letter-spacing: -0.01em; }
+.toc-algs li a:hover, .toc-algs li a.active { background: var(--accent-subtle); border-left-color: var(--accent); color: var(--accent); }
+.toc-algs li a.hidden { display: none; }
+#sidebar-footer { padding: 12px 22px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+#sidebar-footer a { font-size: .78em; color: var(--muted); text-decoration: none; transition: color .12s; }
+#sidebar-footer a:hover { color: var(--accent); }
+
+#content { flex: 1; max-width: 55em; padding: 3em 3.5em 8em; overflow-y: auto; }
+.hero { margin-bottom: 2.5em; padding-bottom: 1.5em; border-bottom: 1px solid var(--border); }
+.hero h1 { font-family: var(--font-heading); font-size: 2.8em; font-weight: 600; color: var(--accent); letter-spacing: -0.03em; line-height: 1.1; margin-bottom: .15em; }
+.hero .tagline { font-size: 1.1em; color: var(--muted); font-weight: 400; margin-bottom: .6em; }
+.hero .meta { font-size: .8em; color: var(--faint); }
+.hero .meta a { color: var(--accent); }
+h2 { font-family: var(--font-heading); font-size: 1.55em; font-weight: 600; margin: 2.5em 0 .6em; padding-bottom: .3em; border-bottom: 2px solid var(--accent); color: var(--accent-dark); letter-spacing: -0.02em; }
+h3 { font-family: var(--font-heading); font-size: 1.2em; font-weight: 600; margin: 2em 0 .4em; color: var(--fg); letter-spacing: -0.02em; }
+h4 { font-size: .95em; font-weight: 600; margin: 1.4em 0 .3em; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+p { margin: .55em 0; }
+ul, ol { padding-left: 1.6em; margin: .55em 0; }
+li { margin: .3em 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace; font-size: .85em; background: var(--code-bg); padding: .15em .4em; border-radius: 4px; font-weight: 500; }
+pre { background: var(--code-bg); padding: 1em 1.2em; border-radius: var(--radius); overflow-x: auto; margin: .8em 0; font-size: .84em; line-height: 1.55; }
+table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: .9em; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+th, td { text-align: left; padding: .6em .8em; }
+th { background: var(--accent-subtle); font-weight: 600; font-size: .82em; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-dark); border-bottom: 2px solid var(--accent-light); }
+td { border-top: 1px solid var(--border); }
+tr:first-child td { border-top: none; }
+.card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1em 1.3em; margin: .8em 0; box-shadow: var(--card-shadow); }
+.card.accent { border-left: 4px solid var(--accent); background: var(--accent-light); }
+.card.warn { border-left: 4px solid #e6a817; background: #fffdf5; }
+.card.info { border-left: 4px solid #4a9eff; background: #f5f9ff; }
+@media (prefers-color-scheme: dark) { .card.accent { background: #1a1d2a; } .card.warn { background: #1f1a0a; } .card.info { background: #101a2a; } }
+.pid { font-size: .82em; color: var(--faint); margin: -.2em 0 1em; }
+.ref { margin: .3em 0; padding-left: 1.6em; text-indent: -1.6em; font-size: .88em; color: var(--muted); }
+hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
+.key-table td:first-child { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-weight: 600; font-size: .88em; white-space: nowrap; }
+#back-to-top { position: fixed; bottom: 28px; right: 28px; width: 42px; height: 42px; background: var(--accent); color: white; border: none; border-radius: 50%; font-size: 1.2em; cursor: pointer; opacity: 0; transform: translateY(16px); transition: opacity .2s, transform .2s; z-index: 200; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+#back-to-top.visible { opacity: .9; transform: translateY(0); }
+#back-to-top:hover { opacity: 1; transform: translateY(-2px); }
+.footer { text-align: center; color: var(--faint); font-size: .8em; margin-top: 3em; padding-top: 2em; border-top: 1px solid var(--border); }
+.footer a { color: var(--accent); }
+@media (max-width: 800px) { body { flex-direction: column; } #sidebar { width: 100%; min-width: 0; height: auto; position: static; max-height: 45vh; } #content { padding: 1.5em 1em 4em; } .hero h1 { font-size: 2em; } }
+@media print { body { display: block; font-size: 11px; } #sidebar, #back-to-top { display: none !important; } #content { max-width: none; padding: 1em; } h2 { page-break-before: always; } .card { box-shadow: none; border: 1px solid #ccc; } }
+</style>
+</head>
+<body>
+<nav id="sidebar">
+<div id="sidebar-header"><div class="logo">SmartModeler GIS</div><div class="subtitle">Reference Manual · v1.1.0</div></div>
+<div id="search-wrap"><input type="text" id="search" placeholder="Search…" autocomplete="off"></div>
+<ul id="toc">
+<li class="toc-group"><button class="toc-group-btn" aria-expanded="true" style="border-left:3px solid var(--accent)"><span class="arrow">▼</span> Architecture &amp; Design</button>
+<ul class="toc-algs">
+<li><a href="#overview" data-name="overview" data-display="overview design philosophy">Overview &amp; Design Philosophy</a></li>
+<li><a href="#dual-surface" data-name="dual" data-display="dual surface architecture">Dual-Surface Architecture</a></li>
+<li><a href="#security" data-name="security" data-display="security model fail closed">Security Model: Fail-Closed by Default</a></li>
+</ul></li>
+<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Workflow Studio</button>
+<ul class="toc-algs">
+<li><a href="#graph-model" data-name="graph" data-display="graph model typed sockets dag">Graph Model &amp; Typed Sockets</a></li>
+<li><a href="#canvas" data-name="canvas" data-display="visual canvas nodes ports connections">Visual Canvas, Nodes, Ports &amp; Connections</a></li>
+<li><a href="#discovery" data-name="discovery" data-display="live algorithm discovery">Live Algorithm Discovery</a></li>
+<li><a href="#execution" data-name="execution" data-display="execution engine snapshot run">Execution Engine &amp; Run Setup</a></li>
+<li><a href="#smart-proposals" data-name="proposals" data-display="smart proposals contextual ranking">Smart Proposals: Contextual Next-Step Ranking</a></li>
+<li><a href="#micropackages" data-name="micro" data-display="micro packages showcase graphs">Micro-Packages &amp; Showcase Graphs</a></li>
+</ul></li>
+<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Agent Workspace</button>
+<ul class="toc-algs">
+<li><a href="#agent-arch" data-name="agent" data-display="agent workspace architecture">Agent Workspace Architecture</a></li>
+<li><a href="#agent-protocol" data-name="protocol" data-display="protocol structured envelope">Provider-Neutral Structured Protocol</a></li>
+<li><a href="#agent-tools" data-name="tools" data-display="eighteen read only tools">18 Read-Only Inspection Tools</a></li>
+<li><a href="#agent-modes" data-name="modes" data-display="plan mode act mode">Plan Mode vs Act Mode</a></li>
+<li><a href="#agent-proposals" data-name="agent-proposals" data-display="validated proposal types">Eight Validated Proposal Types</a></li>
+<li><a href="#agent-ledger" data-name="ledger" data-display="action ledger undo">Action Ledger &amp; Undo</a></li>
+</ul></li>
+<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Document System</button>
+<ul class="toc-algs">
+<li><a href="#doc-state" data-name="doc-state" data-display="document state undo redo crash recovery">Undo/Redo, Dirty-State &amp; Crash Recovery</a></li>
+<li><a href="#model3" data-name="model3" data-display="model3 interchange import export">.model3 Interchange &amp; Python Export</a></li>
+<li><a href="#doc-codec" data-name="codec" data-display="document codec v2 v3">Document Codec: V2 → V3 Migration</a></li>
+</ul></li>
+<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Power Mode</button>
+<ul class="toc-algs">
+<li><a href="#power-overview" data-name="power" data-display="power mode opt in sql python">Power Mode: Opt-In Advanced Capabilities</a></li>
+<li><a href="#power-sql" data-name="sql" data-display="sql database statements">Full-Source SQL</a></li>
+<li><a href="#power-script" data-name="script" data-display="trusted script hash pinned">Trusted Scripts (Hash-Pinned)</a></li>
+<li><a href="#power-python" data-name="python" data-display="generated pyqgis process isolated">Generated PyQGIS (Process-Isolated)</a></li>
+</ul></li>
+<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Processing Provider &amp; Plugins</button>
+<ul class="toc-algs">
+<li><a href="#processing" data-name="processing" data-display="processing provider algorithms">Processing Provider &amp; Algorithms</a></li>
+<li><a href="#plugin-cap" data-name="plugin-cap" data-display="plugin capabilities discovery">Plugin Capabilities Discovery</a></li>
+<li><a href="#companion" data-name="companion" data-display="companion plugin bridge">Companion Plugin AI Bridge</a></li>
+</ul></li>
+</ul>
+<div id="sidebar-footer"><a href="#appendix-a">Socket Types Reference</a><a href="#appendix-b">Agent Tool Catalog</a><a href="#appendix-c">Glossary</a><a href="#appendix-d">Bibliography</a></div>
+</nav>
+
+<main id="content">
+<div class="hero">
+<h1>SmartModeler GIS</h1>
+<div class="tagline">QGIS 4 Visual Processing Studio with Validated AI Planning — Academic Reference Manual</div>
+<div class="meta">v1.1.0 · Yusuf Emino&#287;lu · Dokuz Eyl&uuml;l University · August 2026 · <a href="https://github.com/YusufEminoglu/planx-smartmodeler">GitHub</a></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="overview">Architecture &amp; Design</h2>
+
+<h3>Overview &amp; Design Philosophy</h3>
+<p><b>SmartModeler GIS</b> is a QGIS 4-only visual studio for building, executing, and iterating on real QGIS Processing workflows. It combines a <b>typed node canvas</b> with live algorithm discovery from the Processing registry, a <b>validated AI planning system</b> that operates through a fail-closed policy engine, and native <code>.model3</code> interchange with the QGIS Model Designer.</p>
+
+<p>The plugin rests on six principles:</p>
+<ol>
+  <li><b>AI proposes, human disposes.</b> Every AI-generated proposal is inert data until the user explicitly approves it. There is no auto-approve, no remembered approval, no background action. The AI never approves, applies, or undoes anything.</li>
+  <li><b>Fail-closed security.</b> All provider output is untrusted — even when the provider claims strict structured-output adherence. Every tool call is locally re-validated against a narrow contract. Unknown fields, ambiguous aliases, and malformed shapes are rejected.</li>
+  <li><b>Deterministic offline workflows remain available without a network connection.</b> The Studio works fully offline; the Agent Workspace is an optional enhancement, not a requirement.</li>
+  <li><b>Provider neutrality.</b> The Agent Workspace works with any configured AI connection — OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible, Azure OpenAI — through a single structured protocol.</li>
+  <li><b>No silent data mutation.</b> Database writes, DDL, and live in-process Python require explicit second confirmation. Generated Python defaults to process isolation. Connection URIs, credentials, source paths, and feature values are never sent as tool metadata.</li>
+  <li><b>Typed, validated graphs.</b> Every node port is typed; every connection is validated against socket compatibility; every execution snapshot is immutable.</li>
+</ol>
+
+<h3 id="dual-surface">Dual-Surface Architecture</h3>
+<table><tr><th>Surface</th><th>UI</th><th>Purpose</th></tr>
+<tr><td><b>Workflow Studio</b></td><td>Full-window canvas (<code>SmartModelerWindow</code>)</td><td>Visual graph editing: drag nodes from the algorithm palette, wire ports, configure parameters, run workflows. The primary design surface.</td></tr>
+<tr><td><b>Agent Workspace</b></td><td>Dockable panel (<code>AgentWorkspaceDock</code>)</td><td>Multi-turn AI conversation with 18 read-only inspection tools. Generates validated proposals that the user reviews and approves. Integrated with Workflow Studio: proposals can patch the live graph or run Processing algorithms.</td></tr>
+</table>
+<p>Both surfaces share one execution slot — they cannot run or apply competing changes concurrently. The Agent Workspace reads the Workflow Studio's current graph through a read-only adapter; proposals are applied through a single trusted seam that validates the graph before installation.</p>
+
+<h3 id="security">Security Model: Fail-Closed by Default</h3>
+<p>The security architecture is layered:</p>
+<table><tr><th>Layer</th><th>Mechanism</th></tr>
+<tr><td><b>1. Transport</b></td><td>Raw provider response capped at 100,000 characters. Rejected before JSON parsing if oversized.</td></tr>
+<tr><td><b>2. Envelope</b></td><td>Strict 5-key JSON schema. Ambiguous aliases, prose, or JSON substrings extracted from prose are rejected by the local parser.</td></tr>
+<tr><td><b>3. Tool validation</b></td><td>Every tool call is validated against a registry of exactly 18 read-only tools. Tool names must match a narrow regex. Argument shapes are structurally validated.</td></tr>
+<tr><td><b>4. Proposal validation</b></td><td>Eight proposal kinds, each with strict local validation. Model patches are validated against a detached graph clone. Style proposals are validated against the live layer's fields.</td></tr>
+<tr><td><b>5. Runtime policy</b></td><td>At Apply or Run time, the live state is re-checked. Processing runs are signature-pinned; only reviewed algorithms whose live signature passes the structural policy can execute. Results go to temporary layers only — no user-selected file, folder, or database destination.</td></tr>
+<tr><td><b>6. Power Mode gate</b></td><td>SQL, trusted scripts, and PyQGIS are opt-in only (off by default). Database writes and live Python require a second explicit confirmation.</td></tr>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="graph-model">Workflow Studio</h2>
+
+<h3>Graph Model &amp; Typed Sockets</h3>
+<p>The graph is a <b>pure-Python directed acyclic graph (DAG)</b> defined in <code>core/graph_model.py</code>. Each node is an instance of a Processing algorithm; each port is a typed socket:</p>
+<table><tr><th>Socket Type</th><th>Constant</th><th>Compatible With</th></tr>
+<tr><td>Vector layer</td><td><code>VECTOR</code></td><td>Line, Polygon, Point, Multi* variants</td></tr>
+<tr><td>Raster layer</td><td><code>RASTER</code></td><td>Single and multi-band rasters</td></tr>
+<tr><td>Number</td><td><code>NUMBER</code></td><td>Integer, Double</td></tr>
+<tr><td>String / Text</td><td><code>STRING</code></td><td>QGIS expression, domain text</td></tr>
+<tr><td>Boolean</td><td><code>BOOLEAN</code></td><td>True/False</td></tr>
+<tr><td>Field (attribute)</td><td><code>FIELD</code></td><td>Field name from a vector layer</td></tr>
+<tr><td>Table</td><td><code>TABLE</code></td><td>Non-spatial attribute tables</td></tr>
+<tr><td>File</td><td><code>FILE</code></td><td>File path (domain-constrained in Agent runs)</td></tr>
+<tr><td>CRS</td><td><code>CRS</code></td><td>Coordinate Reference System</td></tr>
+<tr><td>Extent</td><td><code>EXTENT</code></td><td>Bounding box</td></tr>
+<tr><td>Enum</td><td><code>ENUM</code></td><td>Categorical choice</td></tr>
+<tr><td>Any</td><td><code>ANY</code></td><td>Wildcard — accepts any type</td></tr>
+</table>
+<p>Connections are validated at edge-creation time: a <code>VECTOR</code> output can connect to a <code>VECTOR</code> or <code>ANY</code> input, but not to a <code>RASTER</code> or <code>NUMBER</code> input. Multi-layer collection inputs (<code>allows_multiple=True</code>) accept multiple connections.</p>
+
+<h3 id="canvas">Visual Canvas, Nodes, Ports &amp; Connections</h3>
+<p>The Workflow Studio canvas (<code>gui/canvas_scene.py</code>, <code>gui/canvas_view.py</code>) is a QGraphicsScene-based interactive editor. Nodes are rendered as rounded rectangles with colour-coded port circles on input (left) and output (right) sides. Connections are Bézier curves that snap to port positions. The canvas supports: drag-to-pan, scroll-to-zoom, rubber-band selection, delete/duplicate, and auto-layout (<code>core/auto_layout.py</code>) for topological sorting of the graph.</p>
+
+<h3 id="discovery">Live Algorithm Discovery</h3>
+<p>The algorithm palette is populated directly from the <b>QGIS Processing registry</b> at Studio open time. Every installed Processing provider — native QGIS algorithms, GDAL, GRASS, SAGA, and PlanX plugins — contributes its algorithms as draggable node types. The registry audit verifies that every algorithm constructs a typed node and preserves its port schema through a bounded JSON round-trip. Configuration-dependent algorithms (those that change their ports based on a parameter choice) rebuild their live port schema from the stored configuration before validation or execution.</p>
+
+<h3 id="execution">Execution Engine &amp; Run Setup</h3>
+<p>The <b>Run Setup</b> dialog shows every workflow step in topological order. Each step displays its connected inputs and where they come from; open inputs are editable in-place with the project's compatible layers offered in a dropdown. When only one project layer matches an unbound vector input, it is auto-bound.</p>
+<p>Execution takes an <b>immutable snapshot</b> of the workflow and runs it in a cancellable QGIS background task (<code>QgsTask</code>). The canvas is locked during the run except for the <b>Cancel</b> button (<code>Esc</code>). Nodes execute in topological order; unselected conditional branches are pruned. Algorithms marked <code>NoThreading</code> by QGIS are refused — the user is directed to export as <code>.model3</code> and run manually.</p>
+<p>Results are committed atomically on the main QGIS thread. Only explicitly published outputs are added to the project. A structured run report distinguishes completion, cancellation, failure, and partial execution, and retains exact result-layer identities for safe cleanup.</p>
+
+<h3 id="smart-proposals">Smart Proposals: Contextual Next-Step Ranking</h3>
+<p>When a node is selected on the canvas, the <b>Smart Proposal Bar</b> (<code>gui/smart_proposal_bar.py</code>) ranks contextual next steps: which algorithms accept the selected node's output types as input? Each proposal explains and previews its target connection. Accepting a proposal adds and auto-connects the node as one undoable edit. This is a <b>deterministic, offline</b> feature — no AI required. The proposal engine (<code>core/proposal_engine.py</code>) matches output socket types against the input requirements of all installed algorithms.</p>
+
+<h3 id="micropackages">Micro-Packages &amp; Showcase Graphs</h3>
+<p>Five versioned, schema-validated <b>micro-package workflows</b> are shipped with the plugin. They build deterministic graphs directly without any AI profile or network request. Each is hidden when its required Processing algorithms are unavailable. The showcase gallery presents these as ready-to-run examples demonstrating common patterns: buffer → clip, select by attribute → dissolve, etc.</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="agent-arch">Agent Workspace</h2>
+
+<h3>Agent Workspace Architecture</h3>
+<p>The Agent Workspace (<code>gui/agent_dock.py</code>) is a dockable multi-turn AI chat panel. It operates through a <b>capability-routed registry</b> of 18 read-only inspection tools. Every provider turn is parsed as a strict structured envelope; mode, scope, and tool execution stay under application control.</p>
+<p>The workspace connects through <code>core/ai_client.py</code> and <code>core/ai_settings.py</code> — a provider-neutral AI client supporting OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible, and Azure OpenAI backends. API keys are stored in session memory or the optional encrypted QGIS vault. The <code>offline</code> profile keeps quick inspections working without any language model.</p>
+
+<h3 id="agent-protocol">Provider-Neutral Structured Protocol</h3>
+<p>Every provider turn uses a strict 5-key JSON envelope (<code>core/agent/protocol.py</code>):</p>
+<pre>{
+  "assistant_text": str (≤8,000 chars),
+  "tool_calls": [AgentToolCall],
+  "proposal_kind": str (≤80 chars),
+  "proposal_json": str (≤MAX_PROPOSAL_JSON_CHARS),
+  "fence": bool
+}</pre>
+<p>The <b>local parser</b> accepts a narrow set of authority-neutral tool-call field aliases used by real providers, normalizes them to the canonical contract, then performs the same local tool/argument validation. Ambiguous aliases, unknown fields, malformed shapes, prose, or JSON substrings extracted from prose are <b>rejected</b>. A <code>fence: true</code> response is a valid empty turn — the provider declined to answer.</p>
+
+<h3 id="agent-tools">18 Read-Only Inspection Tools</h3>
+<p>The agent's tool set is <b>metadata-only</b>: no feature values, source URIs, style/label expressions, baseline model parameter values, or credentials are ever sent. Each tool reads one aspect of the QGIS environment:</p>
+<table><tr><th>#</th><th>Tool</th><th>What It Reads</th></tr>
+<tr><td>1</td><td><code>project_info</code></td><td>Project title, CRS, layer count, home path</td></tr>
+<tr><td>2</td><td><code>list_layers</code></td><td>Layer names, types, feature counts, geometry types, field counts</td></tr>
+<tr><td>3</td><td><code>layer_fields</code></td><td>Field names, types for one named layer</td></tr>
+<tr><td>4</td><td><code>layer_extent</code></td><td>Bounding box of one named layer</td></tr>
+<tr><td>5</td><td><code>layer_crs</code></td><td>CRS authority and code for one layer</td></tr>
+<tr><td>6</td><td><code>layer_style</code></td><td>Current symbology type, renderer category, labels enabled</td></tr>
+<tr><td>7</td><td><code>list_algorithms</code></td><td>Provider + algorithm IDs from the Processing registry</td></tr>
+<tr><td>8</td><td><code>algorithm_help</code></td><td>Short help string for one algorithm</td></tr>
+<tr><td>9</td><td><code>algorithm_params</code></td><td>Parameter names, types, and defaults for one algorithm</td></tr>
+<tr><td>10</td><td><code>current_model</code></td><td>Node IDs, algorithm IDs, and socket-level graph structure</td></tr>
+<tr><td>11</td><td><code>model_node_params</code></td><td>Parameters for one node in the current model</td></tr>
+<tr><td>12</td><td><code>expression_help</code></td><td>QGIS expression function list and syntax check for a formula</td></tr>
+<tr><td>13</td><td><code>list_plugins</code></td><td>Installed plugin names and their Processing providers</td></tr>
+<tr><td>14</td><td><code>plugin_capabilities</code></td><td>What one installed plugin can be used for (algorithms, UI-only status)</td></tr>
+<tr><td>15</td><td><code>osm_query</code></td><td>Bounded OSM acquisition: roads, buildings, trees within a bounding box</td></tr>
+<tr><td>16</td><td><code>filter_layer</code></td><td>Active-layer attribute filter (deterministic FID-based, reviewed temp-layer run)</td></tr>
+<tr><td>17</td><td><code>field_calculator</code></td><td>QGIS field calculator with live <code>QgsExpression</code> parser validation</td></tr>
+<tr><td>18</td><td><code>random_extract</code></td><td>Random feature subset extraction</td></tr>
+</table>
+
+<h3 id="agent-modes">Plan Mode vs Act Mode</h3>
+<table><tr><th>Mode</th><th>Proposal State</th><th>User Action Required</th></tr>
+<tr><td><b>Plan</b></td><td>Review-only — shows <b>Not applied</b> status</td><td>Read the proposal, discuss with the agent, iterate. No change is made to QGIS.</td></tr>
+<tr><td><b>Act</b></td><td>Pending — appears on a read-only <b>approval card</b></td><td>Click <b>Apply</b> to commit. The proposal is re-validated against live state at click time. On failure, the change is rolled back atomically.</td></tr>
+</table>
+<p>In both modes, the agent's tool calls execute the same read-only inspections. The difference is only what happens with the validated proposal: in Plan it stays as review text; in Act it becomes a clickable approval card.</p>
+
+<h3 id="agent-proposals">Eight Validated Proposal Types</h3>
+<table><tr><th>Proposal Kind</th><th>What It Produces</th></tr>
+<tr><td><code>model_patch</code></td><td>A complete replacement graph for the Workflow Studio. Validated on a detached clone before the approval card appears.</td></tr>
+<tr><td><code>layer_style</code></td><td>A symbology-and-labeling intent (single_symbol, categorized, graduated, raster_gray). Validated against the live layer's fields.</td></tr>
+<tr><td><code>processing_run</code></td><td>A single reviewed Processing run with signature-pinned algorithm. Results go to temporary layers.</td></tr>
+<tr><td><code>workflow_run</code></td><td>Run the current Workflow Studio graph (same as clicking Run in Studio).</td></tr>
+<tr><td><code>plugin_action</code></td><td>One explicitly reviewed cross-plugin action (e.g., open 02viz on a selected layer). Own approval card.</td></tr>
+<tr><td><code>sql_run</code> 🔒</td><td>Full-source SQL statement. Power Mode only. Database writes/DDL require second confirmation.</td></tr>
+<tr><td><code>trusted_script_run</code> 🔒</td><td>Hash-pinned trusted script. Power Mode only. Second confirmation required.</td></tr>
+<tr><td><code>python_run</code> 🔒</td><td>Generated PyQGIS source, shown in full on the approval card. Power Mode only. Defaults to process-isolated subprocess. Live in-process requires second confirmation + no-rollback warning.</td></tr>
+</table>
+<div class="card accent"><b>All proposals are inert data.</b> The AI generates a JSON proposal. SmartModeler validates it locally. Only the user's explicit click applies it. There is no "Approve all," no remembered approval, no background application. The AI never approves, applies, or undoes anything.</div>
+
+<h3 id="agent-ledger">Action Ledger &amp; Undo</h3>
+<p>Every applied agent action is recorded in a bounded in-session <b>action ledger</b> (<code>core/agent/action_ledger.py</code>). The <b>Undo last agent action</b> command reverts the most recent model, style, or run change — but only while the live target still matches the action's recorded post-state, so it never overwrites a later user edit. The ledger is capped at 10 actions per session; old entries are pruned.</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="doc-state">Document System</h2>
+
+<h3>Undo/Redo, Dirty-State &amp; Crash Recovery</h3>
+<p>The document system (<code>core/document_state.py</code>) tracks the complete editable graph with general <b>Undo/Redo</b> (unlimited stack). A <b>dirty-state flag</b> drives the title-bar asterisk and guards New/Open/Close with unsaved-change prompts. <b>Crash recovery</b> auto-saves to a temporary file; on next Studio open, if a recovery file exists and is newer than the last saved version, the user is offered the choice to restore it.</p>
+
+<h3 id="model3">.model3 Interchange &amp; Python Export</h3>
+<p>SmartModeler imports and exports three formats:</p>
+<table><tr><th>Format</th><th>Extension</th><th>Direction</th><th>Notes</th></tr>
+<tr><td><b>SmartModeler JSON v3</b></td><td><code>.sm3</code></td><td>Import &amp; Export</td><td>Versioned, schema-validated. Ports are rebuilt from the live Processing registry on import — stored schemas are never trusted.</td></tr>
+<tr><td><b>QGIS .model3</b></td><td><code>.model3</code></td><td>Import &amp; Export</td><td>Native QGIS Model Designer format. Unbound inputs become model inputs so the workflow opens correctly in the QGIS Model Designer. Preserves boolean, string, number, field, CRS, extent, enum, map-layer, and multi-layer parameters; ordered mixed sources; conditional child dependencies; published outputs.</td></tr>
+<tr><td><b>QGIS Python</b></td><td><code>.py</code></td><td>Export only</td><td>Runnable QGIS Python algorithm script. Uses the Processing API to reconstruct the workflow programmatically.</td></tr>
+</table>
+
+<h3 id="doc-codec">Document Codec: V2 → V3 Migration</h3>
+<p>V2 documents are migrated through the same validation path as V3: ports are rebuilt from the live Processing registry, not from stored schemas. This ensures that a workflow saved under an older QGIS version with different algorithm signatures opens correctly on the current version.</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="power-overview">Power Mode</h2>
+
+<h3>Power Mode: Opt-In Advanced Capabilities</h3>
+<p>Power Mode is <b>explicit and off by default</b>. When enabled, three additional proposal kinds become available. Each carries its own warning and confirmation gate.</p>
+
+<h3 id="power-sql">Full-Source SQL</h3>
+<p>The agent can inspect stored PostGIS/GeoPackage connection metadata through opaque receipts (never transmitting the actual URI or credentials) and propose one complete SQL statement. The approval card shows the <b>full source</b>. Database writes and DDL require a <b>second explicit confirmation</b> beyond the normal Apply click.</p>
+
+<h3 id="power-script">Trusted Scripts (Hash-Pinned)</h3>
+<p>A managed, hash-pinned trusted script can be proposed. The script's content hash is validated against a stored manifest before the approval card appears. Requires a second confirmation. Used for reviewed, reproducible data-processing pipelines.</p>
+
+<h3 id="power-python">Generated PyQGIS (Process-Isolated)</h3>
+<p>The agent can generate complete PyQGIS source code, shown in full on the approval card. By default, execution uses a <b>cancellable, timeout-bounded separate QGIS subprocess</b>: selected vector inputs are snapshotted; only requested/new vector outputs are imported back. This is <b>process isolation, not a security sandbox</b> — the code still has the current user's filesystem and network permissions. Live in-process Python requires a <b>second confirmation and carries a no-rollback warning</b>.</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="processing">Processing Provider &amp; Plugins</h2>
+
+<h3>Processing Provider &amp; Algorithms</h3>
+<p>SmartModeler registers as a QGIS Processing provider (<code>processing/provider.py</code>) with five algorithms:</p>
+<table><tr><th>Algorithm ID</th><th>Purpose</th></tr>
+<tr><td><code>smartmodeler:osmdownload</code></td><td>Bounded OSM data acquisition for roads, buildings, and trees within a map-canvas extent</td></tr>
+<tr><td><code>smartmodeler:randomextract</code></td><td>Random feature subset extraction from a vector layer</td></tr>
+<tr><td><code>smartmodeler:fieldcalculator</code></td><td>QGIS field calculator with live expression validation</td></tr>
+<tr><td><code>smartmodeler:filterlayer</code></td><td>Attribute-based layer filtering with deterministic FID output</td></tr>
+<tr><td><code>smartmodeler:power</code></td><td>Power Mode execution gateway (only available when Power Mode is enabled)</td></tr>
+</table>
+
+<h3 id="plugin-cap">Plugin Capabilities Discovery</h3>
+<p>The <code>plugin_capabilities</code> tool (<code>core/agent/plugin_capabilities.py</code>) identifies what an installed plugin can be used for <b>without importing, instantiating, or reading the plugin</b>. It asks the Processing provider registry which Python package defined a given provider, then lists that provider's algorithms. Each algorithm is independently marked runnable or blocked from its live signature. UI-only plugins are resolved by package or visible name. A mapping is either proved or reported as unproved — a look-alike name is never presented as a confirmation.</p>
+
+<h3 id="companion">Companion Plugin AI Bridge</h3>
+<p>Trusted PlanX companion plugins (such as 02Agent OSM Downloader) can open SmartModeler's AI Connections and Agent Workspace through a narrow public bridge (<code>core/agent/plugin_actions.py</code>). They receive only display-safe profile/provider/model information; API secrets remain in SmartModeler's session memory or encrypted QGIS vault. Each cross-plugin action uses its own application-reviewed adapter, shown on its own approval card. The first adapter opens 02viz on one selected vector layer and renders 02viz's offline smart chart suggestion.</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<hr>
+<h2 id="appendix-a">Appendix A — Socket Types Reference</h2>
+<table class="key-table"><tr><th>Socket</th><th>Constant</th><th>Accepts From</th><th>Default QGIS Parameter Types</th></tr>
+<tr><td>VECTOR</td><td><code>vector</code></td><td>VECTOR, ANY</td><td>QgsProcessingParameterFeatureSource, QgsProcessingParameterVectorLayer</td></tr>
+<tr><td>RASTER</td><td><code>raster</code></td><td>RASTER, ANY</td><td>QgsProcessingParameterRasterLayer</td></tr>
+<tr><td>NUMBER</td><td><code>number</code></td><td>NUMBER, ANY</td><td>QgsProcessingParameterNumber, QgsProcessingParameterDistance, QgsProcessingParameterArea</td></tr>
+<tr><td>STRING</td><td><code>string</code></td><td>STRING, ANY</td><td>QgsProcessingParameterString, QgsProcessingParameterExpression</td></tr>
+<tr><td>BOOLEAN</td><td><code>boolean</code></td><td>BOOLEAN, ANY</td><td>QgsProcessingParameterBoolean</td></tr>
+<tr><td>FIELD</td><td><code>field</code></td><td>FIELD, STRING, ANY</td><td>QgsProcessingParameterField</td></tr>
+<tr><td>TABLE</td><td><code>table</code></td><td>TABLE, ANY</td><td>QgsProcessingParameterFeatureSource (non-spatial)</td></tr>
+<tr><td>FILE</td><td><code>file</code></td><td>FILE, STRING, ANY</td><td>QgsProcessingParameterFile</td></tr>
+<tr><td>CRS</td><td><code>crs</code></td><td>CRS, ANY</td><td>QgsProcessingParameterCrs</td></tr>
+<tr><td>EXTENT</td><td><code>extent</code></td><td>EXTENT, ANY</td><td>QgsProcessingParameterExtent</td></tr>
+<tr><td>ENUM</td><td><code>enum</code></td><td>ENUM, NUMBER, STRING, ANY</td><td>QgsProcessingParameterEnum</td></tr>
+<tr><td>ANY</td><td><code>any</code></td><td>Any type</td><td>Wildcard — used for generic pass-through</td></tr>
+</table>
+
+<h2 id="appendix-b">Appendix B — Agent Tool Catalog</h2>
+<table><tr><th>Tool ID</th><th>Scope</th><th>Returns</th><th>Condition</th></tr>
+<tr><td><code>project_info</code></td><td>Project</td><td>title, crs, layer_count, home_path</td><td>Always available</td></tr>
+<tr><td><code>list_layers</code></td><td>Project</td><td>[{name, type, geom_type, feature_count, field_count}]</td><td>Always available</td></tr>
+<tr><td><code>layer_fields</code></td><td>One layer</td><td>[{name, type_name, length, precision}] — full schema, not truncated</td></tr>
+<tr><td><code>layer_extent</code></td><td>One layer</td><td>{xmin, ymin, xmax, ymax}</td></tr>
+<tr><td><code>layer_crs</code></td><td>One layer</td><td>{auth, code, description}</td></tr>
+<tr><td><code>layer_style</code></td><td>One vector/raster</td><td>{symbology_type, categorized_field, graduated_field, labels_enabled}</td></tr>
+<tr><td><code>list_algorithms</code></td><td>Processing</td><td>[{provider_id, algorithm_id, display_name}]</td><td>Only algorithms passing structural policy</td></tr>
+<tr><td><code>algorithm_help</code></td><td>One algorithm</td><td>Short help string (truncated to safe length)</td></tr>
+<tr><td><code>algorithm_params</code></td><td>One algorithm</td><td>[{name, type, default, required, ...}]</td></tr>
+<tr><td><code>current_model</code></td><td>Studio graph</td><td>{nodes: [{id, algorithm_id, ...}], edges: [{source_node, source_port, target_node, target_port}]}</td><td>Studio must be open</td></tr>
+<tr><td><code>model_node_params</code></td><td>One model node</td><td>[{name, value, type, ...}] for that node</td></tr>
+<tr><td><code>expression_help</code></td><td>QGIS expression</td><td>Function list or syntax check result for a given formula</td></tr>
+<tr><td><code>list_plugins</code></td><td>Plugins</td><td>[{package_name, display_name, has_processing_provider}]</td></tr>
+<tr><td><code>plugin_capabilities</code></td><td>One plugin</td><td>{provider_id, algorithms: [{id, runnable}], ui_only, mapping_proof}</td></tr>
+<tr><td><code>osm_query</code></td><td>Bounded extent</td><td>Roads, buildings, trees as temp layers. 02Agent preset: all three in one run.</td></tr>
+<tr><td><code>filter_layer</code></td><td>Active layer</td><td>Deterministic FID-based filter → reviewed temp-layer Processing run</td></tr>
+<tr><td><code>field_calculator</code></td><td>Active layer</td><td>Reviewed <code>native:fieldcalculator</code> run; <code>QgsExpression</code> parser validates syntax + field references</td></tr>
+<tr><td><code>random_extract</code></td><td>Any vector layer</td><td>Random subset → temp layer</td></tr>
+</table>
+
+<h2 id="appendix-c">Appendix C — Glossary</h2>
+<table>
+<tr><td><b>Agent Workspace</b></td><td>The dockable AI chat panel with 18 metadata-only inspection tools and validated proposal system.</td></tr>
+<tr><td><b>DAG</b></td><td>Directed Acyclic Graph — the underlying data structure of a SmartModeler workflow. Cycles are rejected at edge-creation time.</td></tr>
+<tr><td><b>Fail-closed</b></td><td>A security principle: when validation cannot confirm correctness, the operation is rejected rather than proceeding with potentially dangerous state.</td></tr>
+<tr><td><b>Fence response</b></td><td>A valid empty provider turn where the AI declined to answer (<code>fence: true</code>). Not an error — the agent is choosing not to engage.</td></tr>
+<tr><td><b>.model3</b></td><td>QGIS Model Designer's native file format. SmartModeler imports and exports it, preserving all parameter types and model metadata.</td></tr>
+<tr><td><b>Plan Mode</b></td><td>Agent mode where proposals are review-only. No changes can be made to QGIS. Used for exploration and discussion.</td></tr>
+<tr><td><b>Act Mode</b></td><td>Agent mode where proposals produce approval cards. The user must explicitly click Apply to commit any change.</td></tr>
+<tr><td><b>Power Mode</b></td><td>Opt-in capability set (off by default) that includes SQL, trusted scripts, and generated PyQGIS.</td></tr>
+<tr><td><b>Processing run</b></td><td>Execution of one QGIS Processing algorithm through the Agent Workspace. Results go to temporary layers only — no user-selected destinations.</td></tr>
+<tr><td><b>Socket type</b></td><td>The semantic type of a node port (VECTOR, RASTER, NUMBER, etc.). Determines which connections are valid.</td></tr>
+<tr><td><b>Smart Proposal</b></td><td>Deterministic, offline next-step suggestion based on output-to-input socket type matching across the algorithm registry.</td></tr>
+<tr><td><b>Workflow Studio</b></td><td>The full-window visual canvas for building and editing Processing workflows.</td></tr>
+</table>
+
+<h2 id="appendix-d">Appendix D — Bibliography</h2>
+<p class="ref">Gamma, E., Helm, R., Johnson, R. &amp; Vlissides, J. (1994). <i>Design Patterns: Elements of Reusable Object-Oriented Software.</i> Addison-Wesley. (Memento pattern for document undo/redo; Command pattern for agent action ledger.)</p>
+<p class="ref">QGIS Development Team. (2024). <i>QGIS Processing Framework.</i> <a href="https://docs.qgis.org">docs.qgis.org</a></p>
+<p class="ref">QGIS Development Team. (2024). <i>QGIS Graphical Modeler.</i> <a href="https://docs.qgis.org">docs.qgis.org</a></p>
+<p class="ref">Anthropic. (2024). "Tool Use (Function Calling)." <i>Anthropic API Documentation.</i> (Structured output patterns informing the agent_turn envelope design.)</p>
+<p class="ref">OpenAI. (2024). "Function Calling Guide." <i>OpenAI API Documentation.</i> (JSON Schema constrained generation informing the tool-call contract.)</p>
+
+<div class="footer">
+  <p>SmartModeler GIS — Academic Reference Manual · v1.1.0</p>
+  <p>Yusuf Emino&#287;lu · Dokuz Eyl&uuml;l University · August 2026</p>
+  <p><a href="https://github.com/YusufEminoglu/planx-smartmodeler">github.com/YusufEminoglu/planx-smartmodeler</a></p>
+</div>
+</main>
+
+<button id="back-to-top" title="Back to top">&uarr;</button>
+<script>
+document.querySelectorAll('.toc-group-btn').forEach(b=>{b.addEventListener('click',()=>{const v=b.getAttribute('aria-expanded')==='true';b.setAttribute('aria-expanded',!v)})});
+const s=document.getElementById('search');s.addEventListener('input',()=>{const q=s.value.toLowerCase().trim();document.querySelectorAll('.toc-algs li a').forEach(a=>{const n=(a.dataset.name||'').toLowerCase();const d=(a.dataset.display||'').toLowerCase();a.classList.toggle('hidden',!!(q&&!n.includes(q)&&!d.includes(q)))});document.querySelectorAll('.toc-group').forEach(g=>{const v=g.querySelectorAll('.toc-algs li a:not(.hidden)');if(q&&v.length)g.querySelector('.toc-group-btn').setAttribute('aria-expanded','true')})});
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();s.focus()}});
+const o=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){document.querySelectorAll('#toc a').forEach(a=>a.classList.remove('active'));const l=document.querySelector(`#toc a[href="#${e.target.id}"]`);if(l)l.classList.add('active')}})},{rootMargin:'-20% 0px -70% 0px'});document.querySelectorAll('#content h2[id]').forEach(h=>o.observe(h));
+const btt=document.getElementById('back-to-top');addEventListener('scroll',()=>btt.classList.toggle('visible',scrollY>400));btt.addEventListener('click',()=>{document.getElementById('content').scrollTo({top:0,behavior:'smooth'});scrollTo({top:0,behavior:'smooth'})});
+</script>
+</body>
+</html>
