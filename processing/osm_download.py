@@ -271,6 +271,7 @@ class _DownloadOsmAlgorithm(QgsProcessingAlgorithm):
     ALGORITHM_NAME = ""
     DISPLAY_NAME = ""
     WKB_TYPE = QgsWkbTypes.Type.Unknown
+    DOC_BASE = "https://yusufeminoglu.github.io/planx-smartmodeler/SMARTMODELER_REFERENCE_MANUAL.html"
 
     def name(self) -> str:
         return self.ALGORITHM_NAME
@@ -283,6 +284,9 @@ class _DownloadOsmAlgorithm(QgsProcessingAlgorithm):
 
     def groupId(self) -> str:
         return "openstreetmap"
+
+    def helpUrl(self) -> str:
+        return self.DOC_BASE + "#" + self.name()
 
     def shortHelpString(self) -> str:
         return (
