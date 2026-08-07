@@ -7,6 +7,10 @@
 
 SmartModeler GIS is a QGIS 4-only visual studio for building and running real QGIS Processing workflows. It combines a typed node canvas, live algorithm discovery, validated AI planning, native `.model3` interchange, and a focused dark Qt 6 interface.
 
+## 📖 Documentation
+
+**[Comprehensive Academic Reference Manual](https://yusufeminoglu.github.io/planx-smartmodeler/)** — OSM algorithms, Workflow Studio, AI agent architecture, workflow patterns, and 83 DOI-verified academic references. Hosted on GitHub Pages.
+
 Version 1.1.0 is the current production release. Every action proposed by a connected
 provider remains inert until it passes local validation and the user explicitly
 approves it; deterministic offline workflow generation remains available
