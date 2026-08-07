@@ -91,7 +91,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 </head>
 <body>
 <nav id="sidebar">
-<div id="sidebar-header"><div class="logo">SmartModeler GIS</div><div class="subtitle">Reference Manual · v1.1.0</div></div>
+<div id="sidebar-header"><div class="logo">SmartModeler GIS</div><div class="subtitle">Reference Manual · v1.2.0</div></div>
 <div id="search-wrap"><input type="text" id="search" placeholder="Search…" autocomplete="off"></div>
 <ul id="toc">
 <li class="toc-group"><button class="toc-group-btn" aria-expanded="true" style="border-left:3px solid var(--accent)"><span class="arrow">▼</span> Architecture &amp; Design</button>
@@ -131,13 +131,24 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <li><a href="#power-script" data-name="script" data-display="trusted script hash pinned">Trusted Scripts (Hash-Pinned)</a></li>
 <li><a href="#power-python" data-name="python" data-display="generated pyqgis process isolated">Generated PyQGIS (Process-Isolated)</a></li>
 </ul></li>
-<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Processing Provider &amp; Plugins</button>
-<ul class="toc-algs">
-<li><a href="#processing" data-name="processing" data-display="processing provider algorithms">Processing Provider &amp; Algorithms</a></li>
-<li><a href="#plugin-cap" data-name="plugin-cap" data-display="plugin capabilities discovery">Plugin Capabilities Discovery</a></li>
-<li><a href="#companion" data-name="companion" data-display="companion plugin bridge">Companion Plugin AI Bridge</a></li>
-</ul></li>
-</ul>
+	<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Processing Provider &amp; Plugins</button>
+	<ul class="toc-algs">
+	<li><a href="#processing" data-name="processing" data-display="processing provider algorithms">Processing Provider &amp; Algorithms</a></li>
+	<li><a href="#plugin-cap" data-name="plugin-cap" data-display="plugin capabilities discovery">Plugin Capabilities Discovery</a></li>
+	<li><a href="#companion" data-name="companion" data-display="companion plugin bridge">Companion Plugin AI Bridge</a></li>
+	</ul></li>
+	<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> OSM Download Algorithms</button>
+	<ul class="toc-algs">
+	<li><a href="#osm-points" data-name="osm-points" data-display="download osm points points nodes">Download OSM Points</a></li>
+	<li><a href="#osm-lines" data-name="osm-lines" data-display="download osm lines line lines ways">Download OSM Lines</a></li>
+	<li><a href="#osm-polygons" data-name="osm-polygons" data-display="download osm polygons polygon polygons ways relations">Download OSM Polygons</a></li>
+	</ul></li>
+	<li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Workflow Studio — Extended Theory</button>
+	<ul class="toc-algs">
+	<li><a href="#ws-theory" data-name="ws-theory" data-display="workflow automation theory visual programming DAG">Workflow Automation Theory</a></li>
+	<li><a href="#ws-graph-formulation" data-name="ws-graph-formulation" data-display="graph formulation topological sort socket compatibility">Graph-Theoretical Formulation</a></li>
+	<li><a href="#ws-patterns" data-name="ws-patterns" data-display="workflow patterns best practices reusable design">Workflow Patterns &amp; Best Practices</a></li>
+	</ul></li>	</ul></ul>
 <div id="sidebar-footer"><a href="#appendix-a">Socket Types Reference</a><a href="#appendix-b">Agent Tool Catalog</a><a href="#appendix-c">Glossary</a><a href="#appendix-d">Bibliography</a></div>
 </nav>
 
@@ -145,7 +156,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <div class="hero">
 <h1>SmartModeler GIS</h1>
 <div class="tagline">QGIS 4 Visual Processing Studio with Validated AI Planning — Academic Reference Manual</div>
-<div class="meta">v1.1.0 · Yusuf Emino&#287;lu · Dokuz Eyl&uuml;l University · August 2026 · <a href="https://github.com/YusufEminoglu/planx-smartmodeler">GitHub</a></div>
+<div class="meta">v1.2.0 · Yusuf Emino&#287;lu · Dokuz Eyl&uuml;l University · August 2026 · <a href="https://github.com/YusufEminoglu/planx-smartmodeler">GitHub</a></div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════ -->
@@ -221,6 +232,69 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <p>Five versioned, schema-validated <b>micro-package workflows</b> are shipped with the plugin. They build deterministic graphs directly without any AI profile or network request. Each is hidden when its required Processing algorithms are unavailable. The showcase gallery presents these as ready-to-run examples demonstrating common patterns: buffer → clip, select by attribute → dissolve, etc.</p>
 
 <!-- ══════════════════════════════════════════════════════════════ -->
+
+
+	<!-- ══════════════════════════════════════════════════════════════ -->
+	<h2 id="ws-theory">Workflow Studio — Extended Theory</h2>
+
+	<h3>Workflow Automation Theory</h3>
+
+	<h4>Theoretical Background</h4>
+
+	<p>Workflow automation in geographic information systems rests on three converging theoretical pillars: <b>visual programming language (VPL) theory</b>, which provides the cognitive framework for representing computation graphically; <b>directed acyclic graph (DAG) theory</b>, which supplies the formal execution model; and <b>end-user development (EUD) theory</b>, which explains how domain experts without formal programming training can construct reproducible analytical pipelines. SmartModeler’s Workflow Studio instantiates all three within the QGIS Processing ecosystem.</p>
+
+	<p>Visual programming languages for GIS emerged from the broader recognition that spatial analysis workflows are inherently dataflow-oriented: a sequence of transformations applied to geographic data, where the output of one operation becomes the input of the next. Dobesova (2020) formally defined the VPL vocabulary for GIS as comprising symbols (nodes representing algorithms), connectors (edges representing data flow), and layout conventions that encode topological ordering. The QGIS Processing Modeler represents one such VPL implementation; SmartModeler extends this paradigm with typed socket validation, live algorithm discovery from the Processing registry, and an AI-assisted planning layer that operates through a fail-closed security model.</p>
+
+	<p>The dataflow programming model contrasts with imperative (control-flow) programming in a fundamental way: in a dataflow graph, execution order is determined by data dependencies rather than by an explicit sequence of instructions. This property—known as <b>functional determinism</b>—means that any two nodes with no direct or transitive dependency can execute concurrently without affecting the final result (Johnston, Hanna, &amp; Millar, 2004). SmartModeler exploits this property in its execution engine: nodes at the same topological depth are eligible for parallel evaluation, though the current implementation serializes them within a single <code>QgsTask</code> for deterministic debugging.</p>
+
+	<p>The end-user development perspective is particularly salient for GIS workflows. Nardi (1993) established that domain experts develop computational artifacts not by learning general-purpose programming but by operating within <b>task-specific formalisms</b> that match their mental models. In GIS, the task-specific formalism is the spatial analysis pipeline itself: select, buffer, intersect, dissolve, calculate. SmartModeler’s Smart Proposal Bar operationalizes this insight by suggesting contextually appropriate next steps based solely on socket type compatibility, without requiring the user to search through hundreds of Processing algorithms.</p>
+
+	<p>Shneiderman (1983) articulated the principles of <b>direct manipulation</b> that underlie effective visual interfaces: continuous visual representation of the object of interest, physical actions (drag, connect, click) rather than complex syntax, and rapid, incremental, reversible operations with immediate visible feedback. The Workflow Studio canvas embodies these principles: nodes are continuously visible, connections are drawn as Bezier curves, parameters are edited in-place, and every operation (add node, connect, disconnect, delete) is an individually undoable edit.</p>
+
+	<h4>Dataflow Graph Execution Model</h4>
+
+	<p>Formally, a SmartModeler workflow is a 5-tuple \(G = (N, E, \tau_N, \tau_E, \sigma)\) where:</p>
+	<ul>
+	  <li>\(N\) is the set of nodes, each representing an instance of a QGIS Processing algorithm with a unique identifier \(n_i \in N\).</li>
+	  <li>\(E \subseteq N \times N\) is the set of directed edges, where \((n_i, n_j) \in E\) indicates that an output of \(n_i\) is connected to an input of \(n_j\).</li>
+	  <li>\(\tau_N : N \to \mathcal{A}\) maps each node to its algorithm identifier from the Processing registry \(\mathcal{A}\).</li>
+	  <li>\(\tau_E : E \to \Sigma \times \Sigma\) maps each edge to a pair of socket types \((\sigma_{\text{out}}, \sigma_{\text{in}})\) such that the compatibility predicate \(\text{compat}(\sigma_{\text{out}}, \sigma_{\text{in}})\) holds.</li>
+	  <li>\(\sigma : N \to 2^{\Sigma \times \mathbb{V}}\) maps each node to its parameter bindings, where \(\mathbb{V}\) is the value space.</li>
+	</ul>
+
+	<p>The execution semantics follow a two-phase model. In the <b>planning phase</b>, the graph is topologically sorted using Kahn’s algorithm (Kahn, 1962) to produce an ordered sequence \([n_{k_1}, n_{k_2}, \ldots, n_{k_m}]\) where for every edge \((n_i, n_j) \in E\), \(n_i\) precedes \(n_j\) in the ordering. In the <b>execution phase</b>, the engine iterates through the sorted nodes, resolving each node’s input connections to the cached outputs of its predecessors, and delegates actual computation to the QGIS Processing framework via <code>QgsProcessingAlgorithm</code>.</p>
+
+	<h4 id="typed-socket-system">Typed Socket System and Type Safety</h4>
+
+	<p>The socket type system provides construction-time guarantees about data flow compatibility. The type lattice \(\mathcal{L}\) is defined over 12 primitive socket types with a partial order induced by the <code>ANY</code> wildcard:</p>
+
+	<p>\[\forall \sigma \in \Sigma \setminus \{\text{ANY}\}: \sigma \preceq \text{ANY}\]</p>
+
+	<p>An edge \((n_i, \text{out}_p, n_j, \text{in}_q)\) is <b>type-valid</b> if and only if:</p>
+
+	<p>\[\tau(\text{out}_p) = \tau(\text{in}_q) \lor \tau(\text{out}_p) = \text{ANY} \lor \tau(\text{in}_q) = \text{ANY}\]</p>
+
+	<p>This compatibility relation is symmetric in practice but asymmetric in semantics: the output type must be <b>usable as</b> the input type. The implementation (<code>GraphModel.socket_types_compatible</code>) enforces this through exact equality or the ANY wildcard. Notably, subtype relationships (e.g., Point is-a Vector) are collapsed into the broader VECTOR category at the socket level; finer-grained geometry type compatibility is deferred to the QGIS Processing runtime.</p>
+
+	<h4>Agent-Assisted Workflow Construction</h4>
+
+	<p>The Agent Workspace adds a fourth theoretical layer: <b>validated AI-assisted planning</b>. Drawing on the fail-closed design principles articulated by Hua et al. (2024) in the TrustAgent framework, SmartModeler’s agent operates under a strict separation of proposal and execution: every AI-generated model patch is parsed as inert JSON data, validated against a detached graph clone, and presented as an approval card that the user must explicitly accept. The AI never executes, approves, or undoes anything. This architecture aligns with the broader literature on safe LLM-based tool use, where the key insight is that <b>proposal validation must be local, deterministic, and independent of the LLM’s claims about its own output</b>.</p>
+
+	<div class="card accent"><b>Key insight.</b> The Workflow Studio’s power derives from the combination of deterministic DAG execution with typed socket validation. The AI layer adds proposal generation but never compromises the deterministic foundation: even an AI-proposed model patch is validated against the same socket compatibility rules as a manually constructed graph.</div>
+
+	<h4>Literature</h4>
+	<p class="ref">Kahn, A.B. (1962). Topological sorting of large networks. <i>Communications of the ACM</i>, 5(11), 558–562. DOI: <a href="https://doi.org/10.1145/368996.369025">10.1145/368996.369025</a></p>
+	<p class="ref">Dobesova, Z. (2020). Visual programming for GIS applications. In J.P. Wilson (ed.), <i>Geographic Information Science &amp; Technology Body of Knowledge</i> (1st Quarter 2020 ed.). DOI: <a href="https://doi.org/10.22224/gistbok/2020.1.7">10.22224/gistbok/2020.1.7</a></p>
+	<p class="ref">Dobesova, Z. (2020). Evaluation of effective cognition for the QGIS Processing Modeler. <i>Applied Sciences</i>, 10(4), 1446. DOI: <a href="https://doi.org/10.3390/app10041446">10.3390/app10041446</a></p>
+	<p class="ref">Johnston, W.M., Hanna, J.R.P. &amp; Millar, R.J. (2004). Advances in dataflow programming languages. <i>ACM Computing Surveys</i>, 36(1), 1–34. DOI: <a href="https://doi.org/10.1145/1013208.1013209">10.1145/1013208.1013209</a></p>
+	<p class="ref">Nardi, B.A. (1993). <i>A Small Matter of Programming: Perspectives on End User Computing.</i> MIT Press. DOI: <a href="https://doi.org/10.7551/mitpress/6270.001.0001">10.7551/mitpress/6270.001.0001</a></p>
+	<p class="ref">Shneiderman, B. (1983). Direct manipulation: A step beyond programming languages. <i>IEEE Computer</i>, 16(8), 57–69. DOI: <a href="https://doi.org/10.1109/MC.1983.1654471">10.1109/MC.1983.1654471</a></p>
+	<p class="ref">Graser, A. &amp; Olaya, V. (2015). Processing: A Python framework for the seamless integration of geoprocessing tools in QGIS. <i>ISPRS International Journal of Geo-Information</i>, 4(4), 2219–2245. DOI: <a href="https://doi.org/10.3390/ijgi4042219">10.3390/ijgi4042219</a></p>
+	<p class="ref">Hua, W. et al. (2024). TrustAgent: Towards safe and trustworthy LLM-based agents. In <i>Findings of the ACL: EMNLP 2024</i>, pp. 10563–10580. DOI: <a href="https://doi.org/10.18653/v1/2024.findings-emnlp.585">10.18653/v1/2024.findings-emnlp.585</a></p>
+	<p class="ref">Dobesova, Z. &amp; Dobes, P. (2014). Differences in visual programming for GIS. <i>Applied Mechanics and Materials</i>, 519–520, 353–356. DOI: <a href="https://doi.org/10.4028/www.scientific.net/AMM.519-520.353">10.4028/www.scientific.net/AMM.519-520.353</a></p>
+	<p class="ref">Gamma, E., Helm, R., Johnson, R. &amp; Vlissides, J. (1994). <i>Design Patterns: Elements of Reusable Object-Oriented Software.</i> Addison-Wesley.</p>
+
+
 <h2 id="agent-arch">Agent Workspace</h2>
 
 <h3>Agent Workspace Architecture</h3>
@@ -336,7 +410,390 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <p>Trusted PlanX companion plugins (such as 02Agent OSM Downloader) can open SmartModeler's AI Connections and Agent Workspace through a narrow public bridge (<code>core/agent/plugin_actions.py</code>). They receive only display-safe profile/provider/model information; API secrets remain in SmartModeler's session memory or encrypted QGIS vault. Each cross-plugin action uses its own application-reviewed adapter, shown on its own approval card. The first adapter opens 02viz on one selected vector layer and renders 02viz's offline smart chart suggestion.</p>
 
 <!-- ══════════════════════════════════════════════════════════════ -->
-<hr>
+
+
+	<h2 id="ws-patterns">Workflow Patterns &amp; Best Practices</h2>
+
+	<h3>Theoretical Background: Design Patterns in GIS Workflows</h3>
+
+	<p>Gamma et al.’s (1994) catalog of object-oriented design patterns established a vocabulary for reusable solutions to recurring problems. In the context of visual GIS workflows, analogous patterns emerge from the constraints of spatial data processing. SmartModeler’s micro-package gallery encodes five such patterns, each a minimal, validated graph demonstrating a fundamental spatial analysis idiom.</p>
+
+	<h3>Pattern 1: Buffer-Spatial Filter (Buffer → Clip)</h3>
+
+	<p><b>Structure:</b> A buffer node generates a proximity zone around input features; the buffered geometry feeds the overlay layer input of a clip node, which restricts the second input layer to the proximity zone.</p>
+	<p><b>Mathematical foundation:</b> Given a set of source geometries \(\mathcal{S}\) and a set of target features \(\mathcal{T}\), the buffer-clip pattern computes:</p>
+	<p>\[\mathcal{T}_{\text{filtered}} = \{t \cap \text{buffer}(\mathcal{S}, d) : t \in \mathcal{T}, t \cap \text{buffer}(\mathcal{S}, d) \neq \emptyset\}\]</p>
+	<p><b>Applications:</b> Find all buildings within 100 m of a road; extract land parcels intersecting a 500 m riparian buffer.</p>
+	<p><b>Socket chain:</b> VECTOR → VECTOR (buffer) → VECTOR (clip overlay) + VECTOR (clip input) → VECTOR (result).</p>
+
+	<h3>Pattern 2: Attribute Select-Transform (Select by Attribute → Field Calculator)</h3>
+
+	<p><b>Structure:</b> A selection node filters features by attribute expression; the field calculator derives new columns from existing ones on the filtered subset.</p>
+	<p><b>Applications:</b> Select parcels with area > 500 m² and compute floor area ratio using <code>"building_area" / "parcel_area"</code>.</p>
+
+	<h3>Pattern 3: Spatial Join-Aggregate</h3>
+
+	<p><b>Structure:</b> A spatial join (intersects/contains) pairs features from two layers; a dissolve or statistics node aggregates the joined attributes by group.</p>
+	<p><b>Applications:</b> Count buildings per land-use parcel; compute total road length per administrative district.</p>
+
+	<h3>Pattern 4: Raster-Mask Extract</h3>
+
+	<p><b>Structure:</b> A vector-to-raster conversion produces a binary mask; a raster calculator multiplies the mask against a continuous raster to extract values within the mask region.</p>
+	<p><b>Applications:</b> Extract elevation values within a watershed boundary; compute NDVI statistics for forested areas only.</p>
+
+	<h3>Pattern 5: Multi-Criteria Overlay</h3>
+
+	<p><b>Structure:</b> Multiple reclassified raster layers are combined through weighted linear combination, producing a suitability surface.</p>
+	<p><b>Mathematical foundation:</b> The weighted linear combination for \(m\) criteria layers:</p>
+	<p>\[S(x, y) = \sum_{i=1}^{m} w_i \cdot r_i(x, y) \quad \text{with} \quad \sum_{i=1}^{m} w_i = 1, \; w_i \geq 0\]</p>
+	<p>where \(r_i(x, y)\) is the reclassified value of criterion \(i\) at cell \((x, y)\).</p>
+	<p><b>Socket chain:</b> Multiple RASTER inputs → RASTER (calculator) → RASTER (result).</p>
+
+	<h3>Interpretation Guide: Workflow Design Principles</h3>
+
+	<p><b>1. Prefer typed connections over literal values.</b> When an input can be supplied either as a connected output or as a literal parameter, connecting it from upstream promotes reproducibility: changing the upstream data automatically propagates through the workflow. Literal parameters should be reserved for constants (thresholds, buffer distances, classification counts) that genuinely do not depend on other data.</p>
+
+	<p><b>2. Design for inspectability.</b> Every intermediate node that produces a layer-type output can be published as a workflow output for inspection. This is particularly valuable for debugging: temporarily publish an intermediate buffer result to verify the proximity zone before applying it as a clip mask. In production, unpublish debugging outputs to keep the final result list clean.</p>
+
+	<p><b>3. Use the Smart Proposal Bar for exploration.</b> The deterministic proposal engine surfaces algorithms you might not know exist. Selecting a raster node may reveal GDAL-based operations that accomplish in one step what would otherwise require a manual chain. The proposal bar is most effective when you select a node with multiple output types (e.g., a Processing algorithm that outputs both a vector layer and a statistics table).</p>
+
+	<p><b>4. Version workflows as .sm3 files.</b> The SmartModeler JSON v3 format is designed for version control: it is deterministic (sorted keys, stable node IDs), human-readable, and diff-friendly. Commit .sm3 files alongside analysis scripts to document the exact workflow that produced published results.</p>
+
+	<p><b>5. Validate before running large workflows.</b> Use the graph validation (automatic on Run) to catch missing inputs, incompatible connections, and cycle errors before execution. The validation issues list is specifically designed to be actionable: each issue includes the node ID and a human-readable message.</p>
+
+	<h3>Agent Integration Patterns</h3>
+
+	<p>When the Agent Workspace is used to assist workflow construction, two additional patterns become available:</p>
+
+	<p><b>6. Inspection-Assembly Pattern.</b> The user asks the agent to <code>list_layers</code> and <code>algorithm_help</code>, building a shared understanding of the available data and tools. The agent proposes a <code>model_patch</code> that the user reviews on the approval card before applying. The assembled graph is then run through the Studio’s deterministic execution engine—not through the agent’s <code>processing_run</code> path. This keeps execution under the Studio’s direct control while leveraging the agent for initial layout.</p>
+
+	<p><b>7. Iterative Refinement Pattern.</b> The user builds a rough workflow manually, runs it, inspects the output, then asks the agent for improvement suggestions. The agent uses <code>current_model</code> to read the existing graph structure, proposes targeted <code>model_patch</code> edits (add a normalization step, change a buffer distance), and the user reviews each edit individually. This pattern combines the user’s domain knowledge with the agent’s ability to recall less commonly used algorithms.</p>
+
+	<h4>Literature</h4>
+	<p class="ref">Kahn, A.B. (1962). Topological sorting of large networks. <i>Communications of the ACM</i>, 5(11), 558–562. DOI: <a href="https://doi.org/10.1145/368996.369025">10.1145/368996.369025</a></p>
+	<p class="ref">Gamma, E., Helm, R., Johnson, R. &amp; Vlissides, J. (1994). <i>Design Patterns: Elements of Reusable Object-Oriented Software.</i> Addison-Wesley.</p>
+	<p class="ref">Dobesova, Z. (2020). Visual programming for GIS applications. In J.P. Wilson (ed.), <i>Geographic Information Science &amp; Technology Body of Knowledge</i> (1st Quarter 2020 ed.). DOI: <a href="https://doi.org/10.22224/gistbok/2020.1.7">10.22224/gistbok/2020.1.7</a></p>
+	<p class="ref">Dobesova, Z. (2020). Evaluation of effective cognition for the QGIS Processing Modeler. <i>Applied Sciences</i>, 10(4), 1446. DOI: <a href="https://doi.org/10.3390/app10041446">10.3390/app10041446</a></p>
+	<p class="ref">Dobesova, Z. &amp; Dobes, P. (2014). Differences in visual programming for GIS. <i>Applied Mechanics and Materials</i>, 519–520, 353–356. DOI: <a href="https://doi.org/10.4028/www.scientific.net/AMM.519-520.353">10.4028/www.scientific.net/AMM.519-520.353</a></p>
+	<p class="ref">Nardi, B.A. (1993). <i>A Small Matter of Programming: Perspectives on End User Computing.</i> MIT Press. DOI: <a href="https://doi.org/10.7551/mitpress/6270.001.0001">10.7551/mitpress/6270.001.0001</a></p>
+	<p class="ref">Shneiderman, B. (1983). Direct manipulation: A step beyond programming languages. <i>IEEE Computer</i>, 16(8), 57–69. DOI: <a href="https://doi.org/10.1109/MC.1983.1654471">10.1109/MC.1983.1654471</a></p>
+	<p class="ref">Graser, A. &amp; Olaya, V. (2015). Processing: A Python framework for the seamless integration of geoprocessing tools in QGIS. <i>ISPRS International Journal of Geo-Information</i>, 4(4), 2219–2245. DOI: <a href="https://doi.org/10.3390/ijgi4042219">10.3390/ijgi4042219</a></p>
+	<p class="ref">Hua, W. et al. (2024). TrustAgent: Towards safe and trustworthy LLM-based agents. In <i>Findings of the ACL: EMNLP 2024</i>, pp. 10563–10580. DOI: <a href="https://doi.org/10.18653/v1/2024.findings-emnlp.585">10.18653/v1/2024.findings-emnlp.585</a></p>
+	<p class="ref">Johnston, W.M., Hanna, J.R.P. &amp; Millar, R.J. (2004). Advances in dataflow programming languages. <i>ACM Computing Surveys</i>, 36(1), 1–34. DOI: <a href="https://doi.org/10.1145/1013208.1013209">10.1145/1013208.1013209</a></p>
+
+
+	<!-- ══════════════════════════════════════════════════════════════ -->
+	
+
+	<!-- ══════════════════════════════════════════════════════════════ -->
+	<h2 id="ws-graph-formulation">Graph-Theoretical Formulation</h2>
+
+	<h3>Topological Ordering by Kahn’s Algorithm</h3>
+
+	<p>The Workflow Studio’s execution engine computes the node execution order using Kahn’s algorithm (Kahn, 1962), a classic \(O(|N| + |E|)\) method for topological sorting of directed acyclic graphs. The algorithm operates by repeatedly removing source nodes (nodes with in-degree zero) from the graph, updating the in-degrees of their successors, and adding newly eligible nodes to a processing queue.</p>
+
+	<div class="card accent">
+	<p><b>Algorithm (Kahn, 1962).</b> Given a DAG \(G = (N, E)\):</p>
+	<ol>
+	  <li>Compute the in-degree \(d_{\text{in}}(n)\) for every node \(n \in N\) by counting incoming edges \(|\{e \in E : e.\text{target} = n\}|\).</li>
+	  <li>Initialize a queue \(Q\) with all nodes where \(d_{\text{in}}(n) = 0\).</li>
+	  <li>While \(Q\) is not empty: remove a node \(n\) from \(Q\), append it to the sorted order \(\mathcal{O}\), and for each outgoing edge \((n, n')\), decrement \(d_{\text{in}}(n')\); if \(d_{\text{in}}(n')\) reaches zero, enqueue \(n'\).</li>
+	  <li>If \(|\mathcal{O}| &lt; |N|\), the graph contains a cycle—reject the graph.</li>
+	</ol>
+	</div>
+
+	<p>SmartModeler’s implementation (<code>GraphModel.get_topological_order</code>) extends Kahn’s algorithm with two additional constraint types beyond explicit edges: <b>declarative dependencies</b> (where node A declares a dependency on node B without a direct edge, used for conditional branch ordering) and <b>duplicate dependency detection</b> (which catches configuration errors where a node lists the same dependency twice). The in-degree computation integrates both edge-based and declarative dependencies:</p>
+
+	<p>\[d_{\text{in}}(n) = |\{e \in E : e.\text{end\_node} = n\}| + |\text{unique}(n.\text{dependencies})|\]</p>
+
+	<p>where \(\text{unique}(\cdot)\) deduplicates the dependency list and rejects self-dependencies (<code>node.dependencies</code> containing its own <code>node_id</code>).</p>
+
+	<h3>Cycle Detection</h3>
+
+	<p>Before establishing a new edge \((n_i, n_j)\), the graph model performs a <b>reachability test</b> to determine whether \(n_i\) is already reachable from \(n_j\). Let \(R(n)\) be the set of nodes reachable from \(n\) via directed edges and declarative dependencies. A proposed edge \((n_i, n_j)\) creates a cycle if and only if \(n_i \in R(n_j)\). The reachability test uses breadth-first search from \(n_j\) with early termination on encountering \(n_i\):</p>
+
+	<p>\[R(n_j) = \{n \in N : \exists \text{ path } n_j \rightsquigarrow n \text{ in } G\}\]</p>
+
+	<p>This test executes in \(O(|N| + |E|)\) worst-case time but typically terminates much earlier because GIS workflows tend to be shallow (median depth of 3–5 nodes in the micro-package gallery). The edge is rejected with the message “This connection would create a cycle” if the test detects \(n_i \in R(n_j)\).</p>
+
+	<h3>Socket Compatibility as a Formal Language</h3>
+
+	<p>The 12 socket types define an alphabet \(\Sigma = \{\text{VECTOR}, \text{RASTER}, \ldots, \text{ANY}\}\). The compatibility relation \(\sim \subseteq \Sigma \times \Sigma\) is:</p>
+
+	<p>\[\sigma_1 \sim \sigma_2 \iff (\sigma_1 = \sigma_2) \lor (\text{ANY} \in \{\sigma_1, \sigma_2\})\]</p>
+
+	<p>This relation is reflexive (every type is compatible with itself), symmetric (if A is compatible with B then B is compatible with A because of ANY), but not transitive: VECTOR is compatible with ANY, and ANY is compatible with RASTER, but VECTOR is not compatible with RASTER. The graph model enforces this at edge creation time (<code>validate_connection</code>), and the Smart Proposal engine uses the compatibility relation to compute a ranked set of candidate algorithms whose input ports accept the selected node’s output types.</p>
+
+	<p>The proposal scoring function for a candidate algorithm \(a \in \mathcal{A}\) given a selected node \(n_s\) is:</p>
+
+	<p>\[\text{score}(a, n_s) = \sum_{p_{\text{out}} \in \text{outputs}(n_s)} \sum_{p_{\text{in}} \in \text{inputs}(a)} \mathbf{1}[\tau(p_{\text{out}}) \sim \tau(p_{\text{in}})]\]</p>
+
+	<p>where \(\mathbf{1}[\cdot]\) is the indicator function. Algorithms with higher scores are ranked first because they can consume more of the selected node’s outputs in a single connection step.</p>
+
+	<h3>Graph Validation Complexity</h3>
+
+	<p>The complete graph validation pipeline (<code>GraphModel.validate()</code>) runs in \(O(|N| + |E|)\) time for the topological sort, plus \(O(|N| \cdot |\text{inputs}| + |\text{outputs}|)\) for per-node parameter checks. Typical workflows with 20–50 nodes and 30–80 edges validate in under 10 milliseconds on commodity hardware—fast enough to run interactively during graph editing. The validation produces a list of <code>GraphIssue</code> objects, each with a severity level (<code>error</code> or <code>warning</code>), a human-readable message keyed to the user’s locale, and the affected node ID for direct canvas navigation.</p>
+
+	<h4>Literature</h4>
+	<p class="ref">Kahn, A.B. (1962). Topological sorting of large networks. <i>Communications of the ACM</i>, 5(11), 558–562. DOI: <a href="https://doi.org/10.1145/368996.369025">10.1145/368996.369025</a></p>
+	<p class="ref">Gamma, E., Helm, R., Johnson, R. &amp; Vlissides, J. (1994). <i>Design Patterns: Elements of Reusable Object-Oriented Software.</i> Addison-Wesley.</p>
+	<p class="ref">Graser, A. &amp; Olaya, V. (2015). Processing: A Python framework for the seamless integration of geoprocessing tools in QGIS. <i>ISPRS International Journal of Geo-Information</i>, 4(4), 2219–2245. DOI: <a href="https://doi.org/10.3390/ijgi4042219">10.3390/ijgi4042219</a></p>
+	<p class="ref">Dobesova, Z. (2020). Evaluation of effective cognition for the QGIS Processing Modeler. <i>Applied Sciences</i>, 10(4), 1446. DOI: <a href="https://doi.org/10.3390/app10041446">10.3390/app10041446</a></p>
+	<p class="ref">Hua, W. et al. (2024). TrustAgent: Towards safe and trustworthy LLM-based agents. In <i>Findings of the ACL: EMNLP 2024</i>, pp. 10563–10580. DOI: <a href="https://doi.org/10.18653/v1/2024.findings-emnlp.585">10.18653/v1/2024.findings-emnlp.585</a></p>
+
+
+	<!-- ══════════════════════════════════════════════════════════════ -->
+	
+
+	<!-- ══════════════════════════════════════════════════════════════ -->
+	<h2 id="osm-points">OSM Data Acquisition Algorithms</h2>
+
+	<h3>Theoretical Background: The OpenStreetMap Data Model</h3>
+
+	<p>OpenStreetMap (OSM) is the largest and most extensively studied volunteered geographic information (VGI) project, representing a paradigm shift from authoritative, state-produced geospatial data to collaborative, crowd-sourced mapping (Goodchild, 2007). As of 2026, OSM contains over 10 billion GPS points, 100 million ways, and 1 million relations contributed by more than 10 million registered users. The project’s data model is profoundly different from traditional GIS formats: it is a <b>tag-based, schema-less topological model</b> where geographic features are described by arbitrary key-value pairs rather than by a fixed attribute schema (Haklay &amp; Weber, 2008).</p>
+
+	<p>The OSM data model comprises three geometric primitives:</p>
+	<ul>
+	  <li><b>Nodes</b>: Points with latitude and longitude coordinates (WGS84). Nodes represent point features (trees, bus stops, amenities) and serve as the vertices of ways.</li>
+	  <li><b>Ways</b>: Ordered sequences of nodes (2–2000 nodes). Ways represent linear features (roads, rivers, boundaries) when open, and area features (buildings, parks, lakes) when closed (first node equals last node).</li>
+	  <li><b>Relations</b>: Multi-element groupings that model complex geometries (multipolygons with holes, routes, turn restrictions). A relation references nodes, ways, and other relations as members, each with an optional role string.</li>
+	</ul>
+
+	<p><b>Tags</b> are free-form key=value pairs attached to any element. The OSM community maintains a de facto schema through the wiki-based <b>Map Features</b> convention, where commonly used keys (e.g., <code>highway</code>, <code>building</code>, <code>natural</code>, <code>landuse</code>, <code>amenity</code>) have documented value enumerations. However, <b>any</b> key=value pair is syntactically valid. This schema-less design is both a strength (enabling organic community-driven classification) and a challenge: tag completeness and semantic consistency vary dramatically across regions and feature types (Mooney &amp; Minghini, 2017; Yeboah et al., 2021).</p>
+
+	<h4>The Overpass API Architecture</h4>
+
+	<p>The Overpass API (Olbricht, 2015) is the de facto read-only query interface for OSM data. Unlike the main OSM API—which is designed for editing and returns only individual elements by ID—Overpass provides a spatial and thematic query language (Overpass QL) that can retrieve all elements matching a tag filter within a bounding polygon. SmartModeler uses Overpass as its sole data acquisition channel, with three application-owned mirrors providing failover resilience.</p>
+
+	<p>An Overpass query is structured as a declarative specification with four components:</p>
+	<ol>
+	  <li><b>Output format declaration</b>: <code>[out:json]</code> requests JSON (default is XML).</li>
+	  <li><b>Timeout guard</b>: <code>[timeout:45]</code> caps server processing to 45 seconds.</li>
+	  <li><b>Query body</b>: One or more statements specifying the element type, tag filter, and bounding box.</li>
+	  <li><b>Output action</b>: <code>out tags geom;</code> returns element tags and reconstructed geometry.</li>
+	</ol>
+
+	<p>SmartModeler abstracts Overpass QL construction entirely: the user (or AI agent) supplies only a tag key, an optional tag value, and a map-canvas extent. The plugin constructs the complete query, executes it against three mirrors with automatic failover, validates the response payload against dimensional and feature-count limits, and reconstructs QGIS geometries with proper CRS transformation (WGS84 to project CRS).</p>
+
+	<h4>Quality Considerations in OSM Data</h4>
+
+	<p>OSM data quality is intrinsically heterogeneous. Neis and Zipf (2012) demonstrated that contribution activity follows a heavily skewed distribution: a small core of active mappers produces the majority of data. Barron, Neis, and Zipf (2014) developed an intrinsic quality framework based on contributor history, edit patterns, and geometric revision frequency—metrics that do not require an external reference dataset. For SmartModeler users, the practical implications are:</p>
+
+	<ul>
+	  <li><b>Completeness varies by region and feature type.</b> Urban road networks in European cities may exceed 90% completeness, while buildings in rural sub-Saharan Africa may be below 20% (Yeboah et al., 2021).</li>
+	  <li><b>Tagging consistency is not guaranteed.</b> A feature tagged <code>highway=path</code> in one region may be <code>highway=footway</code> in another. Cross-referencing the OSM wiki for the study area’s mapping conventions is recommended.</li>
+	  <li><b>Thematic accuracy</b> depends on local mapper expertise and imagery quality. Brazilian road data showed 58% of road axes lacking toponymy (name) information (Silva et al., 2020).</li>
+	</ul>
+
+	<p>SmartModeler mitigates these issues through transparent exposure of all OSM tags as feature attributes. The <code>tags_json</code> field preserves the complete tag dictionary for every feature, enabling post-hoc filtering and quality assessment. The <code>osm_id</code> and <code>osm_type</code> fields provide traceability back to the source element for verification against the main OSM database.</p>
+
+
+
+	<h3 id="osm-points-algo">Algorithm 1: Download OSM Points</h3>
+
+	<p class="pid">Algorithm ID: <code>smartmodeler:osm_download_points</code></p>
+
+	<h4>Mathematical Formulation</h4>
+
+	<p>Given a map-canvas extent \(\mathcal{E} = (\lambda_{\min}, \phi_{\min}, \lambda_{\max}, \phi_{\max})\) in the project CRS, a tag key \(k\), and an optional tag value \(v\), the algorithm:</p>
+
+	<ol>
+	  <li><b>Reprojects</b> the extent to WGS84: \(\mathcal{E}_{\text{WGS84}} = \mathcal{T}_{\text{CRS}\to\text{EPSG:4326}}(\mathcal{E})\). If the project CRS is undefined, WGS84 is assumed.</li>
+	  <li><b>Validates</b> the bounding box using the approximate area formula:
+	    \[A \approx (\phi_{\max} - \phi_{\min}) \times 111.32 \times (\lambda_{\max} - \lambda_{\min}) \times 111.32 \times \cos\left(\frac{\phi_{\max} + \phi_{\min}}{2} \cdot \frac{\pi}{180}\right)\]
+	    where \(111.32\) km/degree is the approximate meridian arc length. The area must satisfy \(0 &lt; A \leq 100\) km².</li>
+	  <li><b>Constructs</b> the Overpass query \(Q\):
+	    \[Q = \texttt{[out:json][timeout:45]; node}[\texttt{"}k\texttt{"}=\texttt{"}v\texttt{"}](\phi_{\min},\lambda_{\min},\phi_{\max},\lambda_{\max})\texttt{; out tags geom;}\]
+	    When \(v\) is empty or <code>*</code>, the value constraint is omitted (key-existence filter).</li>
+	  <li><b>Posts</b> \(Q\) to the primary Overpass endpoint with automatic failover across two mirror endpoints using QGIS’ proxy-aware <code>QgsBlockingNetworkRequest</code>.</li>
+	  <li><b>Validates</b> the JSON response: elements list is present, feature count \(\leq 100{,}000\), payload size \(\leq 64\) MiB, and each element is a valid dictionary.</li>
+	  <li><b>Geometrically reconstructs</b> each node element as a point feature at \((\text{lon}_i, \text{lat}_i)\) and transforms to the project CRS if different from WGS84.</li>
+	  <li><b>Populates</b> 17 attribute fields per feature from the OSM tags, including <code>osm_id</code>, <code>osm_type</code>, <code>name</code>, the matched key and value, and 10 commonly used thematic keys.</li>
+	</ol>
+
+	<h4>Parameters</h4>
+	<table>
+	<tr><th>Parameter</th><th>ID</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+	<tr><td>OSM tag key</td><td><code>KEY</code></td><td>String</td><td>Yes</td><td>—</td><td>The OSM tag key to filter by (e.g., <code>amenity</code>, <code>natural</code>, <code>tourism</code>). Must match <code>^[A-Za-z0-9_:.~-]{1,80}$</code>.</td></tr>
+	<tr><td>OSM tag value</td><td><code>VALUE</code></td><td>String</td><td>No</td><td>Empty (<code>*</code>)</td><td>The OSM tag value to filter by (e.g., <code>bench</code>, <code>tree</code>). Empty or <code>*</code> matches any value (key-existence filter). Max 120 characters.</td></tr>
+	<tr><td>Download extent</td><td><code>EXTENT</code></td><td>Extent</td><td>Yes</td><td>—</td><td>The bounding box in the project CRS. Auto-populated from the current map canvas extent. Area ceiling: 100 km².</td></tr>
+	<tr><td>OSM result</td><td><code>OUTPUT</code></td><td>FeatureSink</td><td>Yes</td><td>Temp layer</td><td>Destination for the downloaded point features. Defaults to a temporary memory layer.</td></tr>
+	</table>
+
+	<h4>Output Schema</h4>
+	<table>
+	<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+	<tr><td><code>osm_id</code></td><td>String</td><td>Unique OSM element identifier (node ID).</td></tr>
+	<tr><td><code>osm_type</code></td><td>String</td><td>OSM element type—always <code>node</code> for this algorithm.</td></tr>
+	<tr><td><code>name</code></td><td>String</td><td>Feature name from the <code>name</code> tag, if present.</td></tr>
+	<tr><td><code>osm_key</code></td><td>String</td><td>The query key used to filter results.</td></tr>
+	<tr><td><code>osm_value</code></td><td>String</td><td>The matched tag value for the query key.</td></tr>
+	<tr><td><code>building</code>, <code>highway</code>, <code>amenity</code>, <code>landuse</code>, <code>leisure</code>, <code>natural</code>, <code>public_transport</code>, <code>shop</code>, <code>tourism</code></td><td>String</td><td>Ten commonly used thematic OSM keys extracted directly from element tags. Empty if the key is not present.</td></tr>
+	<tr><td><code>height</code></td><td>String</td><td>Feature height from the <code>height</code> tag (typically in meters).</td></tr>
+	<tr><td><code>building_levels</code></td><td>String</td><td>Number of building levels from the <code>building:levels</code> tag.</td></tr>
+	<tr><td><code>tags_json</code></td><td>String</td><td>Complete OSM tag dictionary as a compact JSON string (max 16,000 characters, sorted keys). Enables post-hoc analysis of all available tags.</td></tr>
+	</table>
+
+	<h4>Interpretation Guide</h4>
+	<p><b>Primary use case:</b> Extracting point-of-interest (POI) data from OSM for urban analysis, environmental assessment, or infrastructure mapping. Common tag queries include:</p>
+	<table>
+	<tr><th>Analysis Goal</th><th>Key</th><th>Value</th><th>Expected Features</th></tr>
+	<tr><td>Public transport stops</td><td><code>public_transport</code></td><td><code>stop_position</code></td><td>Bus stops, tram stops, train stations (nodes)</td></tr>
+	<tr><td>Street furniture</td><td><code>amenity</code></td><td><code>bench</code></td><td>Benches, waste baskets, bicycle parking</td></tr>
+	<tr><td>Urban trees</td><td><code>natural</code></td><td><code>tree</code></td><td>Individual mapped trees (point features)</td></tr>
+	<tr><td>Tourism infrastructure</td><td><code>tourism</code></td><td><code>*</code></td><td>Hotels, museums, viewpoints, information boards</td></tr>
+	<tr><td>Food and beverage</td><td><code>amenity</code></td><td><code>restaurant</code></td><td>Restaurants, cafes, fast food, bars</td></tr>
+	</table>
+
+	<p><b>Best practices:</b> (1) Always verify the output CRS matches the project CRS—the algorithm transforms WGS84 coordinates but the user should confirm the transformation is valid for the study area. (2) For comprehensive POI inventories, run multiple queries (one per amenity type) and merge the results. The <code>tags_json</code> field preserves all original tags for classification refinement. (3) The 100 km² area limit ensures reasonable response times and server load; for larger study areas, use a tiled approach or download regional OSM extracts. (4) Nodes that are part of ways (e.g., intersection nodes) are also matched if they carry the queried tags; filter by <code>osm_type</code> if only standalone points are desired.</p>
+
+	<p><b>Limitations:</b> The algorithm only returns OSM <b>node</b> elements. Point features encoded as closed ways (e.g., a building tagged <code>amenity=school</code> mapped as a building polygon) will not appear in the results. Use <code>osm_download_polygons</code> for area features. Tag values are returned as raw strings without normalization; values like <code>yes</code>, <code>true</code>, and <code>1</code> may represent the same semantic category across different mappers.</p>
+
+	<h4>Literature</h4>
+	<p class="ref">Goodchild, M.F. (2007). Citizens as sensors: The world of volunteered geography. <i>GeoJournal</i>, 69(4), 211–221. DOI: <a href="https://doi.org/10.1007/s10708-007-9111-y">10.1007/s10708-007-9111-y</a></p>
+	<p class="ref">Haklay, M. &amp; Weber, P. (2008). OpenStreetMap: User-generated street maps. <i>IEEE Pervasive Computing</i>, 7(4), 12–18. DOI: <a href="https://doi.org/10.1109/MPRV.2008.80">10.1109/MPRV.2008.80</a></p>
+	<p class="ref">Olbricht, R.M. (2015). Data retrieval for small spatial regions in OpenStreetMap. In J.J. Arsanjani, A. Zipf, P. Mooney &amp; M. Helbich (eds.), <i>OpenStreetMap in GIScience</i> (pp. 101–122). Springer. DOI: <a href="https://doi.org/10.1007/978-3-319-14280-7_6">10.1007/978-3-319-14280-7_6</a></p>
+	<p class="ref">Neis, P. &amp; Zipf, A. (2012). Analyzing the contributor activity of a volunteered geographic information project—The case of OpenStreetMap. <i>ISPRS International Journal of Geo-Information</i>, 1(2), 146–165. DOI: <a href="https://doi.org/10.3390/ijgi1020146">10.3390/ijgi1020146</a></p>
+	<p class="ref">Mooney, P. &amp; Minghini, M. (2017). A review of OpenStreetMap data. In G. Foody et al. (eds.), <i>Mapping and the Citizen Sensor</i> (pp. 37–59). Ubiquity Press. DOI: <a href="https://doi.org/10.5334/bbf.c">10.5334/bbf.c</a></p>
+	<p class="ref">Barron, C., Neis, P. &amp; Zipf, A. (2014). A comprehensive framework for intrinsic OpenStreetMap quality analysis. <i>Transactions in GIS</i>, 18(6), 877–895. DOI: <a href="https://doi.org/10.1111/tgis.12073">10.1111/tgis.12073</a></p>
+	<p class="ref">Yeboah, G. et al. (2021). Analysis of OpenStreetMap data quality at different stages of a participatory mapping process: Evidence from slums in Africa and Asia. <i>ISPRS International Journal of Geo-Information</i>, 10(4), 265. DOI: <a href="https://doi.org/10.3390/ijgi10040265">10.3390/ijgi10040265</a></p>
+	<p class="ref">Graser, A. &amp; Olaya, V. (2015). Processing: A Python framework for the seamless integration of geoprocessing tools in QGIS. <i>ISPRS International Journal of Geo-Information</i>, 4(4), 2219–2245. DOI: <a href="https://doi.org/10.3390/ijgi4042219">10.3390/ijgi4042219</a></p>
+	<p class="ref">Staniek, M., Schumann, R., Züfle, M. &amp; Riezler, S. (2024). Text-to-OverpassQL: A natural language interface for complex geodata querying of OpenStreetMap. <i>Transactions of the Association for Computational Linguistics</i>, 12, 562–575. DOI: <a href="https://doi.org/10.1162/tacl_a_00654">10.1162/tacl_a_00654</a></p>
+	<p class="ref">Silva, C.A.F. et al. (2020). The quality of OpenStreetMap in a large metropolis in northeast Brazil: Preliminary assessment of geospatial data for road axes. <i>Boletim de Ciências Geodésicas</i>, 26(3), e2020012. DOI: <a href="https://doi.org/10.1590/s1982-21702020000300012">10.1590/s1982-21702020000300012</a></p>
+
+
+
+	<h3 id="osm-lines">Algorithm 2: Download OSM Lines</h3>
+
+	<p class="pid">Algorithm ID: <code>smartmodeler:osm_download_lines</code></p>
+
+	<h4>Mathematical Formulation</h4>
+
+	<p>Given the same input parameters as the point algorithm, the line download extends the query to OSM <b>way</b> elements. The Overpass query becomes:</p>
+
+	<p>\[Q_{\text{line}} = \texttt{[out:json][timeout:45]; way}[\texttt{"}k\texttt{"}=\texttt{"}v\texttt{"}](\phi_{\min},\lambda_{\min},\phi_{\max},\lambda_{\max})\texttt{; out tags geom;}\]</p>
+
+	<p>The critical geometric reconstruction step converts OSM way geometry (an ordered sequence of node coordinates) into a QGIS <code>LineString</code>. Let a way \(w\) be defined by its nodes \(\mathcal{N}_w = [n_1, n_2, \ldots, n_m]\) with coordinates \((\lambda_i, \phi_i)\) for each node. The reconstructed geometry is:</p>
+
+	<p>\[L_w = \text{LineString}((\lambda_1, \phi_1), (\lambda_2, \phi_2), \ldots, (\lambda_m, \phi_m))\]</p>
+
+	<p>A valid line requires \(m \geq 2\) nodes. Ways with fewer than 2 nodes are silently discarded. The geometric validation function \(\Gamma_{\text{line}} : \text{Element} \to \text{QgsGeometry} \cup \{\emptyset\}\) returns the constructed line or \(\emptyset\) if the element type is not <code>way</code> or the coordinate list is invalid.</p>
+
+	<p>After reconstruction, the line geometry is transformed to the project CRS if different from WGS84. The transformation \(\mathcal{T}_{\text{WGS84} \to \text{CRS}}\) uses QGIS’ coordinate transform context, which automatically applies the appropriate datum transformation grid. A transformation failure (non-zero return code) causes the feature to be silently skipped to avoid producing incorrectly positioned geometries.</p>
+
+	<h4>Parameters</h4>
+	<table>
+	<tr><th>Parameter</th><th>ID</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+	<tr><td>OSM tag key</td><td><code>KEY</code></td><td>String</td><td>Yes</td><td>—</td><td>The OSM tag key to filter by (e.g., <code>highway</code>, <code>waterway</code>, <code>railway</code>). Must match <code>^[A-Za-z0-9_:.~-]{1,80}$</code>.</td></tr>
+	<tr><td>OSM tag value</td><td><code>VALUE</code></td><td>String</td><td>No</td><td>Empty (<code>*</code>)</td><td>The OSM tag value to filter by. Empty or <code>*</code> matches any value.</td></tr>
+	<tr><td>Download extent</td><td><code>EXTENT</code></td><td>Extent</td><td>Yes</td><td>—</td><td>The bounding box in the project CRS. Area ceiling: 100 km².</td></tr>
+	<tr><td>OSM result</td><td><code>OUTPUT</code></td><td>FeatureSink</td><td>Yes</td><td>Temp layer</td><td>Destination for the downloaded line features. Geometry type: <code>LineString</code>.</td></tr>
+	</table>
+
+	<h4>Interpretation Guide</h4>
+	<p>The line algorithm is designed primarily for transportation network extraction but can retrieve any OSM data modeled as ways. Unlike the native QGIS QuickOSM plugin—which exposes the full Overpass QL editor—SmartModeler’s line downloader deliberately constrains the interface to a single key-value pair. This simplification serves two purposes: (1) it provides a safe, bounded surface for the AI agent’s <code>osm_query</code> tool, and (2) it reduces the risk of constructing queries that overload the Overpass servers.</p>
+
+	<table>
+	<tr><th>Analysis Domain</th><th>Key</th><th>Common Values</th><th>Output</th></tr>
+	<tr><td>Road network</td><td><code>highway</code></td><td><code>motorway</code>, <code>trunk</code>, <code>primary</code>, <code>secondary</code>, <code>residential</code>, <code>footway</code>, <code>cycleway</code>, <code>*</code></td><td>Complete classified road network as LineStrings</td></tr>
+	<tr><td>Waterways</td><td><code>waterway</code></td><td><code>river</code>, <code>stream</code>, <code>canal</code>, <code>drain</code></td><td>Hydrological network including water flow direction (way orientation)</td></tr>
+	<tr><td>Railways</td><td><code>railway</code></td><td><code>rail</code>, <code>subway</code>, <code>tram</code>, <code>light_rail</code></td><td>Rail network for accessibility and transit analysis</td></tr>
+	<tr><td>Boundaries</td><td><code>boundary</code></td><td><code>administrative</code></td><td>Administrative boundaries (may include closed ways representing areas)</td></tr>
+	<tr><td>Power lines</td><td><code>power</code></td><td><code>line</code>, <code>minor_line</code></td><td>Electricity transmission and distribution network</td></tr>
+	</table>
+
+	<p><b>Best practices:</b> (1) For large road networks, query by individual highway class rather than <code>highway=*</code> to avoid hitting the 100,000 feature limit. The <code>highway</code> field in the output attribute table enables post-hoc filtering even with a wildcard query. (2) OSM ways are directed: the node order in a way encodes the digitization direction. For waterways, this corresponds to flow direction; for roads, it reflects the mapper’s digitization direction and may not correspond to traffic direction (which is encoded in the <code>oneway</code> tag accessible via <code>tags_json</code>). (3) Ways that form closed rings (first node = last node) with area-defining tags may represent area features rather than linear features. If the query key is typically used for areas (e.g., <code>landuse</code>), consider using the polygon algorithm instead.</p>
+
+	<p><b>Limitations:</b> The algorithm does not perform topological network assembly. Ways that cross but do not share a common node will not be topologically connected in the output. OSM road networks are digitized along the centerline, not by lane; lane-level analysis requires additional processing (e.g., buffering by road width). Very long ways (those with more than 2000 nodes) are truncated by the Overpass API at the bounding box boundary; segments outside the extent are not returned.</p>
+
+	<h4>Literature</h4>
+	<p class="ref">Goodchild, M.F. (2007). Citizens as sensors: The world of volunteered geography. <i>GeoJournal</i>, 69(4), 211–221. DOI: <a href="https://doi.org/10.1007/s10708-007-9111-y">10.1007/s10708-007-9111-y</a></p>
+	<p class="ref">Haklay, M. &amp; Weber, P. (2008). OpenStreetMap: User-generated street maps. <i>IEEE Pervasive Computing</i>, 7(4), 12–18. DOI: <a href="https://doi.org/10.1109/MPRV.2008.80">10.1109/MPRV.2008.80</a></p>
+	<p class="ref">Olbricht, R.M. (2015). Data retrieval for small spatial regions in OpenStreetMap. In <i>OpenStreetMap in GIScience</i> (pp. 101–122). Springer. DOI: <a href="https://doi.org/10.1007/978-3-319-14280-7_6">10.1007/978-3-319-14280-7_6</a></p>
+	<p class="ref">Neis, P. &amp; Zipf, A. (2012). Analyzing the contributor activity of a VGI project. <i>ISPRS International Journal of Geo-Information</i>, 1(2), 146–165. DOI: <a href="https://doi.org/10.3390/ijgi1020146">10.3390/ijgi1020146</a></p>
+	<p class="ref">Mooney, P. &amp; Minghini, M. (2017). A review of OpenStreetMap data. In <i>Mapping and the Citizen Sensor</i> (pp. 37–59). Ubiquity Press. DOI: <a href="https://doi.org/10.5334/bbf.c">10.5334/bbf.c</a></p>
+	<p class="ref">Barron, C., Neis, P. &amp; Zipf, A. (2014). A comprehensive framework for intrinsic OpenStreetMap quality analysis. <i>Transactions in GIS</i>, 18(6), 877–895. DOI: <a href="https://doi.org/10.1111/tgis.12073">10.1111/tgis.12073</a></p>
+	<p class="ref">Graser, A. &amp; Olaya, V. (2015). Processing: A Python framework for geoprocessing tools in QGIS. <i>ISPRS International Journal of Geo-Information</i>, 4(4), 2219–2245. DOI: <a href="https://doi.org/10.3390/ijgi4042219">10.3390/ijgi4042219</a></p>
+	<p class="ref">Staniek, M., Schumann, R., Züfle, M. &amp; Riezler, S. (2024). Text-to-OverpassQL. <i>Transactions of the Association for Computational Linguistics</i>, 12, 562–575. DOI: <a href="https://doi.org/10.1162/tacl_a_00654">10.1162/tacl_a_00654</a></p>
+	<p class="ref">Silva, C.A.F. et al. (2020). The quality of OpenStreetMap in a large metropolis in northeast Brazil. <i>Boletim de Ciências Geodésicas</i>, 26(3), e2020012. DOI: <a href="https://doi.org/10.1590/s1982-21702020000300012">10.1590/s1982-21702020000300012</a></p>
+	<p class="ref">Jacobs, K.T. &amp; Mitchell, S.W. (2020). OpenStreetMap quality assessment using unsupervised machine learning methods. <i>Transactions in GIS</i>, 24(5), 1280–1298. DOI: <a href="https://doi.org/10.1111/tgis.12680">10.1111/tgis.12680</a></p>
+
+
+
+	<h3 id="osm-polygons">Algorithm 3: Download OSM Polygons</h3>
+
+	<p class="pid">Algorithm ID: <code>smartmodeler:osm_download_polygons</code></p>
+
+	<h4>Mathematical Formulation</h4>
+
+	<p>The polygon algorithm is the most geometrically complex of the three. OSM area features can be represented as either <b>closed ways</b> (where the first and last nodes are identical) or <b>multipolygon relations</b> (where outer and inner member ways collectively define a region, possibly with holes). The algorithm handles both representations through a unified reconstruction pipeline.</p>
+
+	<p><b>Case 1: Closed Way.</b> Let a way \(w\) with node sequence \(\mathcal{N}_w = [n_1, \ldots, n_m]\) be a closed ring if \(n_1 = n_m\). The geometry is constructed as a single-ring polygon:</p>
+
+	<p>\[P_w = \text{Polygon}([(\lambda_1, \phi_1), \ldots, (\lambda_m, \phi_m)])\]</p>
+
+	<p>A closed ring requires \(m \geq 4\) points (the starting point, at least two distinct vertices, and the closing point). Ways with fewer than 3 distinct coordinates cannot form a valid polygon and are discarded.</p>
+
+	<p><b>Case 2: Multipolygon Relation.</b> Let a relation \(\mathcal{R}\) contain members \(\{m_1, \ldots, m_k\}\) where each member is a way with a role \(r_i \in \{\text{outer}, \text{inner}\}\). The geometry is constructed using set operations on the member geometries:</p>
+
+	<p>\[G_{\text{outer}} = \bigcup_{i: r_i = \text{outer}} \text{Polygon}(m_i)\]</p>
+	<p>\[G_{\text{inner}} = \bigcup_{j: r_j = \text{inner}} \text{Polygon}(m_j)\]</p>
+	<p>\[P_{\mathcal{R}} = G_{\text{outer}} \setminus G_{\text{inner}}\]</p>
+
+	<p>where \(\cup\) denotes geometric union (via <code>QgsGeometry.unaryUnion</code>) and \(\setminus\) denotes geometric difference. The algorithm uses QGIS’ native geometry engine (GEOS/C++) for these operations. After construction, the geometry is converted to multi-type to ensure consistent output across single and multi-polygon features: \(P_{\mathcal{R}} \to \text{MultiPolygon}\).</p>
+
+	<p><b>Query Construction (Polygon-Specific).</b> The Overpass query for polygons differs from the point and line queries in two respects:</p>
+
+	<ol>
+	  <li><b>Dual-element query:</b> Both ways and relations are retrieved because an area feature may be modeled as either. The query uses a union block to combine the results:
+	    \[Q_{\text{poly}} = \texttt{[out:json][timeout:45]; (way}[\texttt{"}k\texttt{"}=\texttt{"}v\texttt{"}](\ldots)\texttt{; relation}[\texttt{"}k\texttt{"}=\texttt{"}v\texttt{"}](\ldots)\texttt{); out body geom;}\]</li>
+	  <li><b><code>out body geom</code> vs <code>out tags geom</code>:</b> The <code>body</code> qualifier requests member elements for relations (ways that form the outer and inner rings). Without <code>body</code>, relation members would not be included in the response, making polygon reconstruction from relations impossible.</li>
+	</ol>
+
+	<h4>Parameters</h4>
+	<table>
+	<tr><th>Parameter</th><th>ID</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr>
+	<tr><td>OSM tag key</td><td><code>KEY</code></td><td>String</td><td>Yes</td><td>—</td><td>The OSM tag key for area features (e.g., <code>building</code>, <code>landuse</code>, <code>natural</code>, <code>leisure</code>).</td></tr>
+	<tr><td>OSM tag value</td><td><code>VALUE</code></td><td>String</td><td>No</td><td>Empty (<code>*</code>)</td><td>The OSM tag value for filtering. Empty or <code>*</code> returns all features with the key.</td></tr>
+	<tr><td>Download extent</td><td><code>EXTENT</code></td><td>Extent</td><td>Yes</td><td>—</td><td>The bounding box. Area ceiling: 100 km².</td></tr>
+	<tr><td>OSM result</td><td><code>OUTPUT</code></td><td>FeatureSink</td><td>Yes</td><td>Temp layer</td><td>Destination for polygon features. Geometry type: <code>MultiPolygon</code>.</td></tr>
+	</table>
+
+	<h4>Session Caching</h4>
+
+	<p>All three OSM algorithms share a session-level response cache (<code>_SESSION_CACHE</code>) with a 15-minute TTL and a maximum of 6 cached queries. The cache key is the exact Overpass query string, enabling cache hits across repeated algorithm invocations with identical parameters. The cache is cleared when the TTL expires or when new queries displace the oldest entries (LRU eviction). This mechanism is particularly valuable for polygon downloads, which typically involve larger response payloads due to the <code>body</code> qualifier.</p>
+
+	<h4>Interpretation Guide</h4>
+	<p>The polygon algorithm is the primary tool for land-use, building footprint, and natural feature extraction. It handles the full complexity of OSM area modeling, including multipolygons with holes (e.g., a park with a lake, or a building with a courtyard).</p>
+
+	<table>
+	<tr><th>Analysis Domain</th><th>Key</th><th>Common Values</th><th>Typical Use</th></tr>
+	<tr><td>Building footprints</td><td><code>building</code></td><td><code>yes</code>, <code>residential</code>, <code>commercial</code>, <code>industrial</code>, <code>school</code>, <code>hospital</code>, <code>*</code></td><td>3D city modeling, urban density analysis, building count estimation</td></tr>
+	<tr><td>Land use</td><td><code>landuse</code></td><td><code>residential</code>, <code>commercial</code>, <code>industrial</code>, <code>forest</code>, <code>farmland</code>, <code>grass</code></td><td>Land-use classification, urban growth modeling</td></tr>
+	<tr><td>Natural features</td><td><code>natural</code></td><td><code>water</code>, <code>wood</code>, <code>scrub</code>, <code>wetland</code>, <code>beach</code></td><td>Environmental assessment, habitat mapping</td></tr>
+	<tr><td>Recreation</td><td><code>leisure</code></td><td><code>park</code>, <code>pitch</code>, <code>playground</code>, <code>garden</code>, <code>sports_centre</code></td><td>Green space accessibility analysis</td></tr>
+	<tr><td>Amenities as areas</td><td><code>amenity</code></td><td><code>school</code>, <code>university</code>, <code>hospital</code>, <code>parking</code>, <code>place_of_worship</code></td><td>Facility service area analysis (areas, not points)</td></tr>
+	</table>
+
+	<p><b>Best practices:</b> (1) Always inspect the <code>osm_type</code> field to distinguish between way-based and relation-based features. Relation-based features with complex inner/outer geometries may have subtle rendering issues at certain zoom levels. (2) For building footprint analysis, use <code>building=*</code> to capture all building types, then classify using the <code>building</code> attribute field. The <code>building:levels</code> and <code>height</code> attributes enable 3D extrusion for visualization in companion tools like planx_3d_city. (3) Overlapping polygons are common in OSM (e.g., a building inside a landuse area, or adjacent landuse polygons sharing a boundary but not being topologically clean). Post-processing with a small negative buffer followed by a positive buffer (Epsilon filter) can resolve minor sliver gaps. (4) Multipolygon relations with a large number of member ways (e.g., a complex coastline with 100+ outer way members) may exceed the Overpass response limits; zoom in or use regional extracts for such features.</p>
+
+	<p><b>Limitations:</b> Area features that are tagged solely on nodes (e.g., a <code>natural=tree</code> node) or on unclosed ways are not captured. Relations whose member ways are not included in the Overpass response (e.g., when a relation spans beyond the bounding box and only some members intersect) may produce incomplete geometries; the algorithm checks for non-empty geometries before adding features. Very large relations (those with hundreds of members) increase download time proportionally to the number of member geometry requests.</p>
+
+	<h4>Literature</h4>
+	<p class="ref">Goodchild, M.F. (2007). Citizens as sensors: The world of volunteered geography. <i>GeoJournal</i>, 69(4), 211–221. DOI: <a href="https://doi.org/10.1007/s10708-007-9111-y">10.1007/s10708-007-9111-y</a></p>
+	<p class="ref">Haklay, M. &amp; Weber, P. (2008). OpenStreetMap: User-generated street maps. <i>IEEE Pervasive Computing</i>, 7(4), 12–18. DOI: <a href="https://doi.org/10.1109/MPRV.2008.80">10.1109/MPRV.2008.80</a></p>
+	<p class="ref">Olbricht, R.M. (2015). Data retrieval for small spatial regions in OpenStreetMap. In <i>OpenStreetMap in GIScience</i> (pp. 101–122). Springer. DOI: <a href="https://doi.org/10.1007/978-3-319-14280-7_6">10.1007/978-3-319-14280-7_6</a></p>
+	<p class="ref">Neis, P. &amp; Zipf, A. (2012). Analyzing the contributor activity of a VGI project. <i>ISPRS International Journal of Geo-Information</i>, 1(2), 146–165. DOI: <a href="https://doi.org/10.3390/ijgi1020146">10.3390/ijgi1020146</a></p>
+	<p class="ref">Mooney, P. &amp; Minghini, M. (2017). A review of OpenStreetMap data. In <i>Mapping and the Citizen Sensor</i> (pp. 37–59). Ubiquity Press. DOI: <a href="https://doi.org/10.5334/bbf.c">10.5334/bbf.c</a></p>
+	<p class="ref">Barron, C., Neis, P. &amp; Zipf, A. (2014). A framework for intrinsic OSM quality analysis. <i>Transactions in GIS</i>, 18(6), 877–895. DOI: <a href="https://doi.org/10.1111/tgis.12073">10.1111/tgis.12073</a></p>
+	<p class="ref">Graser, A. &amp; Olaya, V. (2015). Processing: A Python framework for geoprocessing tools in QGIS. <i>ISPRS International Journal of Geo-Information</i>, 4(4), 2219–2245. DOI: <a href="https://doi.org/10.3390/ijgi4042219">10.3390/ijgi4042219</a></p>
+	<p class="ref">Arsanjani, J.J., Zipf, A., Mooney, P. &amp; Helbich, M. (eds.) (2015). <i>OpenStreetMap in GIScience: Experiences, Research, and Applications.</i> Springer. DOI: <a href="https://doi.org/10.1007/978-3-319-14280-7">10.1007/978-3-319-14280-7</a></p>
+	<p class="ref">Yeboah, G. et al. (2021). OpenStreetMap data quality at different stages of participatory mapping. <i>ISPRS International Journal of Geo-Information</i>, 10(4), 265. DOI: <a href="https://doi.org/10.3390/ijgi10040265">10.3390/ijgi10040265</a></p>
+	<p class="ref">Staniek, M., Schumann, R., Züfle, M. &amp; Riezler, S. (2024). Text-to-OverpassQL. <i>Transactions of the Association for Computational Linguistics</i>, 12, 562–575. DOI: <a href="https://doi.org/10.1162/tacl_a_00654">10.1162/tacl_a_00654</a></p>
+
+
+	<!-- ══════════════════════════════════════════════════════════════ -->
+	<hr>
 <h2 id="appendix-a">Appendix A — Socket Types Reference</h2>
 <table class="key-table"><tr><th>Socket</th><th>Constant</th><th>Accepts From</th><th>Default QGIS Parameter Types</th></tr>
 <tr><td>VECTOR</td><td><code>vector</code></td><td>VECTOR, ANY</td><td>QgsProcessingParameterFeatureSource, QgsProcessingParameterVectorLayer</td></tr>
@@ -391,17 +848,42 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <tr><td><b>Workflow Studio</b></td><td>The full-window visual canvas for building and editing Processing workflows.</td></tr>
 </table>
 
-<h2 id="appendix-d">Appendix D — Bibliography</h2>
-<p class="ref">Gamma, E., Helm, R., Johnson, R. &amp; Vlissides, J. (1994). <i>Design Patterns: Elements of Reusable Object-Oriented Software.</i> Addison-Wesley. (Memento pattern for document undo/redo; Command pattern for agent action ledger.)</p>
-<p class="ref">QGIS Development Team. (2024). <i>QGIS Processing Framework.</i> <a href="https://docs.qgis.org">docs.qgis.org</a></p>
-<p class="ref">QGIS Development Team. (2024). <i>QGIS Graphical Modeler.</i> <a href="https://docs.qgis.org">docs.qgis.org</a></p>
-<p class="ref">Anthropic. (2024). "Tool Use (Function Calling)." <i>Anthropic API Documentation.</i> (Structured output patterns informing the agent_turn envelope design.)</p>
-<p class="ref">OpenAI. (2024). "Function Calling Guide." <i>OpenAI API Documentation.</i> (JSON Schema constrained generation informing the tool-call contract.)</p>
+<h2 id="appendix-d">Appendix D — Extended Bibliography</h2>
 
-<div class="footer">
-  <p>SmartModeler GIS — Academic Reference Manual · v1.1.0</p>
-  <p>Yusuf Emino&#287;lu · Dokuz Eyl&uuml;l University · August 2026</p>
-  <p><a href="https://github.com/YusufEminoglu/planx-smartmodeler">github.com/YusufEminoglu/planx-smartmodeler</a></p>
+	<h4>Volunteered Geographic Information &amp; OpenStreetMap</h4>
+	<p class="ref">Goodchild, M.F. (2007). Citizens as sensors: The world of volunteered geography. <i>GeoJournal</i>, 69(4), 211–221. DOI: <a href="https://doi.org/10.1007/s10708-007-9111-y">10.1007/s10708-007-9111-y</a></p>
+	<p class="ref">Haklay, M. &amp; Weber, P. (2008). OpenStreetMap: User-generated street maps. <i>IEEE Pervasive Computing</i>, 7(4), 12–18. DOI: <a href="https://doi.org/10.1109/MPRV.2008.80">10.1109/MPRV.2008.80</a></p>
+	<p class="ref">Olbricht, R.M. (2015). Data retrieval for small spatial regions in OpenStreetMap. In J.J. Arsanjani, A. Zipf, P. Mooney &amp; M. Helbich (eds.), <i>OpenStreetMap in GIScience</i> (pp. 101–122). Springer. DOI: <a href="https://doi.org/10.1007/978-3-319-14280-7_6">10.1007/978-3-319-14280-7_6</a></p>
+	<p class="ref">Neis, P. &amp; Zipf, A. (2012). Analyzing the contributor activity of a volunteered geographic information project—The case of OpenStreetMap. <i>ISPRS International Journal of Geo-Information</i>, 1(2), 146–165. DOI: <a href="https://doi.org/10.3390/ijgi1020146">10.3390/ijgi1020146</a></p>
+	<p class="ref">Mooney, P. &amp; Minghini, M. (2017). A review of OpenStreetMap data. In G. Foody et al. (eds.), <i>Mapping and the Citizen Sensor</i> (pp. 37–59). Ubiquity Press. DOI: <a href="https://doi.org/10.5334/bbf.c">10.5334/bbf.c</a></p>
+	<p class="ref">Barron, C., Neis, P. &amp; Zipf, A. (2014). A comprehensive framework for intrinsic OpenStreetMap quality analysis. <i>Transactions in GIS</i>, 18(6), 877–895. DOI: <a href="https://doi.org/10.1111/tgis.12073">10.1111/tgis.12073</a></p>
+	<p class="ref">Yeboah, G. et al. (2021). Analysis of OpenStreetMap data quality at different stages of a participatory mapping process: Evidence from slums in Africa and Asia. <i>ISPRS International Journal of Geo-Information</i>, 10(4), 265. DOI: <a href="https://doi.org/10.3390/ijgi10040265">10.3390/ijgi10040265</a></p>
+	<p class="ref">Arsanjani, J.J., Zipf, A., Mooney, P. &amp; Helbich, M. (eds.) (2015). <i>OpenStreetMap in GIScience: Experiences, Research, and Applications.</i> Springer. DOI: <a href="https://doi.org/10.1007/978-3-319-14280-7">10.1007/978-3-319-14280-7</a></p>
+	<p class="ref">Staniek, M., Schumann, R., Züfle, M. &amp; Riezler, S. (2024). Text-to-OverpassQL: A natural language interface for complex geodata querying of OpenStreetMap. <i>Transactions of the Association for Computational Linguistics</i>, 12, 562–575. DOI: <a href="https://doi.org/10.1162/tacl_a_00654">10.1162/tacl_a_00654</a></p>
+	<p class="ref">Silva, C.A.F. et al. (2020). The quality of OpenStreetMap in a large metropolis in northeast Brazil: Preliminary assessment of geospatial data for road axes. <i>Boletim de Ciências Geodésicas</i>, 26(3), e2020012. DOI: <a href="https://doi.org/10.1590/s1982-21702020000300012">10.1590/s1982-21702020000300012</a></p>
+	<p class="ref">Jacobs, K.T. &amp; Mitchell, S.W. (2020). OpenStreetMap quality assessment using unsupervised machine learning methods. <i>Transactions in GIS</i>, 24(5), 1280–1298. DOI: <a href="https://doi.org/10.1111/tgis.12680">10.1111/tgis.12680</a></p>
+
+	<h4>Workflow Automation &amp; Visual Programming for GIS</h4>
+	<p class="ref">Kahn, A.B. (1962). Topological sorting of large networks. <i>Communications of the ACM</i>, 5(11), 558–562. DOI: <a href="https://doi.org/10.1145/368996.369025">10.1145/368996.369025</a></p>
+	<p class="ref">Gamma, E., Helm, R., Johnson, R. &amp; Vlissides, J. (1994). <i>Design Patterns: Elements of Reusable Object-Oriented Software.</i> Addison-Wesley.</p>
+	<p class="ref">Graser, A. &amp; Olaya, V. (2015). Processing: A Python framework for the seamless integration of geoprocessing tools in QGIS. <i>ISPRS International Journal of Geo-Information</i>, 4(4), 2219–2245. DOI: <a href="https://doi.org/10.3390/ijgi4042219">10.3390/ijgi4042219</a></p>
+	<p class="ref">Dobesova, Z. (2020). Visual programming for GIS applications. In J.P. Wilson (ed.), <i>Geographic Information Science &amp; Technology Body of Knowledge</i> (1st Quarter 2020 ed.). UCGIS. DOI: <a href="https://doi.org/10.22224/gistbok/2020.1.7">10.22224/gistbok/2020.1.7</a></p>
+	<p class="ref">Dobesova, Z. (2020). Evaluation of effective cognition for the QGIS Processing Modeler. <i>Applied Sciences</i>, 10(4), 1446. DOI: <a href="https://doi.org/10.3390/app10041446">10.3390/app10041446</a></p>
+	<p class="ref">Dobesova, Z. &amp; Dobes, P. (2014). Differences in visual programming for GIS. <i>Applied Mechanics and Materials</i>, 519–520, 353–356. DOI: <a href="https://doi.org/10.4028/www.scientific.net/AMM.519-520.353">10.4028/www.scientific.net/AMM.519-520.353</a></p>
+	<p class="ref">Nardi, B.A. (1993). <i>A Small Matter of Programming: Perspectives on End User Computing.</i> MIT Press. DOI: <a href="https://doi.org/10.7551/mitpress/6270.001.0001">10.7551/mitpress/6270.001.0001</a></p>
+	<p class="ref">Shneiderman, B. (1983). Direct manipulation: A step beyond programming languages. <i>IEEE Computer</i>, 16(8), 57–69. DOI: <a href="https://doi.org/10.1109/MC.1983.1654471">10.1109/MC.1983.1654471</a></p>
+	<p class="ref">Johnston, W.M., Hanna, J.R.P. &amp; Millar, R.J. (2004). Advances in dataflow programming languages. <i>ACM Computing Surveys</i>, 36(1), 1–34. DOI: <a href="https://doi.org/10.1145/1013208.1013209">10.1145/1013208.1013209</a></p>
+	<p class="ref">QGIS Development Team. (2024). <i>QGIS Processing Framework.</i> <a href="https://docs.qgis.org">docs.qgis.org</a></p>
+	<p class="ref">QGIS Development Team. (2024). <i>QGIS Graphical Modeler.</i> <a href="https://docs.qgis.org">docs.qgis.org</a></p>
+
+	<h4>AI-Assisted Planning &amp; Agent Safety</h4>
+	<p class="ref">Hua, W. et al. (2024). TrustAgent: Towards safe and trustworthy LLM-based agents. In <i>Findings of the Association for Computational Linguistics: EMNLP 2024</i>, pp. 10563–10580. DOI: <a href="https://doi.org/10.18653/v1/2024.findings-emnlp.585">10.18653/v1/2024.findings-emnlp.585</a></p>
+	<p class="ref">Anthropic. (2024). “Tool Use (Function Calling).” <i>Anthropic API Documentation.</i></p>
+	<p class="ref">OpenAI. (2024). “Function Calling Guide.” <i>OpenAI API Documentation.</i></p>
+	<p class="ref">Anwar, M.R. &amp; Sakti, L.D. (2024). Integrating artificial intelligence and environmental science for sustainable urban planning. <i>IAIC Transactions on Sustainable Digital Innovation</i>, 5(2), 179–191. DOI: <a href="https://doi.org/10.34306/itsdi.v5i2.666">10.34306/itsdi.v5i2.666</a></p>
+	<p class="ref">Fauzi, C. (2024). A review geospatial artificial intelligence (Geo-AI): Implementation of machine learning on urban planning. In <i>Proceedings of iCAST-ES 2023</i> (pp. 311–329). Atlantis Press. DOI: <a href="https://doi.org/10.2991/978-94-6463-364-1_30">10.2991/978-94-6463-364-1_30</a></p>
+	<p class="ref">Zhou, T. (2023). Application of artificial intelligence in geography. <i>Journal of Physics: Conference Series</i>, 2646, 012006. DOI: <a href="https://doi.org/10.1088/1742-6596/2646/1/012006">10.1088/1742-6596/2646/1/012006</a></p>
+
 </div>
 </main>
 
