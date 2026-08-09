@@ -625,6 +625,26 @@ class AgentRunLoop:
             recovered, recovery_events = self._recover_provider_proposal(raw_text)
             if recovered is None:
                 if (
+                    self._is_mechanical_proposal_error(str(error))
+                    and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+                ):
+                    self._provider_recovery_attempts += 1
+                    recovery = {
+                        "kind": "provider_recovery",
+                        "strategy": "repair_typed_proposal",
+                        "instruction": (
+                            "The previous terminal proposal was mechanically invalid. "
+                            "Return one corrected proposal using the exact typed "
+                            "binding forms and the fresh context_token from the "
+                            "successful inspection. Do not repeat successful tool "
+                            "calls and do not claim execution."
+                        ),
+                    }
+                    self._turn_events.append(recovery)
+                    return self._advance_turn(
+                        tool_events=(*recovery_events, recovery)
+                    )
+                if (
                     self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
                     and not self._looks_like_terminal_proposal(raw_text)
                 ):
@@ -653,6 +673,19 @@ class AgentRunLoop:
         if turn.is_proposal:
             return self._handle_proposal(turn, tool_events=recovery_events)
         return self._execute_turn(turn)
+
+    @staticmethod
+    def _is_mechanical_proposal_error(message: str) -> bool:
+        """Allow one bounded provider retry for deterministic proposal typos."""
+        text = str(message or "").casefold()
+        return any(
+            marker in text
+            for marker in (
+                "missing or invalid context_token",
+                "unknown input binding form",
+                "an input binding must use exactly one tagged form",
+            )
+        )
 
     @staticmethod
     def _looks_like_terminal_proposal(raw_text: str) -> bool:

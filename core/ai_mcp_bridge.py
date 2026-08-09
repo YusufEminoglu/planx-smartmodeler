@@ -542,6 +542,13 @@ class AiMcpBridge:
             for key, value in cls._parameter_pairs(item.get("parameters", [])):
                 supplied_parameters.add(key)
                 if key not in node.inputs and key not in ("LAYER", "VALUE"):
+                    # Processing destinations are graph outputs, not node
+                    # inputs. Some providers still echo an OUTPUT field in
+                    # their JSON despite the catalog omitting destinations;
+                    # ignore only when the live catalog confirms it is an
+                    # output, keeping unknown input names rejected.
+                    if key in node.outputs:
+                        continue
                     raise AiResponseError(
                         f"Parameter '{key}' does not exist on {algorithm_id}."
                     )

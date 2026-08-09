@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.5.17] - 2026-08-09
+
+### Fixed
+
+- Retry one bounded provider turn for mechanical terminal proposal errors such
+  as missing context receipts or malformed typed binding envelopes.
+- Ignore a destination field only when the live Modeler catalog confirms it is
+  an output; invalid local-value markers remain rejected and are retried through
+  the bounded provider-recovery path.
+- Include the last concise failure reason in the automatic DeepSeek runner summary.
+
 ## [1.5.16] - 2026-08-09
 
 ### Added

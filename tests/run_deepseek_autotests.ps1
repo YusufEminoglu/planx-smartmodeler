@@ -40,10 +40,22 @@ function Invoke-QgisLiveTest {
 
     Write-Host "`n=== $Name ===" -ForegroundColor Cyan
     Add-Content -LiteralPath $logPath -Value "`n=== $Name ==="
-    & $qgisPython $ScriptPath 2>&1 | Tee-Object -FilePath $logPath -Append
+    $captured = @(& $qgisPython $ScriptPath 2>&1 | Tee-Object -FilePath $logPath -Append)
     $exitCode = $LASTEXITCODE
     $passed = ($exitCode -eq 0)
-    $results.Add([pscustomobject]@{ Name = $Name; Passed = $passed; ExitCode = $exitCode })
+    $detail = ""
+    if (-not $passed) {
+        $detail = @(
+            $captured |
+                ForEach-Object { $_.ToString() } |
+                Where-Object { $_ -match "FAIL|RuntimeError|AiResponseError|Error:" } |
+                Select-Object -Last 1
+        ) -join " "
+        if ($detail.Length -gt 180) {
+            $detail = $detail.Substring(0, 180)
+        }
+    }
+    $results.Add([pscustomobject]@{ Name = $Name; Passed = $passed; ExitCode = $exitCode; Detail = $detail })
     if ($passed) {
         Write-Host "$($Name): PASS" -ForegroundColor Green
     } else {
