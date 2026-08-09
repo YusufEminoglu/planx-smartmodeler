@@ -1,0 +1,303 @@
+"""Opt-in multi-case DeepSeek acceptance matrix for SmartModeler.
+
+This test sends short, independent tasks through both shipped AI entry points.
+Each case uses an in-memory layer, applies only a bounded Processing operation,
+and removes the generated result before the next case.  The matrix is opt-in
+because every case uses a billable external provider request.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import time
+from pathlib import Path
+
+from qgis.PyQt.QtCore import QCoreApplication
+from qgis.core import QgsApplication, QgsFeature, QgsGeometry, QgsProject, QgsPointXY, QgsVectorLayer
+
+from qgis_deepseek_live import _profile, _request, _usage_text
+
+
+CASES = (
+    {
+        "name": "buffer",
+        "algorithm_id": "native:buffer",
+        "modeler_prompt": (
+            "Create exactly a two-node workflow named Matrix Buffer. Use one "
+            "smart:input_layer connected to native:buffer. Set DISTANCE to 5, "
+            "SEGMENTS to 5, DISSOLVE to false. Return exactly two nodes and one "
+            "edge with the catalog port ids. Keep the input configurable."
+        ),
+        "agent_prompt": (
+            "Inspect the active vector layer, then prepare one reviewed Processing "
+            "run using native:buffer. Set DISTANCE to 5, SEGMENTS to 5, and "
+            "DISSOLVE to false. Do not use Python, SQL, Power Mode, or network."
+        ),
+    },
+    {
+        "name": "fix geometries",
+        "algorithm_id": "native:fixgeometries",
+        "modeler_prompt": (
+            "Create exactly a two-node workflow named Matrix Fix Geometries. Use "
+            "smart:input_layer connected to native:fixgeometries. Use the exact "
+            "catalog port ids and no invented paths. Return two nodes and one edge."
+        ),
+        "agent_prompt": (
+            "Inspect the active vector layer, then prepare one reviewed Processing "
+            "run using native:fixgeometries with the active layer as INPUT. Do not "
+            "use Python, SQL, Power Mode, or network."
+        ),
+    },
+    {
+        "name": "single parts",
+        "algorithm_id": "native:multiparttosingleparts",
+        "modeler_prompt": (
+            "Create exactly a two-node workflow named Matrix Single Parts. Use "
+            "smart:input_layer connected to native:multiparttosingleparts with no "
+            "extra parameters. Return two nodes and one edge using exact catalog ids."
+        ),
+        "agent_prompt": (
+            "Inspect the active vector layer, then prepare one reviewed Processing "
+            "run using native:multiparttosingleparts with the active layer as INPUT. "
+            "Do not use Python, SQL, Power Mode, or network."
+        ),
+    },
+    {
+        "name": "deduplicate geometries",
+        "algorithm_id": "native:deleteduplicategeometries",
+        "modeler_prompt": (
+            "Create exactly a two-node workflow named Matrix Deduplicate. Use "
+            "smart:input_layer connected to native:deleteduplicategeometries. "
+            "Return two nodes and one edge with exact catalog port ids and no paths."
+        ),
+        "agent_prompt": (
+            "Inspect the active vector layer, then prepare one reviewed Processing "
+            "run using native:deleteduplicategeometries with the active layer as "
+            "INPUT. Do not use Python, SQL, Power Mode, or network."
+        ),
+    },
+    {
+        "name": "filter low category",
+        "algorithm_id": "native:extractbyattribute",
+        "modeler_prompt": (
+            "Create exactly a two-node workflow named Matrix Category Filter. Use "
+            "smart:input_layer connected to native:extractbyattribute. Set FIELD "
+            "to the category field, OPERATOR to equals, and VALUE to low. Return "
+            "two nodes and one edge with exact catalog port ids; keep input configurable."
+        ),
+        "agent_prompt": (
+            "Inspect the active vector layer and its fields, then prepare one reviewed "
+            "Processing run using native:extractbyattribute. Filter FIELD category "
+            "with the equals operator and VALUE low. Do not use Python, SQL, Power "
+            "Mode, or network."
+        ),
+    },
+)
+
+
+def _make_source() -> QgsVectorLayer:
+    layer = QgsVectorLayer(
+        "Point?crs=EPSG:4326&field=id:integer&field=category:string(20)&field=value:double",
+        "DeepSeek matrix source",
+        "memory",
+    )
+    features = []
+    for feature_id, x, category, value in (
+        (1, 0.01, "low", 1.0),
+        (2, 0.02, "high", 2.0),
+        (3, 0.03, "low", 3.0),
+        (4, 0.04, "high", 4.0),
+    ):
+        feature = QgsFeature(layer.fields())
+        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, x)))
+        feature.setAttributes([feature_id, category, value])
+        features.append(feature)
+    layer.dataProvider().addFeatures(features)
+    layer.updateExtents()
+    QgsProject.instance().addMapLayer(layer)
+    return layer
+
+
+def _run_modeler_case(api_key: str, source: QgsVectorLayer, case: dict) -> str:
+    from planx_smartmodeler.core.ai_mcp_bridge import AiMcpBridge
+    from planx_smartmodeler.core.algorithm_catalog import AlgorithmCatalog
+    from planx_smartmodeler.core.execution_engine import ExecutionStatus, GraphExecutionEngine
+    from planx_smartmodeler.core.prompt_context import PromptContextLoader
+
+    prompt = case["modeler_prompt"]
+    catalog = AlgorithmCatalog.compact_ai_catalog(prompt, 20)
+    system_prompt = PromptContextLoader().build("", catalog, "")
+    response, usage = _request(api_key, _profile(), system_prompt, prompt)
+    graph = AiMcpBridge.parse_response(response).graph
+    ids = {node.algorithm_id for node in graph.nodes.values()}
+    expected = {"smart:input_layer", case["algorithm_id"]}
+    if ids != expected or len(graph.edges) != 1:
+        raise RuntimeError(
+            f"unexpected graph shape: nodes={sorted(ids)!r}, edges={len(graph.edges)}"
+        )
+    AlgorithmCatalog.autobind_unique_project_layers(graph)
+    report = GraphExecutionEngine().execute(graph)
+    if report.status != ExecutionStatus.COMPLETED or not report.added_layer_ids:
+        raise RuntimeError(f"graph execution failed: {report.message}")
+    added = list(report.added_layer_ids)
+    for layer_id in added:
+        QgsProject.instance().removeMapLayer(layer_id)
+    return f"Modeler PASS ({case['name']}, {_usage_text(usage)})"
+
+
+def _run_agent_case(api_key: str, source: QgsVectorLayer, case: dict) -> str:
+    from planx_smartmodeler.core.agent.context_tokens import ContextTokenService
+    from planx_smartmodeler.core.agent.contracts import AgentMode, AgentScope
+    from planx_smartmodeler.core.agent.controller import AgentController
+    from planx_smartmodeler.core.agent.run_coordinator import RunCoordinator
+    from planx_smartmodeler.core.agent.run_loop import AgentRunLoop, RunEventKind
+    from planx_smartmodeler.core.agent.runtime_proposals import RuntimeProposalValidator
+    from planx_smartmodeler.core.agent.runtime_tools import build_default_registry
+    from planx_smartmodeler.core.ai_client import StructuredResponseContract
+    from planx_smartmodeler.core.prompt_context import PromptContextLoader
+
+    tokens = ContextTokenService()
+    controller = AgentController(
+        build_default_registry(lambda: None, tokens, active_layer_provider=lambda: source)
+    )
+    validator = RuntimeProposalValidator(lambda: None, tokens, active_layer_provider=lambda: source)
+    loop = AgentRunLoop(
+        controller,
+        "Use the advertised tools. Inspect before proposing. Return one reviewed proposal.",
+        proposal_validator=validator.validate,
+        instruction_provider=lambda text, scope, power: PromptContextLoader().agent_context(
+            text, scope, power_enabled=power
+        ),
+        power_enabled_provider=lambda: False,
+    )
+    event = loop.start(case["agent_prompt"], AgentMode.ACT, AgentScope.ACTIVE_LAYER)
+    usages = []
+    turns_left = 8
+    while event.kind == RunEventKind.REQUEST_PROVIDER and turns_left:
+        turns_left -= 1
+        contract = StructuredResponseContract(
+            schema=event.request.response_schema,
+            name="agent_turn",
+            description="Return the next agent_turn object as JSON.",
+        )
+        try:
+            response, usage = _request(
+                api_key,
+                _profile(),
+                event.request.system_prompt,
+                event.request.user_prompt,
+                contract,
+            )
+        except RuntimeError as error:
+            recovered = loop.submit_provider_failure(event.request.request_token, str(error))
+            if recovered is None:
+                raise
+            event = recovered
+            continue
+        if usage is not None:
+            usages.append(usage)
+        event = loop.submit_provider_response(event.request.request_token, response)
+        if event is None:
+            raise RuntimeError("provider response was ignored as stale")
+    if event.kind == RunEventKind.FAILED:
+        raise RuntimeError(event.text)
+    if event.kind != RunEventKind.PROPOSAL:
+        raise RuntimeError(f"no reviewed proposal: {event.text}")
+    ingredients = validator.take_last_validated()
+    if not ingredients or ingredients["algorithm_id"] != case["algorithm_id"]:
+        actual = ingredients["algorithm_id"] if ingredients else "none"
+        raise RuntimeError(f"wrong validated algorithm: {actual}")
+
+    before = set(QgsProject.instance().mapLayers())
+    finished = []
+    failed = []
+    coordinator = RunCoordinator(lambda: None)
+    coordinator.run_finished.connect(finished.append)
+    coordinator.run_failed.connect(lambda reason, message: failed.append((reason, message)))
+    refusal = coordinator.start_processing_run(
+        f"deepseek_matrix_{case['name']}",
+        f"DeepSeek matrix: {case['name']}",
+        ingredients["display_name"],
+        ingredients["algorithm_id"],
+        ingredients["run_parameters"],
+        ingredients["destinations"],
+    )
+    deadline = time.time() + 20.0
+    while not finished and not failed and time.time() < deadline:
+        QCoreApplication.processEvents()
+        time.sleep(0.01)
+    for layer_id in set(QgsProject.instance().mapLayers()) - before:
+        QgsProject.instance().removeMapLayer(layer_id)
+    if refusal or failed or len(finished) != 1:
+        raise RuntimeError(f"apply failed: refusal={refusal!r}, failures={failed!r}")
+    last_usage = usages[-1] if usages else None
+    return f"Agent PASS ({case['name']}, turns={loop.turns_used}, {_usage_text(last_usage)})"
+
+
+def run_matrix(api_key: str, limit: int = 10) -> tuple[str, bool]:
+    selected = CASES[: max(1, min(len(CASES), (limit + 1) // 2))]
+    source = _make_source()
+    passed = []
+    failed = []
+    try:
+        for case in selected:
+            for label, runner in (("modeler", _run_modeler_case), ("agent", _run_agent_case)):
+                try:
+                    result = runner(api_key, source, case)
+                except Exception as error:
+                    failed.append(f"{label}/{case['name']}: {type(error).__name__}: {str(error)[:240]}")
+                    print(f"FAIL {label}/{case['name']}: {failed[-1].split(': ', 1)[-1]}", flush=True)
+                else:
+                    passed.append(result)
+                    print(result, flush=True)
+        summary = f"DEEPSEEK MATRIX: {len(passed)} passed, {len(failed)} failed, {len(selected) * 2} total"
+        if failed:
+            return summary + "\n" + "\n".join(failed), False
+        return summary, True
+    finally:
+        QgsProject.instance().removeMapLayer(source.id())
+
+
+def main() -> int:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    api_key = os.environ.pop("SMARTMODELER_DEEPSEEK_API_KEY", "").strip()
+    if not api_key:
+        api_key = os.environ.pop("DEEPSEEK_API_KEY", "").strip()
+    if not api_key:
+        print("SKIP: Set SMARTMODELER_DEEPSEEK_API_KEY to run the live matrix.", flush=True)
+        return 2
+    app = QgsApplication([], False)
+    app.initQgis()
+    plugins_path = os.path.normpath(os.path.join(QgsApplication.prefixPath(), "python", "plugins"))
+    if plugins_path not in sys.path:
+        sys.path.insert(0, plugins_path)
+    source_root = Path(__file__).resolve().parents[1]
+    if str(source_root.parent) not in sys.path:
+        sys.path.insert(0, str(source_root.parent))
+    try:
+        from processing.core.Processing import Processing
+
+        Processing.initialize()
+        from planx_smartmodeler.processing.provider import SmartModelerProcessingProvider
+
+        registry = QgsApplication.processingRegistry()
+        provider = registry.providerById("smartmodeler")
+        added_provider = None
+        if provider is None:
+            added_provider = SmartModelerProcessingProvider()
+            registry.addProvider(added_provider)
+        try:
+            limit = int(os.environ.get("SMARTMODELER_DEEPSEEK_MATRIX_LIMIT", "10"))
+            summary, passed = run_matrix(api_key, limit)
+            print(summary, flush=True)
+            return 0 if passed else 1
+        finally:
+            if added_provider is not None:
+                registry.removeProvider(added_provider)
+    finally:
+        api_key = ""
+        app.exitQgis()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

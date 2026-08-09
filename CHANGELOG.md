@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.5] - 2026-08-09
+
+### Added
+
+- Add an opt-in ten-case DeepSeek acceptance matrix covering five small
+  Modeler graphs and five reviewed Agent Workflow Processing runs.
+- Keep each case isolated to an in-memory layer, remove generated outputs, and
+  return a non-zero exit code when any live case fails.
+
 ## [1.5.4] - 2026-08-09
 
 ### Fixed
