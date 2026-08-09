@@ -711,6 +711,25 @@ class AgentRunLoop:
         )
 
     @staticmethod
+    def _is_recoverable_proposal_validation(message: str) -> bool:
+        """Identify bounded live-signature mistakes worth one provider repair."""
+        text = str(message or "").casefold()
+        # Destination attempts are an intentional fail-closed boundary. They
+        # must not be turned into a second provider request or become
+        # indistinguishable from a harmless signature typo.
+        if "parameter output" in text or "output_" in text or "destination" in text:
+            return False
+        return any(
+            marker in text
+            for marker in (
+                "cannot be set by a proposal",
+                "a required input was not provided",
+                "this value form is not valid for this parameter",
+                "requested settings are not valid for this algorithm",
+            )
+        )
+
+    @staticmethod
     def _looks_like_terminal_proposal(raw_text: str) -> bool:
         """Keep semantic proposal failures on their strict receipt path.
 
@@ -1483,6 +1502,27 @@ class AgentRunLoop:
                 tool_events=tool_events,
             )
         if not validation.ok:
+            if (
+                self._is_recoverable_proposal_validation(validation.message)
+                and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+            ):
+                self._provider_recovery_attempts += 1
+                recovery = {
+                    "kind": "provider_recovery",
+                    "strategy": "repair_live_validated_proposal",
+                    "instruction": (
+                        "The live validator rejected the previous proposal for a "
+                        "mechanical signature reason: "
+                        f"{str(validation.message)[:300]} "
+                        "Return one corrected proposal using only parameters whose "
+                        "processing.describe row has a non-empty proposal_binding. "
+                        "Omit every destination/output field; outputs are forced to "
+                        "temporary layers. Preserve the inspected algorithm, exact "
+                        "context_token, and user intent. Do not claim execution."
+                    ),
+                }
+                self._turn_events.append(recovery)
+                return self._advance_turn(tool_events=(*tool_events, recovery))
             return self._fail(
                 validation.message or "The proposal was rejected.",
                 validation.reason_code or ProposalReason.VALIDATION_FAILED,

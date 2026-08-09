@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.19] - 2026-08-09
+
+### Fixed
+
+- Reinspect the live Processing signature before one bounded repair of an
+  unknown Agent binding envelope.
+- Reinspect live signatures before repairing non-destination proposal fields;
+  provider-supplied output destinations remain fail-closed and are never
+  silently removed.
+- Allow one bounded provider repair after a live validator rejects an
+  otherwise well-formed proposal for a signature or bindable-parameter error.
+
 ## [1.5.18] - 2026-08-09
 
 ### Fixed

@@ -228,7 +228,10 @@ def _check_common(
     if kind is None:
         # Not bindable at all: an unknown parameter, or a destination, or a
         # reviewed-but-unbindable parameter such as a raster creation option.
-        _reject("This parameter cannot be set by a proposal.", ProposalReason.UNSAFE_PARAMETER)
+        _reject(
+            f"Parameter {param} cannot be set by a proposal.",
+            ProposalReason.UNSAFE_PARAMETER,
+        )
     spec = params_by_name.get(param)
     if spec is None:
         _reject("This parameter is not part of the algorithm.", ProposalReason.SIGNATURE_MISMATCH)

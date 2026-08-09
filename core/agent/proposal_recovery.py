@@ -58,7 +58,16 @@ _LEGACY_ENUM_PARAMETER_NAMES = frozenset(
     {"METHOD", "OPERATOR", "TYPE", "JOIN_STYLE", "END_CAP_STYLE", "CAP_STYLE"}
 )
 _LEGACY_DESTINATION_NAMES = frozenset(
-    {"OUTPUT", "DESTINATION", "OUTPUT_LAYER", "OUTPUT_FILE", "TEMPORARY_OUTPUT"}
+    {
+        "OUTPUT",
+        "DESTINATION",
+        "OUTPUT_LAYER",
+        "OUTPUT_FILE",
+        "TEMPORARY_OUTPUT",
+        "OUTPUT_POINTS",
+        "OUTPUT_LINES",
+        "OUTPUT_POLYGONS",
+    }
 )
 _PROCESSING_RUN_KEYS = frozenset(
     {
@@ -249,6 +258,35 @@ def _needs_layer_extent_inspection(proposal: Mapping[str, Any]) -> bool:
     return False
 
 
+def _needs_binding_inspection(proposal: Mapping[str, Any]) -> bool:
+    """Detect an unknown binding envelope before asking the provider again."""
+    inputs = proposal.get("inputs")
+    if not isinstance(inputs, dict):
+        return False
+    canonical = {
+        "layer", "layers", "field", "layer_param", "number", "bool", "enum",
+        "enum_string", "string", "text", "crs", "distance", "map_extent",
+        "layer_extent", "osm_tag", "expression",
+    }
+    aliases = {"type", "kind", "tag", "binding_type", "form", "value"}
+    for name, binding in inputs.items():
+        if str(name).upper() in _LEGACY_DESTINATION_NAMES:
+            continue
+        if not isinstance(binding, dict):
+            return True
+        keys = set(binding)
+        if keys == {"field", "layer_param"}:
+            continue
+        if len(keys) == 1 and next(iter(keys)) in canonical - {"layer_param"}:
+            continue
+        if keys <= aliases and any(
+            key in binding for key in ("type", "kind", "tag", "binding_type", "form")
+        ):
+            continue
+        return True
+    return False
+
+
 def _token_is_usable(value: Any) -> bool:
     if not isinstance(value, str) or not 0 < len(value) <= MAX_TOKEN_CHARS:
         return False
@@ -350,6 +388,13 @@ def recover_agent_turn(
             return RecoveryResult(inspection=_inspection_for(kind, target))
         proposal["context_token"] = token
 
+    if kind == PROPOSAL_KIND_PROCESSING_RUN:
+        if _needs_binding_inspection(proposal):
+            return RecoveryResult(
+                inspection=InspectionRequest(
+                    "processing.describe", {"algorithm_id": target}
+                )
+            )
     if kind == PROPOSAL_KIND_PROCESSING_RUN and _needs_layer_extent_inspection(proposal):
         # The provider must choose the id from the trusted layer.list result;
         # recovery deliberately does not guess or inject a project layer.
