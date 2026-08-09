@@ -323,10 +323,72 @@ def main() -> int:
             if not all(abs(float(value) - 100.0) < 1e-6 for value in areas):
                 raise RuntimeError(f"Unexpected $area values: {areas!r}")
 
+            # A real session ended in "Missing or invalid context_token" after
+            # several correct turns: processing.resolve returned the signature
+            # under `resolved`, so a token read where every proposal example
+            # shows it -- the top level -- was empty. The reachable shape must
+            # be the correct one.
+            resolved = controller.execute(
+                AgentToolCall(
+                    call_id="fieldcalc_resolve",
+                    tool_name="processing.resolve",
+                    arguments={"algorithm_id": "native:fieldcalculator", "limit": 8},
+                ),
+                AgentMode.PLAN,
+                AgentScope.PROJECT,
+            )
+            if resolved.status != AgentResultStatus.SUCCESS:
+                raise RuntimeError("processing.resolve failed for the Field Calculator.")
+            top_token = resolved.data.get("context_token", "")
+            nested = resolved.data.get("resolved") or {}
+            if not top_token or top_token != nested.get("context_token"):
+                raise RuntimeError(
+                    "processing.resolve did not surface the signature token at the "
+                    f"top level: top={top_token!r}"
+                )
+            if resolved.data.get("algorithm_id") != "native:fieldcalculator":
+                raise RuntimeError(
+                    "processing.resolve did not surface the algorithm id at the top level."
+                )
+            # The token must actually work, not merely be present.
+            resolve_proposal = parse_proposal(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "context_token": top_token,
+                        "algorithm_id": resolved.data["algorithm_id"],
+                        "title": "Add resolved area",
+                        "summary": "Propose straight from processing.resolve.",
+                        "inputs": {
+                            "INPUT": {"layer": source.id()},
+                            "FIELD_NAME": {"string": "resolved_area"},
+                            "FIELD_TYPE": {"enum_string": "Decimal (double)"},
+                            "FORMULA": {"expression": "$area"},
+                        },
+                        "warnings": [],
+                    }
+                ),
+            )
+            resolve_validation = RuntimeProposalValidator(
+                lambda: None, tokens
+            ).validate(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                resolve_proposal,
+                AgentMode.ACT,
+                AgentScope.PROJECT,
+            )
+            if not resolve_validation.ok:
+                raise RuntimeError(
+                    "A proposal built from processing.resolve was rejected: "
+                    f"{resolve_validation.reason_code} {resolve_validation.message}"
+                )
+
             print(
                 "AGENT EXPRESSION SMOKE PASS: QGIS parsed rand/$area, rejected "
                 "unsafe formulas, Field Calculator created six integer values, "
-                "and a padded field name was stored exactly as area_m2."
+                "a padded field name was stored exactly as area_m2, and a "
+                "processing.resolve token proposed directly."
             )
             return 0
         finally:

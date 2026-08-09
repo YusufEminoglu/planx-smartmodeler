@@ -56,7 +56,13 @@ class PromptContextTests(unittest.TestCase):
         self.assertNotIn("# Power Mode", python_off)
         self.assertIn("# Power Mode", python_on)
         self.assertIn("# Power Mode", generic_power_on)
-        self.assertLess(len(basic), 5_000)
+        # The core pack is the fixed per-turn cost, so it stays bounded. The
+        # budget was raised from 5 000 once: two silent-failure classes seen in
+        # real runs -- a choice bound by miscounted index, and a multi-run
+        # request answered with prose instead of the first proposal -- are only
+        # preventable from this always-loaded pack, and squeezing the wording
+        # further was costing clarity rather than tokens.
+        self.assertLess(len(basic), 5_600)
 
 
 class FakeMarkdown:

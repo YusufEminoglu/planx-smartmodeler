@@ -691,6 +691,27 @@ def _tool_processing_describe_factory(
     return _handler
 
 
+def _resolved_identity(described: Any) -> Dict[str, Any]:
+    """Lift the identity a proposal needs out of a nested resolve payload.
+
+    ``processing.resolve`` returns the signature under ``resolved``. Everything
+    required to *propose* -- the algorithm id and the context token -- was
+    therefore one level deeper than the shape every proposal example shows, and
+    a token read from the top level came back empty. Surfacing both here makes
+    the reachable shape the correct one instead of a documented trap.
+    """
+    if not isinstance(described, dict):
+        return {}
+    identity = {}
+    token = described.get("context_token")
+    if isinstance(token, str) and token:
+        identity["context_token"] = token
+    algorithm_id = described.get("algorithm_id")
+    if isinstance(algorithm_id, str) and algorithm_id:
+        identity["algorithm_id"] = algorithm_id
+    return identity
+
+
 def _tool_processing_resolve_factory(
     token_service: ContextTokenService,
 ) -> Callable[[AgentToolCall], Dict[str, Any]]:
@@ -707,14 +728,20 @@ def _tool_processing_resolve_factory(
         if not algorithm_id and not query:
             raise ToolExecutionError("query or algorithm_id is required.")
         if algorithm_id:
+            described = describe(
+                AgentToolCall(
+                    call_id=call.call_id,
+                    tool_name="processing.describe",
+                    arguments={"algorithm_id": algorithm_id, "limit": limit},
+                )
+            )
             return {
-                "resolved": describe(
-                    AgentToolCall(
-                        call_id=call.call_id,
-                        tool_name="processing.describe",
-                        arguments={"algorithm_id": algorithm_id, "limit": limit},
-                    )
-                ),
+                "resolved": described,
+                # Also surfaced at the top level. A proposal is rejected outright
+                # without this token, and when it existed only under `resolved`
+                # a whole correct multi-turn run could end in
+                # "Missing or invalid context_token".
+                **_resolved_identity(described),
                 "algorithms": [],
                 "truncated": False,
             }
@@ -739,6 +766,7 @@ def _tool_processing_resolve_factory(
                 )
         return {
             "resolved": resolved,
+            **_resolved_identity(resolved),
             "algorithms": algorithms,
             "truncated": bool(search.get("truncated", False)),
         }
