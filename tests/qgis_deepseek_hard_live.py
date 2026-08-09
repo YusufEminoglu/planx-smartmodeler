@@ -310,6 +310,45 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
             "native:fieldcalculator",
             "polygon",
         )
+
+        def _area_values(layer: QgsVectorLayer) -> list[float]:
+            if layer.fields().indexOf(area_field) < 0:
+                return []
+            values = []
+            for feature in layer.getFeatures():
+                value = feature[area_field]
+                if value is None:
+                    return []
+                try:
+                    values.append(float(value))
+                except (TypeError, ValueError):
+                    return []
+            return values if values and len(values) == layer.featureCount() else []
+
+        # A successful Processing receipt is not enough for this acceptance
+        # workflow: the calculated field must contain values before the next
+        # stage uses it. Ask DeepSeek for one bounded semantic repair when a
+        # provider-specific field-calculator proposal produced an empty or
+        # unpopulated field. The source result is removed before retrying so
+        # the provider can only select the intended reprojected layer.
+        if not _area_values(measured):
+            project = QgsProject.instance()
+            project.removeMapLayer(measured.id())
+            measured, repair = _stage(
+                api_key,
+                projected,
+                f"The previous Field Calculator result did not populate the "
+                f"requested field {area_field}. Inspect the reprojected polygon "
+                f"layer again and prepare one corrected reviewed "
+                f"native:fieldcalculator run. FIELD_NAME must be the exact "
+                f"string {area_field}; FIELD_TYPE must be the live Double "
+                f"option; FORMULA must be exactly the QGIS expression $area "
+                f"without extra quotes; use temporary output. Do not use "
+                f"Python or SQL, and do not claim execution.",
+                "native:fieldcalculator",
+                "polygon",
+            )
+            third = f"{third}; semantic_repair={repair}"
         analyzed, fourth = _stage(
             api_key,
             measured,
@@ -320,8 +359,8 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
             analysis_algorithm,
             "vector",
         )
-        areas = [float(feature[area_field]) for feature in measured.getFeatures() if feature[area_field] is not None]
-        if len(areas) != measured.featureCount() or not areas:
+        areas = _area_values(measured)
+        if not areas:
             raise RuntimeError(f"area field {area_field!r} was not populated")
         mean = sum(areas) / len(areas)
         return (

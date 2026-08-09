@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.27] - 2026-08-09
+
+### Fixed
+
+- Add a bounded semantic recovery to the multi-stage OSM acceptance workflow when Field Calculator produces an empty or unpopulated area field.
+- Require the recovery proposal to inspect the source again and use the exact field name, live Double option, and unquoted `$area` expression.
+
 ## [1.5.26] - 2026-08-09
 
 ### Fixed
