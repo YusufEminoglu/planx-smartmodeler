@@ -371,6 +371,17 @@ class WorkflowStudioRequestUnchangedTests(unittest.TestCase):
         )
         self.assertEqual(payload["response_format"], {"type": "json_object"})
 
+    def test_deepseek_json_object_prompt_contains_lowercase_json(self) -> None:
+        _, _, payload = AiNetworkClient.build_request(
+            make_profile("deepseek"), "key", "SYS", "USER"
+        )
+        combined_prompt = "\n".join(
+            message["content"] for message in payload["messages"]
+        )
+        self.assertIn("json", combined_prompt)
+        self.assertIn("do not return an empty response", combined_prompt)
+        self.assertEqual(payload["thinking"], {"type": "disabled"})
+
     def test_ollama(self) -> None:
         _, _, payload = AiNetworkClient.build_request(
             make_profile("ollama"), "", "sys", "user"
@@ -524,6 +535,12 @@ class ExtractContentTests(unittest.TestCase):
     def test_anthropic_missing_tool_result_is_a_sanitized_error(self) -> None:
         with self.assertRaises(AiResponseError):
             AiNetworkClient.extract_content("anthropic", {"content": []})
+
+    def test_deepseek_empty_content_is_a_sanitized_error(self) -> None:
+        with self.assertRaisesRegex(AiResponseError, "content was empty"):
+            AiNetworkClient.extract_content(
+                "deepseek", {"choices": [{"message": {"content": ""}}]}
+            )
 
 
 class TransientStateClearedTests(unittest.TestCase):
@@ -736,6 +753,17 @@ class CancellationTerminalBoundaryTests(unittest.TestCase):
             "gemini", 400, b'{"error":{}}', self._OTHER_ERROR, cancelled=False
         )
         self.assertEqual(len(posts), 1)
+
+    def test_deepseek_empty_content_gets_one_bounded_retry(self) -> None:
+        client, posts, fails = _run_on_finished(
+            "deepseek",
+            200,
+            b'{"choices":[{"message":{"content":""}}]}',
+            QNetworkReply.NetworkError.NoError,
+        )
+        self.assertEqual(len(posts), 1)
+        self.assertEqual(fails, [])
+        self.assertTrue(client._retried_empty)
 
 
 class ResponseBodyBoundTests(unittest.TestCase):

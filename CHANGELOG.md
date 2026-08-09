@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.1] - 2026-08-09
+
+### Fixed
+
+- Harden DeepSeek structured-output requests with the provider's required
+  lowercase `json` instruction and an explicit non-empty JSON response rule.
+- Disable DeepSeek thinking for structured graph and agent turns to keep the
+  final response in the content field and reduce token use.
+- Retry one empty DeepSeek JSON response with a bounded, more explicit prompt;
+  repeated empty responses now fail clearly instead of being treated as a
+  successful empty result.
+- Add an opt-in live acceptance harness for both Modeler and Agent Workflow
+  paths without persisting or printing the API key.
+
 ## [1.4.0] - 2026-08-09
 
 ### Added
@@ -128,8 +142,8 @@ All notable changes to SmartModeler GIS are documented here. The project follows
 ### Fixed
 
 - Recognize active-layer numeric threshold requests such as
-  `lcz_weak_confidence değeri 0.6 değerinin altına olanları ... farklı bir
-  katman olarak kaydet` and construct a provider-free
+  `keep features where lcz_weak_confidence is below 0.6 as a new layer` and
+  construct a provider-free
   `native:extractbyattribute` proposal with the strict less-than operator.
 - Accept numeric `<`, `<=`, `>`, and `>=` symbols plus common Turkish/English
   below/above wording while preserving QGIS's exact enum bindings.
@@ -190,7 +204,7 @@ All notable changes to SmartModeler GIS are documented here. The project follows
 - Resolve an explicitly named project layer from requests such as
   `Audit - DOLDURULACAK bu katmanda`, instead of requiring the phrase
   `active layer`.
-- Recognize the `field_name isimli sütun değeri "value"` Turkish word order.
+- Recognize named-field requests with a quoted value in natural-language order.
 - Correct a requested field name by one insertion, deletion, or substitution
   only when exactly one live field matches. The correction is disclosed in the
   Run-card warnings; missing or ambiguous corrections fail closed.
@@ -211,9 +225,8 @@ All notable changes to SmartModeler GIS are documented here. The project follows
 
 ### Fixed
 
-- Recognize mixed Turkish/English active-layer filter requests where the field
-  follows `sütun adı` and a quoted value precedes `değerindekileri`, including
-  the exact reported `active katmandaki ... "low" değerindekileri` wording.
+- Recognize mixed-language active-layer filter requests where a field and
+  quoted value appear in natural-language order.
 - Stop recognized layer-creating requests immediately in Ask mode with a clear
   instruction to select `Act (approve to apply)`, explicitly distinguishing
   Agent mode from Power Mode instead of spending provider turns.
@@ -323,7 +336,7 @@ All notable changes to SmartModeler GIS are documented here. The project follows
   `proposal_kind: processing` spelling without widening tool or proposal
   authority; ambiguous or unknown markers still fail closed.
 - Preserve the previous operation's capability pack for short follow-ups such
-  as `hazır`, `yapsana`, a bare field/layer answer, or `neden yapmıyorsun?`, so
+  as `ready`, `do it`, a bare field/layer answer, or `why did it stop?`, so
   Processing discovery does not disappear mid-conversation.
 - Explicitly require capability answers to distinguish advertised tools from
   hypothetical future tools instead of inventing unavailable tool names.

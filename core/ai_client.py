@@ -150,6 +150,7 @@ class AiNetworkClient(QObject):
         self._timer: QTimer | None = None
         self._profile: AiProfile | None = None
         self._retried_format = False
+        self._retried_empty = False
         self._cancelled = False
         self._api_key = ""
         self._system_prompt = ""
@@ -223,6 +224,7 @@ class AiNetworkClient(QObject):
             return
         self._profile = profile
         self._retried_format = False
+        self._retried_empty = False
         self._cancelled = False
         self._api_key = api_key
         self._system_prompt = system_prompt
@@ -257,6 +259,19 @@ class AiNetworkClient(QObject):
 
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         endpoint = profile.endpoint.strip()
+
+        # DeepSeek validates json_object mode before it processes the request
+        # and requires the literal lowercase word "json" in the prompt. Our
+        # normal prompts may describe JSON with uppercase letters, so keep
+        # this provider compatibility rule in the shared request builder.
+        if profile.provider_id == "deepseek":
+            prompt_text = f"{system_prompt}\n{user_prompt}"
+            if "json" not in prompt_text:
+                system_prompt = (
+                    f"{system_prompt.rstrip()}\n\n"
+                    "Return one valid json object matching the response schema; "
+                    "do not return an empty response."
+                )
 
         if profile.provider_id == "openai":
             headers["Authorization"] = f"Bearer {api_key}"
@@ -372,6 +387,12 @@ class AiNetworkClient(QObject):
                 "max_tokens": MAX_STRUCTURED_OUTPUT_TOKENS,
                 "response_format": response_format,
             }
+            if profile.provider_id == "deepseek":
+                # DeepSeek documents occasional empty content with JSON Output
+                # while thinking is enabled. Structured graph/agent responses
+                # need the final JSON message, not a reasoning-only turn; the
+                # explicit switch also keeps these requests token-efficient.
+                payload["thinking"] = {"type": "disabled"}
         else:
             raise ValueError(f"Unsupported AI provider: {profile.provider_id}")
         return endpoint, headers, payload
@@ -502,6 +523,33 @@ class AiNetworkClient(QObject):
             ValueError,
             AiResponseError,
         ) as error:
+            if (
+                str(error) == "Provider response content was empty."
+                and self._profile is not None
+                and self._profile.provider_id == "deepseek"
+                and not self._retried_empty
+            ):
+                # DeepSeek documents occasional empty JSON-mode content. Make
+                # one bounded retry with an explicit final-output instruction;
+                # never loop or silently report an empty success.
+                self._retried_empty = True
+                retry_system = (
+                    f"{self._system_prompt.rstrip()}\n\n"
+                    "The previous response was empty. Return the required "
+                    "json object now, with no explanation and no blank output."
+                )
+                try:
+                    endpoint, headers, payload = self.build_request(
+                        self._profile,
+                        self._api_key,
+                        retry_system,
+                        self._user_prompt,
+                        contract=self._contract,
+                    )
+                    self._post(endpoint, headers, payload)
+                    return
+                except (TypeError, ValueError):
+                    pass
             endpoint_str = self._profile.endpoint if self._profile else ""
             err_detail = self._sanitize_error_text(
                 str(error), self._api_key, self._system_prompt, self._user_prompt, endpoint_str
@@ -607,6 +655,8 @@ class AiNetworkClient(QObject):
             raise AiResponseError("Provider response shape was invalid.") from error
         if not isinstance(text, str):
             raise AiResponseError("Provider response text was invalid.")
+        if not text.strip():
+            raise AiResponseError("Provider response content was empty.")
         return text
 
     @staticmethod
