@@ -1,6 +1,7 @@
 """QGIS plugin lifecycle for SmartModeler GIS."""
 from __future__ import annotations
 
+import contextlib
 import os
 
 from qgis.PyQt.QtCore import QTimer, Qt
@@ -168,14 +169,26 @@ class SmartModelerPlugin:
         self.translation.remove()
 
     def _dispose_window_when_idle(self, window: SmartModelerWindow) -> None:
-        """Never delete a window while its synchronous run stack is unwinding."""
-        if window._is_executing:
+        """Never delete a window while its synchronous run stack is unwinding.
+
+        This retries itself on a timer, so the window's C++ object can be gone
+        by the time a tick lands -- another teardown path won the race, or QGIS
+        is closing. Touching the dead wrapper then raises out of a Qt slot,
+        which Python surfaces as an unhandled exception during unload. There is
+        nothing left to dispose of in that case, so stop quietly.
+        """
+        try:
+            still_running = bool(window._is_executing)
+        except RuntimeError:
+            return
+        if still_running:
             QTimer.singleShot(
                 25, lambda: self._dispose_window_when_idle(window)
             )
             return
-        window.close()
-        window.deleteLater()
+        with contextlib.suppress(RuntimeError):
+            window.close()
+            window.deleteLater()
 
     def run(self) -> None:
         if self.window is None:

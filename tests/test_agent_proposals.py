@@ -312,6 +312,53 @@ class LayerStyleParsingTests(unittest.TestCase):
         with self.assertRaises(ProposalError):
             parse_proposal("layer_style", bad)
 
+    def test_classification_method_defaults_to_equal_interval(self) -> None:
+        # A proposal written before `method` existed must keep working and keep
+        # its old behaviour exactly.
+        proposal = parse_proposal(
+            "layer_style",
+            style_json(
+                renderer_dict(
+                    "graduated",
+                    field="pop",
+                    class_count=3,
+                    palette=["#000000", "#777777", "#ffffff"],
+                ),
+                labels_dict(),
+            ),
+        )
+        self.assertEqual(proposal.renderer.method, "equal_interval")
+
+    def test_classification_method_accepts_the_live_methods(self) -> None:
+        for method in ("equal_interval", "quantile", "natural_breaks"):
+            with self.subTest(method=method):
+                renderer = renderer_dict(
+                    "graduated",
+                    field="pop",
+                    class_count=3,
+                    palette=["#000000", "#777777", "#ffffff"],
+                )
+                renderer["method"] = method
+                proposal = parse_proposal(
+                    "layer_style", style_json(renderer, labels_dict())
+                )
+                self.assertEqual(proposal.renderer.method, method)
+
+    def test_an_unknown_classification_method_is_rejected(self) -> None:
+        # Fail closed: an unrecognized method must not silently fall back to
+        # equal interval and quietly classify the layer the wrong way.
+        for method in ("jenks", "stddev", "", 5, None):
+            with self.subTest(method=method):
+                renderer = renderer_dict(
+                    "graduated",
+                    field="pop",
+                    class_count=3,
+                    palette=["#000000", "#777777", "#ffffff"],
+                )
+                renderer["method"] = method
+                with self.assertRaises(ProposalError):
+                    parse_proposal("layer_style", style_json(renderer, labels_dict()))
+
     def test_raster_pseudocolor_family(self) -> None:
         parse_proposal(
             "layer_style",

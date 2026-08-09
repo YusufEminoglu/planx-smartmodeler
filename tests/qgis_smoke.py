@@ -1931,6 +1931,71 @@ def run_checks() -> str:
         if style_layer.renderer().type() != renderer_type_before:
             raise RuntimeError("Undo did not restore the prior renderer.")
 
+        # Graduated classification methods. Equal interval used to be the only
+        # behaviour, so a request for natural breaks or quantiles could not be
+        # honoured at all; each reviewed method must reach the live renderer.
+        numeric_field = next(
+            (
+                field.name()
+                for field in style_layer.fields()
+                if field.isNumeric()
+            ),
+            "",
+        )
+        if numeric_field:
+            for method, expected in (
+                ("natural_breaks", "Jenks"),
+                ("quantile", "Quantile"),
+                ("equal_interval", "EqualInterval"),
+            ):
+                method_token = apply_dock.controller.execute(
+                    AgentToolCall(
+                        call_id=f"p4_style_{method}",
+                        tool_name="layer.style",
+                        arguments={"layer_id": style_layer.id()},
+                    ),
+                    AgentMode.PLAN,
+                    AgentScope.PROJECT,
+                ).data["context_token"]
+                graduated = _json.dumps({
+                    "schema_version": 1, "context_token": method_token,
+                    "target_layer_id": style_layer.id(),
+                    "title": f"Graduated {method}",
+                    "summary": "Classify the numeric field.",
+                    "renderer": {
+                        "family": "graduated", "field": numeric_field,
+                        "class_count": 3,
+                        "palette": ["#FFF5EB", "#FD8D3C", "#7F2704"],
+                        "opacity": 1.0, "method": method,
+                    },
+                    "labels": {"enabled": False, "field": ""}, "warnings": [],
+                })
+                _feed_act(apply_dock, AgentScope.PROJECT, "layer_style", graduated)
+                if apply_dock._pending_action is None:
+                    raise RuntimeError(f"The {method} style proposal was not accepted.")
+                apply_dock._on_apply_clicked()
+                applied_renderer = style_layer.renderer()
+                if applied_renderer.type() != "graduatedSymbol":
+                    raise RuntimeError(
+                        f"{method} did not install a graduated renderer."
+                    )
+                try:
+                    live_method = type(
+                        applied_renderer.classificationMethod()
+                    ).__name__
+                except Exception:  # noqa: BLE001 - older API without the getter
+                    live_method = ""
+                if expected.casefold() not in live_method.casefold():
+                    raise RuntimeError(
+                        f"{method} produced classification {live_method!r}, "
+                        f"expected {expected}."
+                    )
+            apply_dock._on_undo_clicked()
+            # These checks are QA, not part of the calibrated action budget:
+            # the dock caps a session at MAX_SESSION_ACTIONS and later phases
+            # are calibrated against it, so give back what this block spent.
+            apply_dock._session_action_count -= 3
+
         # The ledger records outcomes and leaks no raw values.
         ledger_text = "\n".join(str(e.to_dict()) for e in apply_dock.action_ledger.entries())
         for leaked in ("SENTINEL_CATEGORY_LABEL", "SENTINEL_LABEL_EXPRESSION", "#3366CC"):

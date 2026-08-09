@@ -220,6 +220,10 @@ def select_tools_for_request(
             )
         )
 
+    # Named for the *operation the user asks for*, in both working languages.
+    # A routing audit (test_agent_capability_routing) found this table missed
+    # most Turkish verbs and even "fix invalid geometries", so ordinary requests
+    # fell through to the minimal discovery pack.
     processing_terms = (
         "process", "algorithm", "buffer", "reproject", "extract", "calculate",
         "field", "expression", "rand(", "$area", "$length", "clip", "merge",
@@ -227,6 +231,12 @@ def select_tools_for_request(
         "dissolve", "processing", "filter", "filtre", "süz", "suz",
         "extract by attribute", "yeni katman", "katman olarak üret",
         "sütun", "sutun", "alan hesap",
+        # geometry and overlay verbs
+        "tampon", "dönüştür", "donustur", "erit", "onar", "kırp", "kirp",
+        "kesiş", "kesis", "birleştir", "birlestir", "eşleştir", "eslestir",
+        "merkez", "rastgele", "say", "ayıkla", "ayikla",
+        "geometr", "centroid", "intersect", "join", "count", "random",
+        "convex", "bounding", "fix", "crs", "epsg", "difference",
     )
     if any(term in folded for term in processing_terms):
         wanted.update(
@@ -239,9 +249,19 @@ def select_tools_for_request(
                 "layer.describe",
             )
         )
+    # OSM requests name a *subject*, and the original three (roads, buildings,
+    # trees) were a small fraction of what people ask for. "indir"/"download" is
+    # itself a strong signal here: the downloader is the acquisition path.
     osm_terms = (
         "osm", "openstreetmap", "overpass", "02agent", "road", "building",
         "tree", "yol", "bina", "ağaç", "agac",
+        "indir", "download",
+        "okul", "school", "hastane", "hospital", "eczane", "pharmacy",
+        "park", "yeşil alan", "yesil alan", "green",
+        "nehir", "river", "su yolu", "waterway", "akarsu",
+        "sokak", "cadde", "street", "highway",
+        "arazi kullanım", "arazi kullanim", "landuse", "amenity", "poi",
+        "durak", "transit", "railway", "demiryolu",
     )
     if any(term in folded for term in osm_terms):
         wanted.update(

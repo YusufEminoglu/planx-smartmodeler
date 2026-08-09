@@ -188,11 +188,13 @@ def _strict_object(text: str) -> Dict[str, Any]:
     return data
 
 
-def _require_exact_keys(value: Dict[str, Any], expected: set, label: str) -> None:
+def _require_exact_keys(
+    value: Dict[str, Any], expected: set, label: str, optional: set = frozenset()
+) -> None:
     actual = set(value)
-    if actual != expected:
+    if actual != expected and (actual - optional) != expected:
         missing = sorted(expected - actual)
-        extra = sorted(actual - expected)
+        extra = sorted(actual - expected - optional)
         details = []
         if missing:
             details.append("missing " + ", ".join(missing))
@@ -886,6 +888,11 @@ class RendererIntent:
     class_count: int
     palette: Tuple[str, ...]
     opacity: float
+    # How a graduated renderer cuts its classes. Optional and defaulted, so a
+    # proposal written before this existed stays valid. Equal interval was the
+    # only behaviour available, which meant a request for natural breaks or
+    # quantiles could not be honoured at all.
+    method: str = "equal_interval"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -894,6 +901,7 @@ class RendererIntent:
             "class_count": self.class_count,
             "palette": list(self.palette),
             "opacity": self.opacity,
+            "method": self.method,
         }
 
 
@@ -953,6 +961,11 @@ _LAYER_STYLE_KEYS = {
     "warnings",
 }
 _RENDERER_KEYS = {"family", "field", "class_count", "palette", "opacity"}
+_RENDERER_OPTIONAL_KEYS = frozenset({"method"})
+# Every method here is a live QGIS classification the apply step can build.
+_ALLOWED_CLASSIFICATION_METHODS = frozenset(
+    {"equal_interval", "quantile", "natural_breaks"}
+)
 _LABELS_KEYS = {"enabled", "field"}
 
 
@@ -1002,16 +1015,23 @@ def _palette(value: Any) -> Tuple[str, ...]:
 def _parse_renderer(data: Any) -> RendererIntent:
     if not isinstance(data, dict):
         raise ProposalError("renderer must be an object.", ProposalReason.MALFORMED)
-    _require_exact_keys(data, _RENDERER_KEYS, "renderer")
+    _require_exact_keys(data, _RENDERER_KEYS, "renderer", _RENDERER_OPTIONAL_KEYS)
     family = data["family"]
     if family not in _ALLOWED_RENDERER_FAMILIES:
         raise ProposalError(f"Unknown renderer family: {family!r}.", ProposalReason.MALFORMED)
+    method = data.get("method", "equal_interval")
+    if not isinstance(method, str) or method not in _ALLOWED_CLASSIFICATION_METHODS:
+        raise ProposalError(
+            "renderer method must be equal_interval, quantile, or natural_breaks.",
+            ProposalReason.MALFORMED,
+        )
     renderer = RendererIntent(
         family=family,
         field=_field_name(data["field"], "renderer field"),
         class_count=_class_count(data["class_count"]),
         palette=_palette(data["palette"]),
         opacity=_opacity(data["opacity"]),
+        method=method,
     )
     _validate_renderer_shape(renderer)
     return renderer

@@ -64,14 +64,40 @@ class PromptContextLoader:
         )
         if any(term in folded for term in expression_terms):
             names.append("15_QGIS_EXPRESSIONS.md")
+        # An OSM request names a subject, not the word "OSM". Roads, buildings
+        # and trees were a small fraction of what people ask for, so requests
+        # for schools, parks, rivers or streets never received the acquisition
+        # guidance. Kept in step with prompt_builder's osm_terms.
         if any(
             term in folded
             for term in (
                 "osm", "openstreetmap", "overpass", "02agent", "road",
                 "building", "tree", "yol", "bina", "ağaç", "agac",
+                "indir", "download",
+                "okul", "school", "hastane", "hospital", "eczane", "pharmacy",
+                "park", "yeşil alan", "yesil alan",
+                "nehir", "river", "su yolu", "waterway", "akarsu",
+                "sokak", "cadde", "street", "highway",
+                "arazi kullanım", "arazi kullanim", "landuse", "amenity", "poi",
+                "durak", "transit", "railway", "demiryolu",
             )
         ):
             names.append("16_OSM.md")
+        # Styling had no reference pack at all: the compact core carries only
+        # the proposal shape, so a classification request got no guidance on
+        # which renderer family or method to use. Kept in step with
+        # prompt_builder's style terms.
+        if any(
+            term in folded
+            for term in (
+                "style", "symbol", "label", "renderer", "stil", "sembol", "etiket",
+                "classif", "sınıflandır", "siniflandir", "sınıf", "sinif",
+                "jenks", "natural break", "doğal kırılma", "dogal kirilma",
+                "quantile", "quintile", "kantil", "graduated", "kademeli",
+                "categor", "kategori", "renklendir", "colour", "color",
+            )
+        ):
+            names.append("17_STYLE.md")
         if power_enabled:
             names.append("25_POWER_MODE.md")
         if str(scope) == "workspace":

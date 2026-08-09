@@ -662,6 +662,8 @@ class RuntimeApplyCoordinator:
     def _graduated_renderer(self, layer: Any, proposal: LayerStyleProposal) -> Any:
         from qgis.core import (
             QgsClassificationEqualInterval,
+            QgsClassificationJenks,
+            QgsClassificationQuantile,
             QgsGradientColorRamp,
             QgsGraduatedSymbolRenderer,
             QgsSymbol,
@@ -683,11 +685,26 @@ class RuntimeApplyCoordinator:
         ramp = QgsGradientColorRamp(
             QColor(palette[0]), QColor(palette[-1])
         ) if palette else None
-        with contextlib.suppress(Exception):  # older API fallback below
-            renderer.setClassificationMethod(QgsClassificationEqualInterval())
-        renderer.updateClasses(
-            layer, QgsGraduatedSymbolRenderer.Mode.EqualInterval, proposal.renderer.class_count
+        # The reviewed method decides how the classes are cut. Jenks and
+        # quantile are what a planner actually asks for; equal interval stays
+        # the default so an older proposal behaves exactly as before.
+        method = getattr(proposal.renderer, "method", "equal_interval")
+        classification, mode = {
+            "natural_breaks": (
+                QgsClassificationJenks,
+                QgsGraduatedSymbolRenderer.Mode.Jenks,
+            ),
+            "quantile": (
+                QgsClassificationQuantile,
+                QgsGraduatedSymbolRenderer.Mode.Quantile,
+            ),
+        }.get(
+            method,
+            (QgsClassificationEqualInterval, QgsGraduatedSymbolRenderer.Mode.EqualInterval),
         )
+        with contextlib.suppress(Exception):  # older API fallback below
+            renderer.setClassificationMethod(classification())
+        renderer.updateClasses(layer, mode, proposal.renderer.class_count)
         if ramp is not None:
             with contextlib.suppress(Exception):
                 renderer.updateColorRamp(ramp)
