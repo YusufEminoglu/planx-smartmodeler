@@ -41,6 +41,11 @@ from .protocol import (
 
 ReceiptKey = Tuple[str, str]
 
+_PROPOSAL_KIND_ALIASES = {
+    "processing": PROPOSAL_KIND_PROCESSING_RUN,
+    "style": PROPOSAL_KIND_LAYER_STYLE,
+}
+
 
 @dataclass(frozen=True)
 class InspectionRequest:
@@ -164,6 +169,7 @@ def recover_agent_turn(
     proposal_json = outer.get("proposal_json")
     if not isinstance(kind, str) or not isinstance(proposal_json, str):
         return RecoveryResult()
+    kind = _PROPOSAL_KIND_ALIASES.get(kind, kind)
     if not proposal_json.strip() or len(proposal_json) > MAX_PROPOSAL_JSON_CHARS:
         return RecoveryResult()
     proposal = _object(proposal_json)
@@ -183,6 +189,7 @@ def recover_agent_turn(
         _normalize_style(proposal)
 
     repaired = dict(outer)
+    repaired["proposal_kind"] = kind
     # DeepSeek occasionally labels a complete proposal envelope as ``final``.
     # This promotion changes no proposal content or authority: the strict
     # parser still requires a proposable kind, parses the inert proposal, and

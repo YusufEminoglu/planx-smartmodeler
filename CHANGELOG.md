@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.5.2] - 2026-08-09
+
+### Fixed
+
+- Normalize a complete DeepSeek proposal labelled `final` before semantic
+  rejection, while still dropping tool calls and preserving strict proposal,
+  freshness, scope, and approval checks.
+- Normalize the provider's `processing` and `style` proposal aliases during
+  bounded recovery so a missing receipt can still request the trusted live
+  inspection.
+
 ## [1.5.1] - 2026-08-09
 
 ### Fixed

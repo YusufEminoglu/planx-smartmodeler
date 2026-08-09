@@ -759,12 +759,13 @@ class ProposalProtocolTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
-    def test_final_cannot_carry_a_proposal(self) -> None:
+    def test_final_with_a_complete_proposal_is_normalized_to_proposal(self) -> None:
         raw = _turn_json(
             ACTION_FINAL, "done", proposal_kind="model_patch", proposal_json=VALID_MODEL_PATCH_JSON
         )
-        with self.assertRaises(ProtocolError):
-            parse_agent_turn(raw, 3)
+        turn = parse_agent_turn(raw, 3)
+        self.assertTrue(turn.is_proposal)
+        self.assertEqual(turn.proposal_kind, "model_patch")
 
     def test_proposal_discards_repeated_tool_calls_without_executing_them(self) -> None:
         raw = _turn_json(

@@ -444,6 +444,17 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
     ):
         action = ACTION_PROPOSAL
 
+    # DeepSeek can emit a complete inert proposal with the terminal ``final``
+    # marker. Treating that marker as a proposal is authority-reducing: no
+    # tool calls are executed, and the proposal still passes the strict parser
+    # plus the live freshness, scope, and approval boundaries downstream.
+    if (
+        action == ACTION_FINAL
+        and proposal_kind in PROPOSABLE_KINDS
+        and proposal_json.strip()
+    ):
+        action = ACTION_PROPOSAL
+
     if action == ACTION_FINAL:
         _require_no_tool_calls(tool_calls_data, "A final turn must not include tool calls.")
         _require_no_proposal(proposal_kind, proposal_json, "A final turn must not carry proposal data.")
