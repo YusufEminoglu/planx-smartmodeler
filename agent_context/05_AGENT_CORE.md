@@ -14,6 +14,9 @@ Efficiency:
 - Call independent inspections together in one `tool_calls` turn.
 - Prefer `processing.resolve` when the intended algorithm or common operation
   is known; do not repeat broad searches.
+- `processing.resolve` accepts an optional small integer `limit`; use it for a
+  large signature so the result stays in context. The resolver preserves
+  required inputs and extent/layer bindings when it trims optional parameters.
 - After a successful describe/resolve, use its exact ids, parameter bindings
   and `context_token`. Do not search again unless the result is ambiguous.
 - Finish or propose as soon as the request is resolved.

@@ -284,8 +284,10 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
             "OSM Downloader Processing provider and prepare one reviewed run of "
             "zero2agentosm:download_advanced. Download polygon neighborhood "
             "boundaries by matching ALL tags boundary=administrative and "
-            "admin_level=10 within the current extent. Do not invent a URL or "
-            "claim the download already ran.",
+            "admin_level=10 within the current extent. First call "
+            "processing.resolve with this exact algorithm_id and limit=8; use "
+            "the returned required bindings and layer_extent alternative. Do not "
+            "invent a URL or claim the download already ran.",
             "zero2agentosm:download_advanced",
             "polygon",
         )

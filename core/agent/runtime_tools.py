@@ -40,6 +40,7 @@ DEFAULT_LIST_LIMIT = agent_context.DEFAULT_LIST_LIMIT
 MAX_LIST_LIMIT = agent_context.MAX_LIST_ITEMS
 DEFAULT_PROCESSING_SEARCH_LIMIT = 8
 DEFAULT_PROCESSING_DESCRIBE_LIMIT = 40
+DEFAULT_PROCESSING_RESOLVE_LIMIT = 8
 
 _QUERY_MAX_LENGTH = 200
 _ID_MAX_LENGTH = 200
@@ -624,11 +625,36 @@ def _tool_processing_describe_factory(
                 ),
             }
 
-        parameters = (
+        parameter_rows = [
             _parameter_row(definition)
             for definition in algorithm.parameterDefinitions()
-        )
-        bounded, truncated = agent_context.bound_list(parameters, limit)
+        ]
+        if len(parameter_rows) > limit:
+            # Keep the information needed for a valid proposal when a large
+            # third-party signature must fit the prompt budget: required
+            # inputs first, then extent/layer bindings, then other bindable
+            # inputs, and destinations last. Preserve live parameter order in
+            # the retained rows so enum and field relationships remain clear.
+            ranked = sorted(
+                enumerate(parameter_rows),
+                key=lambda item: (
+                    0 if item[1]["required"] else (
+                        1 if item[1]["alternative_binding"] else (
+                            2 if item[1]["proposal_binding"] and not item[1]["destination"] else (
+                                3 if not item[1]["destination"] else 4
+                            )
+                        )
+                    ),
+                    item[0],
+                ),
+            )
+            kept_indexes = {index for index, _row in ranked[:limit]}
+            parameter_rows = [
+                row for index, row in enumerate(parameter_rows)
+                if index in kept_indexes
+            ]
+        bounded = parameter_rows
+        truncated = len(bounded) < len(list(algorithm.parameterDefinitions()))
         outputs, outputs_truncated = agent_context.bound_list(
             (
                 {
@@ -674,6 +700,10 @@ def _tool_processing_resolve_factory(
     def _handler(call: AgentToolCall) -> Dict[str, Any]:
         algorithm_id = str(call.arguments.get("algorithm_id", "") or "").strip()
         query = str(call.arguments.get("query", "") or "").strip()
+        limit = _clamp_limit(
+            call.arguments.get("limit"),
+            DEFAULT_PROCESSING_RESOLVE_LIMIT,
+        )
         if not algorithm_id and not query:
             raise ToolExecutionError("query or algorithm_id is required.")
         if algorithm_id:
@@ -682,7 +712,7 @@ def _tool_processing_resolve_factory(
                     AgentToolCall(
                         call_id=call.call_id,
                         tool_name="processing.describe",
-                        arguments={"algorithm_id": algorithm_id, "limit": 40},
+                        arguments={"algorithm_id": algorithm_id, "limit": limit},
                     )
                 ),
                 "algorithms": [],
@@ -692,7 +722,7 @@ def _tool_processing_resolve_factory(
             AgentToolCall(
                 call_id=call.call_id,
                 tool_name="processing.search",
-                arguments={"query": query, "limit": 5},
+                arguments={"query": query, "limit": min(limit, 5)},
             )
         )
         algorithms = search.get("algorithms", [])
@@ -704,7 +734,7 @@ def _tool_processing_resolve_factory(
                     AgentToolCall(
                         call_id=call.call_id,
                         tool_name="processing.describe",
-                        arguments={"algorithm_id": candidate, "limit": 40},
+                        arguments={"algorithm_id": candidate, "limit": limit},
                     )
                 )
         return {
@@ -1756,7 +1786,9 @@ def build_default_registry(
             description=(
                 "Resolves an exact algorithm id, or searches a short operation "
                 "name and describes it when unambiguous. Returns one live typed "
-                "signature and freshness receipt without execution."
+                "signature and freshness receipt without execution. An optional "
+                "small limit keeps large signatures within the Agent context "
+                "while preserving required and extent bindings."
             ),
             risk=AgentRisk.READ_ONLY,
             input_schema=_object_schema(
@@ -1771,6 +1803,7 @@ def build_default_registry(
                         "minLength": 0,
                         "maxLength": _ID_MAX_LENGTH,
                     },
+                    "limit": _LIMIT_PROPERTY,
                 }
             ),
             allowed_scopes=(

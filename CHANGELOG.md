@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.14] - 2026-08-09
+
+### Fixed
+
+- Expose an optional `limit` on `processing.resolve` and preserve required,
+  extent, and other bindable inputs when a large Processing signature is
+  trimmed to fit the Agent prompt budget.
+- Update the hard DeepSeek OSM workflow to request a compact, complete enough
+  signature before preparing its reviewed download proposal.
+
 ## [1.5.13] - 2026-08-09
 
 ### Fixed
