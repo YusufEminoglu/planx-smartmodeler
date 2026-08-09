@@ -650,6 +650,17 @@ class AgentRunLoop:
                             "parameters, or destinations. Return one corrected "
                             "proposal."
                         )
+                    elif "proposal_kind" in error_text:
+                        repair_instruction = (
+                            "The previous proposal envelope used an invalid or "
+                            "missing proposal_kind. Return exactly one proposal "
+                            "with proposal_kind set to processing_run, "
+                            "layer_style, model_patch, or model_run as appropriate. "
+                            "For this Processing request use processing_run. "
+                            "Keep proposal_json as one valid JSON object and "
+                            "preserve the trusted context_token and inspected "
+                            "layer bindings. Do not claim execution."
+                        )
                     else:
                         repair_instruction = (
                             "The previous terminal proposal was mechanically invalid. "
@@ -708,6 +719,8 @@ class AgentRunLoop:
                 "unknown input binding form",
                 "an input binding must use exactly one tagged form",
                 "layer extent id is required",
+                "proposal turn must set proposal_kind",
+                "unknown proposal_kind",
             )
         )
 

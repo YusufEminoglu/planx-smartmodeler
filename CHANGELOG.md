@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.26] - 2026-08-09
+
+### Fixed
+
+- Recover missing or invalid `proposal_kind` envelopes from provider repair turns and explicitly require `processing_run` for Processing requests.
+- Preserve the bounded proposal-repair path when a provider returns a structurally invalid terminal envelope after valid live inspections.
+
 ## [1.5.25] - 2026-08-09
 
 ### Fixed
