@@ -755,7 +755,7 @@ def run_checks() -> str:
             raise RuntimeError("Native export accepted a scalar public output.")
 
         packages = MicroPackageCatalog.available()
-        if len(packages) != 10:
+        if len(packages) != 15:
             raise RuntimeError("The shipped micro-package catalog is incomplete.")
         for package in packages:
             package_graph = MicroPackageCatalog.instantiate(

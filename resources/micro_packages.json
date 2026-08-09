@@ -300,6 +300,222 @@
         {"name": "GROWTH_CELLS", "node_id": "growth_cells", "output_name": "OUTPUT", "description": "Influence cells around development opportunities", "mandatory": false, "default": null},
         {"name": "STRATEGIC_ENVELOPE", "node_id": "settlement_hull", "output_name": "OUTPUT", "description": "Strategic convex settlement envelope", "mandatory": false, "default": null}
       ]
+    },
+    {
+      "id": "showcase_planx_network_centrality",
+      "name": "Showcase · PlanX Network Centrality",
+      "description": "A branching PlanX-style urban access graph that turns streets and destinations into influence corridors, reachable urban blocks, service cells, and a legible city envelope.",
+      "tags": ["showcase", "planx", "network", "centrality", "accessibility"],
+      "nodes": [
+        {"id": "blocks", "algorithm_id": "smart:input_layer", "title": "Urban blocks", "parameters": {}},
+        {"id": "streets", "algorithm_id": "smart:input_layer", "title": "Street network", "parameters": {}},
+        {"id": "destinations", "algorithm_id": "smart:input_layer", "title": "Key destinations", "parameters": {}},
+        {"id": "fix_blocks", "algorithm_id": "native:fixgeometries", "title": "Repair urban blocks", "parameters": {}},
+        {"id": "fix_streets", "algorithm_id": "native:fixgeometries", "title": "Repair street network", "parameters": {}},
+        {"id": "fix_destinations", "algorithm_id": "native:fixgeometries", "title": "Repair destinations", "parameters": {}},
+        {"id": "street_influence", "algorithm_id": "native:buffer", "title": "400 m network influence", "parameters": {"DISTANCE": 400.0, "SEGMENTS": 12, "DISSOLVE": true}},
+        {"id": "reachable_blocks", "algorithm_id": "native:extractbylocation", "title": "Reachable urban blocks", "parameters": {"PREDICATE": [0]}},
+        {"id": "destination_centres", "algorithm_id": "native:centroids", "title": "Destination centres", "parameters": {"ALL_PARTS": false}},
+        {"id": "service_cells", "algorithm_id": "native:voronoipolygons", "title": "Centrality service cells", "parameters": {"BUFFER": 10.0, "TOLERANCE": 0.0, "COPY_ATTRIBUTES": true}},
+        {"id": "cell_edges", "algorithm_id": "native:polygonstolines", "title": "Service cell edges", "parameters": {}},
+        {"id": "urban_envelope", "algorithm_id": "native:convexhull", "title": "Urban network envelope", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "blocks", "from_port": "OUTPUT", "to_node": "fix_blocks", "to_port": "INPUT"},
+        {"from_node": "streets", "from_port": "OUTPUT", "to_node": "fix_streets", "to_port": "INPUT"},
+        {"from_node": "destinations", "from_port": "OUTPUT", "to_node": "fix_destinations", "to_port": "INPUT"},
+        {"from_node": "fix_streets", "from_port": "OUTPUT", "to_node": "street_influence", "to_port": "INPUT"},
+        {"from_node": "fix_blocks", "from_port": "OUTPUT", "to_node": "reachable_blocks", "to_port": "INPUT"},
+        {"from_node": "street_influence", "from_port": "OUTPUT", "to_node": "reachable_blocks", "to_port": "INTERSECT"},
+        {"from_node": "fix_destinations", "from_port": "OUTPUT", "to_node": "destination_centres", "to_port": "INPUT"},
+        {"from_node": "destination_centres", "from_port": "OUTPUT", "to_node": "service_cells", "to_port": "INPUT"},
+        {"from_node": "service_cells", "from_port": "OUTPUT", "to_node": "cell_edges", "to_port": "INPUT"},
+        {"from_node": "fix_blocks", "from_port": "OUTPUT", "to_node": "urban_envelope", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "REACHABLE_BLOCKS", "node_id": "reachable_blocks", "output_name": "OUTPUT", "description": "Blocks inside the network influence corridor", "mandatory": true, "default": null},
+        {"name": "SERVICE_CELLS", "node_id": "service_cells", "output_name": "OUTPUT", "description": "Destination-based centrality service cells", "mandatory": true, "default": null},
+        {"name": "CELL_EDGES", "node_id": "cell_edges", "output_name": "OUTPUT", "description": "Readable service-cell edge network", "mandatory": false, "default": null},
+        {"name": "URBAN_ENVELOPE", "node_id": "urban_envelope", "output_name": "OUTPUT", "description": "Convex envelope of the urban block fabric", "mandatory": false, "default": null}
+      ]
+    },
+    {
+      "id": "showcase_urban_resilience_heat",
+      "name": "Showcase · Urban Resilience Heat",
+      "description": "A PlanX Urban Resilience-inspired heat and cooling graph with parallel green and heat branches, exposed buildings, overlap cores, and a combined resilience network.",
+      "tags": ["showcase", "urban resilience", "heat", "green infrastructure", "climate"],
+      "nodes": [
+        {"id": "buildings", "algorithm_id": "smart:input_layer", "title": "Building footprints", "parameters": {}},
+        {"id": "green", "algorithm_id": "smart:input_layer", "title": "Parks and tree canopy", "parameters": {}},
+        {"id": "heat", "algorithm_id": "smart:input_layer", "title": "Heat-exposed areas", "parameters": {}},
+        {"id": "fix_buildings", "algorithm_id": "native:fixgeometries", "title": "Repair buildings", "parameters": {}},
+        {"id": "fix_green", "algorithm_id": "native:fixgeometries", "title": "Repair green infrastructure", "parameters": {}},
+        {"id": "fix_heat", "algorithm_id": "native:fixgeometries", "title": "Repair heat zones", "parameters": {}},
+        {"id": "green_buffer", "algorithm_id": "native:buffer", "title": "Cooling influence 300 m", "parameters": {"DISTANCE": 300.0, "SEGMENTS": 12, "DISSOLVE": true}},
+        {"id": "heat_buffer", "algorithm_id": "native:buffer", "title": "Heat pressure 100 m", "parameters": {"DISTANCE": 100.0, "SEGMENTS": 12, "DISSOLVE": true}},
+        {"id": "smooth_green", "algorithm_id": "native:smoothgeometry", "title": "Smooth cooling envelope", "parameters": {"ITERATIONS": 2, "OFFSET": 0.25}},
+        {"id": "smooth_heat", "algorithm_id": "native:smoothgeometry", "title": "Smooth heat envelope", "parameters": {"ITERATIONS": 2, "OFFSET": 0.25}},
+        {"id": "exposed_buildings", "algorithm_id": "native:intersection", "title": "Exposed buildings", "parameters": {}},
+        {"id": "building_centres", "algorithm_id": "native:centroids", "title": "Exposure centres", "parameters": {"ALL_PARTS": false}},
+        {"id": "combined_network", "algorithm_id": "native:union", "title": "Combined resilience network", "parameters": {}},
+        {"id": "resilience_core", "algorithm_id": "native:intersection", "title": "Heat-cooling overlap core", "parameters": {}},
+        {"id": "cooling_cells", "algorithm_id": "native:voronoipolygons", "title": "Cooling service cells", "parameters": {"BUFFER": 10.0, "TOLERANCE": 0.0, "COPY_ATTRIBUTES": true}}
+      ],
+      "connections": [
+        {"from_node": "buildings", "from_port": "OUTPUT", "to_node": "fix_buildings", "to_port": "INPUT"},
+        {"from_node": "green", "from_port": "OUTPUT", "to_node": "fix_green", "to_port": "INPUT"},
+        {"from_node": "heat", "from_port": "OUTPUT", "to_node": "fix_heat", "to_port": "INPUT"},
+        {"from_node": "fix_green", "from_port": "OUTPUT", "to_node": "green_buffer", "to_port": "INPUT"},
+        {"from_node": "fix_heat", "from_port": "OUTPUT", "to_node": "heat_buffer", "to_port": "INPUT"},
+        {"from_node": "green_buffer", "from_port": "OUTPUT", "to_node": "smooth_green", "to_port": "INPUT"},
+        {"from_node": "heat_buffer", "from_port": "OUTPUT", "to_node": "smooth_heat", "to_port": "INPUT"},
+        {"from_node": "fix_buildings", "from_port": "OUTPUT", "to_node": "exposed_buildings", "to_port": "INPUT"},
+        {"from_node": "smooth_heat", "from_port": "OUTPUT", "to_node": "exposed_buildings", "to_port": "OVERLAY"},
+        {"from_node": "exposed_buildings", "from_port": "OUTPUT", "to_node": "building_centres", "to_port": "INPUT"},
+        {"from_node": "smooth_green", "from_port": "OUTPUT", "to_node": "combined_network", "to_port": "INPUT"},
+        {"from_node": "smooth_heat", "from_port": "OUTPUT", "to_node": "combined_network", "to_port": "OVERLAY"},
+        {"from_node": "smooth_green", "from_port": "OUTPUT", "to_node": "resilience_core", "to_port": "INPUT"},
+        {"from_node": "smooth_heat", "from_port": "OUTPUT", "to_node": "resilience_core", "to_port": "OVERLAY"},
+        {"from_node": "building_centres", "from_port": "OUTPUT", "to_node": "cooling_cells", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "EXPOSED_BUILDINGS", "node_id": "exposed_buildings", "output_name": "OUTPUT", "description": "Building footprints in the heat-pressure envelope", "mandatory": true, "default": null},
+        {"name": "RESILIENCE_NETWORK", "node_id": "combined_network", "output_name": "OUTPUT", "description": "Combined green and heat influence network", "mandatory": true, "default": null},
+        {"name": "RESILIENCE_CORE", "node_id": "resilience_core", "output_name": "OUTPUT", "description": "Overlap between cooling and heat-pressure envelopes", "mandatory": true, "default": null},
+        {"name": "COOLING_CELLS", "node_id": "cooling_cells", "output_name": "OUTPUT", "description": "Service cells around exposed building centres", "mandatory": false, "default": null}
+      ]
+    },
+    {
+      "id": "showcase_planx_settlement_fabric",
+      "name": "Showcase · PlanX Settlement Fabric",
+      "description": "A settlement-planning graph inspired by PlanX parcel workflows: repair parcels, buildings, and roads, then branch into access parcels, building grain, cell edges, and a connected settlement envelope.",
+      "tags": ["showcase", "planx", "settlement", "parcels", "morphology"],
+      "nodes": [
+        {"id": "parcels", "algorithm_id": "smart:input_layer", "title": "Land parcels", "parameters": {}},
+        {"id": "roads", "algorithm_id": "smart:input_layer", "title": "Access roads", "parameters": {}},
+        {"id": "buildings", "algorithm_id": "smart:input_layer", "title": "Existing buildings", "parameters": {}},
+        {"id": "fix_parcels", "algorithm_id": "native:fixgeometries", "title": "Repair parcels", "parameters": {}},
+        {"id": "fix_roads", "algorithm_id": "native:fixgeometries", "title": "Repair access roads", "parameters": {}},
+        {"id": "fix_buildings", "algorithm_id": "native:fixgeometries", "title": "Repair building fabric", "parameters": {}},
+        {"id": "road_influence", "algorithm_id": "native:buffer", "title": "Road access influence", "parameters": {"DISTANCE": 80.0, "SEGMENTS": 10, "DISSOLVE": true}},
+        {"id": "access_parcels", "algorithm_id": "native:intersection", "title": "Accessible parcels", "parameters": {}},
+        {"id": "building_centres", "algorithm_id": "native:centroids", "title": "Building centres", "parameters": {"ALL_PARTS": false}},
+        {"id": "building_cells", "algorithm_id": "native:voronoipolygons", "title": "Building grain cells", "parameters": {"BUFFER": 8.0, "TOLERANCE": 0.0, "COPY_ATTRIBUTES": true}},
+        {"id": "cell_edges", "algorithm_id": "native:polygonstolines", "title": "Parcel grain edges", "parameters": {}},
+        {"id": "settlement_fabric", "algorithm_id": "native:union", "title": "Connected settlement fabric", "parameters": {}},
+        {"id": "settlement_envelope", "algorithm_id": "native:convexhull", "title": "Settlement envelope", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "parcels", "from_port": "OUTPUT", "to_node": "fix_parcels", "to_port": "INPUT"},
+        {"from_node": "roads", "from_port": "OUTPUT", "to_node": "fix_roads", "to_port": "INPUT"},
+        {"from_node": "buildings", "from_port": "OUTPUT", "to_node": "fix_buildings", "to_port": "INPUT"},
+        {"from_node": "fix_roads", "from_port": "OUTPUT", "to_node": "road_influence", "to_port": "INPUT"},
+        {"from_node": "fix_parcels", "from_port": "OUTPUT", "to_node": "access_parcels", "to_port": "INPUT"},
+        {"from_node": "road_influence", "from_port": "OUTPUT", "to_node": "access_parcels", "to_port": "OVERLAY"},
+        {"from_node": "fix_buildings", "from_port": "OUTPUT", "to_node": "building_centres", "to_port": "INPUT"},
+        {"from_node": "building_centres", "from_port": "OUTPUT", "to_node": "building_cells", "to_port": "INPUT"},
+        {"from_node": "building_cells", "from_port": "OUTPUT", "to_node": "cell_edges", "to_port": "INPUT"},
+        {"from_node": "access_parcels", "from_port": "OUTPUT", "to_node": "settlement_fabric", "to_port": "INPUT"},
+        {"from_node": "fix_buildings", "from_port": "OUTPUT", "to_node": "settlement_fabric", "to_port": "OVERLAY"},
+        {"from_node": "settlement_fabric", "from_port": "OUTPUT", "to_node": "settlement_envelope", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "ACCESSIBLE_PARCELS", "node_id": "access_parcels", "output_name": "OUTPUT", "description": "Parcels intersecting road access influence", "mandatory": true, "default": null},
+        {"name": "SETTLEMENT_FABRIC", "node_id": "settlement_fabric", "output_name": "OUTPUT", "description": "Combined accessible parcels and building fabric", "mandatory": true, "default": null},
+        {"name": "BUILDING_CELL_EDGES", "node_id": "cell_edges", "output_name": "OUTPUT", "description": "Edges of building-grain service cells", "mandatory": false, "default": null},
+        {"name": "SETTLEMENT_ENVELOPE", "node_id": "settlement_envelope", "output_name": "OUTPUT", "description": "Convex settlement envelope", "mandatory": false, "default": null}
+      ]
+    },
+    {
+      "id": "showcase_transit_15_minute_city",
+      "name": "Showcase · 15-Minute Transit City",
+      "description": "A multi-branch accessibility atlas for stops, amenities, roads, and buildings: build service catchments, retain reachable features, count amenities, and derive a destination-cell network.",
+      "tags": ["showcase", "15-minute city", "transit", "amenities", "accessibility"],
+      "nodes": [
+        {"id": "stops", "algorithm_id": "smart:input_layer", "title": "Transit stops", "parameters": {}},
+        {"id": "amenities", "algorithm_id": "smart:input_layer", "title": "Daily amenities", "parameters": {}},
+        {"id": "buildings", "algorithm_id": "smart:input_layer", "title": "Building footprints", "parameters": {}},
+        {"id": "roads", "algorithm_id": "smart:input_layer", "title": "Walkable roads", "parameters": {}},
+        {"id": "fix_stops", "algorithm_id": "native:fixgeometries", "title": "Repair transit stops", "parameters": {}},
+        {"id": "fix_amenities", "algorithm_id": "native:fixgeometries", "title": "Repair amenities", "parameters": {}},
+        {"id": "fix_buildings", "algorithm_id": "native:fixgeometries", "title": "Repair buildings", "parameters": {}},
+        {"id": "fix_roads", "algorithm_id": "native:fixgeometries", "title": "Repair walkable roads", "parameters": {}},
+        {"id": "catchments", "algorithm_id": "native:buffer", "title": "800 m transit catchments", "parameters": {"DISTANCE": 800.0, "SEGMENTS": 12, "DISSOLVE": true}},
+        {"id": "reachable_amenities", "algorithm_id": "native:extractbylocation", "title": "Reachable amenities", "parameters": {"PREDICATE": [0]}},
+        {"id": "reachable_buildings", "algorithm_id": "native:extractbylocation", "title": "Reachable buildings", "parameters": {"PREDICATE": [0]}},
+        {"id": "amenity_centres", "algorithm_id": "native:centroids", "title": "Amenity destinations", "parameters": {"ALL_PARTS": false}},
+        {"id": "amenity_counts", "algorithm_id": "native:countpointsinpolygon", "title": "Amenities per catchment", "parameters": {"FIELD": "amenity_count"}},
+        {"id": "service_cells", "algorithm_id": "native:voronoipolygons", "title": "Transit destination cells", "parameters": {"BUFFER": 10.0, "TOLERANCE": 0.0, "COPY_ATTRIBUTES": true}},
+        {"id": "cell_edges", "algorithm_id": "native:polygonstolines", "title": "Accessibility cell edges", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "stops", "from_port": "OUTPUT", "to_node": "fix_stops", "to_port": "INPUT"},
+        {"from_node": "amenities", "from_port": "OUTPUT", "to_node": "fix_amenities", "to_port": "INPUT"},
+        {"from_node": "buildings", "from_port": "OUTPUT", "to_node": "fix_buildings", "to_port": "INPUT"},
+        {"from_node": "roads", "from_port": "OUTPUT", "to_node": "fix_roads", "to_port": "INPUT"},
+        {"from_node": "fix_stops", "from_port": "OUTPUT", "to_node": "catchments", "to_port": "INPUT"},
+        {"from_node": "fix_amenities", "from_port": "OUTPUT", "to_node": "reachable_amenities", "to_port": "INPUT"},
+        {"from_node": "catchments", "from_port": "OUTPUT", "to_node": "reachable_amenities", "to_port": "INTERSECT"},
+        {"from_node": "fix_buildings", "from_port": "OUTPUT", "to_node": "reachable_buildings", "to_port": "INPUT"},
+        {"from_node": "catchments", "from_port": "OUTPUT", "to_node": "reachable_buildings", "to_port": "INTERSECT"},
+        {"from_node": "reachable_amenities", "from_port": "OUTPUT", "to_node": "amenity_centres", "to_port": "INPUT"},
+        {"from_node": "catchments", "from_port": "OUTPUT", "to_node": "amenity_counts", "to_port": "POLYGONS"},
+        {"from_node": "amenity_centres", "from_port": "OUTPUT", "to_node": "amenity_counts", "to_port": "POINTS"},
+        {"from_node": "amenity_centres", "from_port": "OUTPUT", "to_node": "service_cells", "to_port": "INPUT"},
+        {"from_node": "service_cells", "from_port": "OUTPUT", "to_node": "cell_edges", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "TRANSIT_CATCHMENTS", "node_id": "catchments", "output_name": "OUTPUT", "description": "800 metre transit service catchments", "mandatory": true, "default": null},
+        {"name": "REACHABLE_BUILDINGS", "node_id": "reachable_buildings", "output_name": "OUTPUT", "description": "Buildings inside transit catchments", "mandatory": true, "default": null},
+        {"name": "AMENITY_COUNTS", "node_id": "amenity_counts", "output_name": "OUTPUT", "description": "Catchments enriched with amenity counts", "mandatory": true, "default": null},
+        {"name": "SERVICE_CELL_EDGES", "node_id": "cell_edges", "output_name": "OUTPUT", "description": "Edges of amenity service cells", "mandatory": false, "default": null}
+      ]
+    },
+    {
+      "id": "showcase_suitability_constraints",
+      "name": "Showcase · Suitability Constraints",
+      "description": "A branching planning suitability canvas that separates opportunity land, constraint buffers, green infrastructure, service reach, candidate cells, and a final strategic envelope.",
+      "tags": ["showcase", "suitability", "planning", "constraints", "scenario"],
+      "nodes": [
+        {"id": "opportunities", "algorithm_id": "smart:input_layer", "title": "Opportunity areas", "parameters": {}},
+        {"id": "constraints", "algorithm_id": "smart:input_layer", "title": "Protected constraints", "parameters": {}},
+        {"id": "green", "algorithm_id": "smart:input_layer", "title": "Green infrastructure", "parameters": {}},
+        {"id": "services", "algorithm_id": "smart:input_layer", "title": "Public services", "parameters": {}},
+        {"id": "fix_opportunities", "algorithm_id": "native:fixgeometries", "title": "Repair opportunity areas", "parameters": {}},
+        {"id": "fix_constraints", "algorithm_id": "native:fixgeometries", "title": "Repair constraints", "parameters": {}},
+        {"id": "fix_green", "algorithm_id": "native:fixgeometries", "title": "Repair green infrastructure", "parameters": {}},
+        {"id": "fix_services", "algorithm_id": "native:fixgeometries", "title": "Repair public services", "parameters": {}},
+        {"id": "constraint_buffer", "algorithm_id": "native:buffer", "title": "Constraint protection zone", "parameters": {"DISTANCE": 100.0, "SEGMENTS": 10, "DISSOLVE": true}},
+        {"id": "green_buffer", "algorithm_id": "native:buffer", "title": "Green access zone", "parameters": {"DISTANCE": 300.0, "SEGMENTS": 10, "DISSOLVE": true}},
+        {"id": "developable", "algorithm_id": "native:difference", "title": "Constraint-free opportunities", "parameters": {}},
+        {"id": "service_reach", "algorithm_id": "native:intersection", "title": "Service-reachable land", "parameters": {}},
+        {"id": "candidate_centres", "algorithm_id": "native:centroids", "title": "Candidate centres", "parameters": {"ALL_PARTS": true}},
+        {"id": "candidate_cells", "algorithm_id": "native:voronoipolygons", "title": "Candidate influence cells", "parameters": {"BUFFER": 10.0, "TOLERANCE": 0.0, "COPY_ATTRIBUTES": true}},
+        {"id": "candidate_edges", "algorithm_id": "native:polygonstolines", "title": "Candidate cell edges", "parameters": {}},
+        {"id": "strategic_envelope", "algorithm_id": "native:convexhull", "title": "Strategic suitability envelope", "parameters": {}}
+      ],
+      "connections": [
+        {"from_node": "opportunities", "from_port": "OUTPUT", "to_node": "fix_opportunities", "to_port": "INPUT"},
+        {"from_node": "constraints", "from_port": "OUTPUT", "to_node": "fix_constraints", "to_port": "INPUT"},
+        {"from_node": "green", "from_port": "OUTPUT", "to_node": "fix_green", "to_port": "INPUT"},
+        {"from_node": "services", "from_port": "OUTPUT", "to_node": "fix_services", "to_port": "INPUT"},
+        {"from_node": "fix_constraints", "from_port": "OUTPUT", "to_node": "constraint_buffer", "to_port": "INPUT"},
+        {"from_node": "fix_green", "from_port": "OUTPUT", "to_node": "green_buffer", "to_port": "INPUT"},
+        {"from_node": "fix_opportunities", "from_port": "OUTPUT", "to_node": "developable", "to_port": "INPUT"},
+        {"from_node": "constraint_buffer", "from_port": "OUTPUT", "to_node": "developable", "to_port": "OVERLAY"},
+        {"from_node": "developable", "from_port": "OUTPUT", "to_node": "service_reach", "to_port": "INPUT"},
+        {"from_node": "green_buffer", "from_port": "OUTPUT", "to_node": "service_reach", "to_port": "OVERLAY"},
+        {"from_node": "service_reach", "from_port": "OUTPUT", "to_node": "candidate_centres", "to_port": "INPUT"},
+        {"from_node": "candidate_centres", "from_port": "OUTPUT", "to_node": "candidate_cells", "to_port": "INPUT"},
+        {"from_node": "candidate_cells", "from_port": "OUTPUT", "to_node": "candidate_edges", "to_port": "INPUT"},
+        {"from_node": "service_reach", "from_port": "OUTPUT", "to_node": "strategic_envelope", "to_port": "INPUT"}
+      ],
+      "outputs": [
+        {"name": "DEVELOPABLE_LAND", "node_id": "developable", "output_name": "OUTPUT", "description": "Opportunity areas after removing constraint influence", "mandatory": true, "default": null},
+        {"name": "SERVICE_REACH", "node_id": "service_reach", "output_name": "OUTPUT", "description": "Candidate land inside the green access zone", "mandatory": true, "default": null},
+        {"name": "CANDIDATE_CELL_EDGES", "node_id": "candidate_edges", "output_name": "OUTPUT", "description": "Edges of candidate influence cells", "mandatory": false, "default": null},
+        {"name": "STRATEGIC_ENVELOPE", "node_id": "strategic_envelope", "output_name": "OUTPUT", "description": "Convex envelope of suitable land", "mandatory": false, "default": null}
+      ]
     }
   ]
 }

@@ -229,6 +229,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <p>When a node is selected on the canvas, the <b>Smart Proposal Bar</b> (<code>gui/smart_proposal_bar.py</code>) ranks contextual next steps: which algorithms accept the selected node's output types as input? Each proposal explains and previews its target connection. Accepting a proposal adds and auto-connects the node as one undoable edit. This is a <b>deterministic, offline</b> feature — no AI required. The proposal engine (<code>core/proposal_engine.py</code>) matches output socket types against the input requirements of all installed algorithms.</p>
 
 <h3 id="micropackages">Micro-Packages &amp; Showcase Graphs</h3>
+<p><b>Current gallery:</b> the catalog contains fifteen deterministic workflows: five compact starters and ten branching showcases covering PlanX-style network centrality and settlement fabric, Urban Resilience heat analysis, 15-minute transit access, suitability constraints, walkable-city access, blue-green resilience, urban morphology, flood readiness, and growth constraints. Double-click a gallery item to load it, then bind the highlighted input layers in Run Setup.</p>
 <p>Five versioned, schema-validated <b>micro-package workflows</b> are shipped with the plugin. They build deterministic graphs directly without any AI profile or network request. Each is hidden when its required Processing algorithms are unavailable. The showcase gallery presents these as ready-to-run examples demonstrating common patterns: buffer → clip, select by attribute → dissolve, etc.</p>
 
 <!-- ══════════════════════════════════════════════════════════════ -->
@@ -379,7 +380,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <h2 id="power-overview">Power Mode</h2>
 
 <h3>Power Mode: Opt-In Advanced Capabilities</h3>
-<p>Power Mode is <b>explicit and off by default</b>. When enabled, three additional proposal kinds become available. Each carries its own warning and confirmation gate.</p>
+<p>Power Mode is <b>explicit and off by default</b>. Keep it off for ordinary layer inspection, Processing filters, model patches, styling, and standard model runs. Enable it only when the request genuinely needs stored database inspection/SQL, an imported hash-pinned script, or generated PyQGIS that cannot be expressed as a reviewed Processing graph. When enabled, three additional proposal kinds become available. Each carries its own warning and confirmation gate; enabling the checkbox never executes code.</p>
 
 <h3 id="power-sql">Full-Source SQL</h3>
 <p>The agent can inspect stored PostGIS/GeoPackage connection metadata through opaque receipts (never transmitting the actual URI or credentials) and propose one complete SQL statement. The approval card shows the <b>full source</b>. Database writes and DDL require a <b>second explicit confirmation</b> beyond the normal Apply click.</p>
@@ -416,7 +417,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 
 	<h3>Theoretical Background: Design Patterns in GIS Workflows</h3>
 
-	<p>Gamma et al.’s (1994) catalog of object-oriented design patterns established a vocabulary for reusable solutions to recurring problems. In the context of visual GIS workflows, analogous patterns emerge from the constraints of spatial data processing. SmartModeler’s micro-package gallery encodes five such patterns, each a minimal, validated graph demonstrating a fundamental spatial analysis idiom.</p>
+	<p>Gamma et al.’s (1994) catalog of object-oriented design patterns established a vocabulary for reusable solutions to recurring problems. In the context of visual GIS workflows, analogous patterns emerge from the constraints of spatial data processing. SmartModeler’s micro-package gallery encodes fifteen such patterns, including ten multi-branch showcases, each a validated graph demonstrating a spatial analysis idiom.</p>
 
 	<h3>Pattern 1: Buffer-Spatial Filter (Buffer → Clip)</h3>
 

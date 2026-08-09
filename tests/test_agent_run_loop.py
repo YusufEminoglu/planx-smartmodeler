@@ -121,6 +121,53 @@ def build_loop(
 
 
 class BasicLifecycleTests(unittest.TestCase):
+    def test_malformed_provider_response_gets_one_bounded_repair_turn(self) -> None:
+        loop, _, _, _ = build_loop()
+        first = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)
+        repaired = loop.submit_provider_response(first.request.request_token, "not json")
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(
+            [event["kind"] for event in repaired.tool_events],
+            ["provider_recovery"],
+        )
+        self.assertIn("agent_turn", repaired.request.user_prompt)
+        final = loop.submit_provider_response(
+            repaired.request.request_token, final_turn_json("Recovered.")
+        )
+        self.assertEqual(final.kind, RunEventKind.FINAL)
+        self.assertEqual(final.text, "Recovered.")
+
+    def test_malformed_provider_response_cannot_trigger_unbounded_retries(self) -> None:
+        loop, _, _, _ = build_loop()
+        first = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)
+        repaired = loop.submit_provider_response(first.request.request_token, "not json")
+        failed = loop.submit_provider_response(repaired.request.request_token, "still not json")
+        self.assertEqual(failed.kind, RunEventKind.FAILED)
+        self.assertEqual(failed.reason_code, "malformed_provider_turn")
+
+    def test_transient_provider_failure_gets_one_bounded_retry(self) -> None:
+        loop, _, _, _ = build_loop()
+        first = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)
+        retried = loop.submit_provider_failure(
+            first.request.request_token, "AI provider request failed (503): service unavailable"
+        )
+        self.assertEqual(retried.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(retried.tool_events[0]["strategy"], "retry_transient_failure")
+        failed = loop.submit_provider_failure(
+            retried.request.request_token, "AI provider request failed (503): service unavailable"
+        )
+        self.assertEqual(failed.kind, RunEventKind.FAILED)
+        self.assertEqual(failed.reason_code, "provider_request_failed")
+
+    def test_auth_failure_is_not_retried(self) -> None:
+        loop, _, _, _ = build_loop()
+        first = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)
+        failed = loop.submit_provider_failure(
+            first.request.request_token, "AI provider request failed (401): unauthorized"
+        )
+        self.assertEqual(failed.kind, RunEventKind.FAILED)
+        self.assertEqual(failed.reason_code, "provider_request_failed")
+
     def test_one_tool_turn_followed_by_final(self) -> None:
         loop, _, echo_handler, _ = build_loop()
         event = loop.start("What layers do I have?", AgentMode.ASK, AgentScope.PROJECT)
@@ -456,8 +503,10 @@ class MalformedProviderOutputTests(unittest.TestCase):
         event = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)
         token = event.request.request_token
         event2 = loop.submit_provider_response(token, "```json\n{}\n```")
-        self.assertEqual(event2.kind, RunEventKind.FAILED)
-        self.assertEqual(event2.reason_code, "malformed_provider_turn")
+        self.assertEqual(event2.kind, RunEventKind.REQUEST_PROVIDER)
+        event3 = loop.submit_provider_response(event2.request.request_token, "still malformed")
+        self.assertEqual(event3.kind, RunEventKind.FAILED)
+        self.assertEqual(event3.reason_code, "malformed_provider_turn")
         self.assertEqual(echo_handler.calls, [])
 
 

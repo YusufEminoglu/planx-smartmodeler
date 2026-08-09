@@ -873,6 +873,12 @@ class AgentWorkspaceDock(QDockWidget):
                     f"[strategy {level}] Repeated inspection detected; "
                     "the AI is changing approach."
                 )
+            elif tool_event.get("kind") == "provider_recovery":
+                strategy = tool_event.get("strategy", "recovery")
+                self._append_line(
+                    f"[recovery] Provider response issue detected; "
+                    f"performing one bounded {strategy.replace('_', ' ')} turn."
+                )
 
         if event.kind == RunEventKind.REQUEST_PROVIDER:
             self._active_request_token = event.request.request_token

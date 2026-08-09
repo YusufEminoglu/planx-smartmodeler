@@ -465,7 +465,10 @@ class AiNetworkClient(QObject):
                 self._post(endpoint, headers, payload)
                 return
             except (TypeError, ValueError):
-                pass
+                # The original response is still handled below. A compatible
+                # fallback is an interoperability aid, not a reason to hide a
+                # provider error or leak a traceback into the Qt callback.
+                compatible_fallback = False
 
         self.busy_changed.emit(False)
         if network_error != QNetworkReply.NetworkError.NoError or not status or int(status) >= 400:

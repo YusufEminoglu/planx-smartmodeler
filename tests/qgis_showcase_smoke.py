@@ -15,6 +15,11 @@ SHOWCASE_IDS = (
     "showcase_urban_morphology",
     "showcase_flood_readiness",
     "showcase_growth_constraints",
+    "showcase_planx_network_centrality",
+    "showcase_urban_resilience_heat",
+    "showcase_planx_settlement_fabric",
+    "showcase_transit_15_minute_city",
+    "showcase_suitability_constraints",
 )
 
 
@@ -56,9 +61,9 @@ def run_checks() -> str:
             preset_list.item(index).text()
             for index in range(preset_list.count())
         ]
-        if len(preset_names) != 10 or not all(
+        if len(preset_names) != 15 or not all(
             name.startswith("Showcase · ") and " nodes" in name
-            for name in preset_names[:5]
+            for name in preset_names[:10]
         ):
             raise RuntimeError(
                 "The showcase-first example workflow gallery did not construct."

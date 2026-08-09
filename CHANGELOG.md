@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.2.0] - 2026-08-09
+
+### Added
+
+- Add five additional branching showcase workflows for PlanX-style network
+  centrality, PlanX settlement fabric, Urban Resilience heat analysis,
+  15-minute transit access, and suitability constraints. The gallery now ships
+  fifteen deterministic workflows, including ten showcase graphs.
+
+### Fixed
+
+- Give Agent Workspace one bounded repair turn when a provider returns malformed
+  structured output, and one bounded retry for transient network/provider
+  failures. Semantic proposal/receipt errors remain fail-closed and do not
+  trigger token-wasting retries.
+- Replace a Bandit-incompatible empty exception branch in the AI client with an
+  explicit controlled fallback path.
+
+### Documentation
+
+- Explain when Power Mode should remain disabled and when SQL, trusted scripts,
+  or generated PyQGIS justify enabling it.
+
 ## [1.1.3] - 2026-08-07
 
 - Added online user manual link (https://yusufeminoglu.github.io/planx-smartmodeler/) and GitHub repository star call-to-action.

@@ -68,6 +68,14 @@ SINGLE_TURN_WARNING_TOKENS = 100_000
 # blocker. A fourth consecutive fully reused turn is considered unresponsive.
 MAX_NO_PROGRESS_INTERVENTIONS = 3
 
+# A provider can occasionally return a fenced/prose-wrapped or otherwise
+# incomplete envelope even when JSON mode is enabled. Give the same run one
+# bounded repair turn instead of terminating the user's operation immediately.
+# This is deliberately a run-wide cap: repeated malformed output must never
+# become an unbounded token sink.
+MAX_PROVIDER_RECOVERY_ATTEMPTS = 1
+MAX_TRANSIENT_FAILURE_RETRIES = 1
+
 # Which application-owned scope each proposal kind is compatible with.
 _PROPOSAL_SCOPES = {
     PROPOSAL_KIND_MODEL_PATCH: (AgentScope.CURRENT_MODEL,),
@@ -502,6 +510,8 @@ class AgentRunLoop:
         self._proposal_receipts: Dict[Tuple[str, str], str] = {}
         self._recovery_call_counter = 0
         self._consecutive_fully_reused_turns = 0
+        self._provider_recovery_attempts = 0
+        self._transient_failure_retries = 0
 
     def is_active(self) -> bool:
         return self._active and not self._terminal
@@ -612,6 +622,24 @@ class AgentRunLoop:
         except ProtocolError as error:
             recovered, recovery_events = self._recover_provider_proposal(raw_text)
             if recovered is None:
+                if (
+                    self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+                    and not self._looks_like_terminal_proposal(raw_text)
+                ):
+                    self._provider_recovery_attempts += 1
+                    recovery = {
+                        "kind": "provider_recovery",
+                        "strategy": "repair_response",
+                        "instruction": (
+                            "The previous provider response was not a valid single "
+                            "agent_turn envelope. Return exactly one JSON object "
+                            "matching the advertised schema. Do not use Markdown, "
+                            "prose, or extra keys. Continue the same request from "
+                            "the inspected evidence; do not repeat successful calls."
+                        ),
+                    }
+                    self._turn_events.append(recovery)
+                    return self._advance_turn(tool_events=(recovery,))
                 return self._fail(
                     f"The AI response could not be understood: {error}",
                     "malformed_provider_turn",
@@ -624,13 +652,74 @@ class AgentRunLoop:
             return self._handle_proposal(turn, tool_events=recovery_events)
         return self._execute_turn(turn)
 
+    @staticmethod
+    def _looks_like_terminal_proposal(raw_text: str) -> bool:
+        """Keep semantic proposal failures on their strict receipt path.
+
+        A proposal with a stale/missing receipt is not a transport-format issue;
+        asking the provider to rewrite it would spend a turn without adding the
+        trusted live inspection that the proposal recovery path requires.
+        """
+        try:
+            value = json.loads(str(raw_text or "").strip())
+        except (TypeError, ValueError, RecursionError):
+            return False
+        return isinstance(value, dict) and value.get("action") == ACTION_PROPOSAL
+
     def submit_provider_failure(self, request_token: str, message: str) -> Optional[RunEvent]:
         """Feed a provider/network failure back into the run. Stale tokens
         are ignored the same way as :meth:`submit_provider_response`."""
         if not self._is_current_token(request_token):
             return None
         self._current_token = None
+        if (
+            self._transient_failure_retries < MAX_TRANSIENT_FAILURE_RETRIES
+            and self._is_transient_provider_failure(message)
+        ):
+            self._transient_failure_retries += 1
+            recovery = {
+                "kind": "provider_recovery",
+                "strategy": "retry_transient_failure",
+                "instruction": (
+                    "The previous provider request failed transiently. Retry the "
+                    "same request once with the exact advertised agent_turn JSON "
+                    "envelope. Do not change scope, mode, or requested intent."
+                ),
+            }
+            self._turn_events.append(recovery)
+            return self._advance_turn(tool_events=(recovery,))
         return self._fail(str(message), "provider_request_failed")
+
+    @staticmethod
+    def _is_transient_provider_failure(message: str) -> bool:
+        """Recognize retryable transport failures without retrying auth/input errors."""
+        text = str(message or "").casefold()
+        transient_markers = (
+            "timed out",
+            "timeout",
+            "network",
+            "connection refused",
+            "host not found",
+            "temporarily unavailable",
+            "service unavailable",
+            "http 408",
+            "http 409",
+            "http 425",
+            "http 429",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504",
+            "(408)",
+            "(409)",
+            "(425)",
+            "(429)",
+            "(500)",
+            "(502)",
+            "(503)",
+            "(504)",
+        )
+        return any(marker in text for marker in transient_markers)
 
     def _is_current_token(self, request_token: str) -> bool:
         return (

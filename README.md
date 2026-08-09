@@ -1,7 +1,7 @@
 # SmartModeler GIS
 
 [![QGIS](https://img.shields.io/badge/QGIS-4.0%2B-589632.svg)](https://qgis.org)
-[![Release](https://img.shields.io/badge/release-1.1.0-2f80ed.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-1.2.0-2f80ed.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/📖_Reference_Manual-13a0a0)](https://yusufeminoglu.github.io/planx-smartmodeler/)
 
@@ -11,7 +11,7 @@ SmartModeler GIS is a QGIS 4-only visual studio for building and running real QG
 
 **[Comprehensive Academic Reference Manual](https://yusufeminoglu.github.io/planx-smartmodeler/)** — OSM algorithms, Workflow Studio, AI agent architecture, workflow patterns, and 83 DOI-verified academic references. Hosted on GitHub Pages.
 
-Version 1.1.0 is the current production release. Every action proposed by a connected
+Version 1.2.0 is the current production release. Every action proposed by a connected
 provider remains inert until it passes local validation and the user explicitly
 approves it; deterministic offline workflow generation remains available
 without a network connection.
@@ -61,7 +61,7 @@ without a network connection.
 - Ranks contextual next steps against the selected live output and compatible
   target inputs. Each proposal explains and previews its target connection,
   then adds and auto-connects the node as one undoable edit.
-- Ships five versioned, schema-validated micro-package workflows. They build
+- Ships fifteen versioned, schema-validated micro-package workflows. They build
   deterministic graphs directly, without an AI profile or network request,
   and are hidden when a required Processing algorithm is unavailable.
 - Edits workflow name, description, and the exact public output contract in
@@ -265,7 +265,7 @@ The auditable instruction set lives in [`ai_context/`](ai_context/):
 
 ### Example workflow gallery
 
-The **Example workflows** gallery places five complete showcase graphs before
+The **Example workflows** gallery places ten complete showcase graphs before
 the smaller starter recipes. Double-click one to load and fit the whole graph;
 the inputs remain deliberately unconfigured so the example never guesses which
 project layers to use.
@@ -280,6 +280,12 @@ project layers to use.
   hillshade, flood influence, and terrain-enriched exposure points.
 - **Growth Constraint Atlas** — 13 nodes for protected buffers, developable
   land, settlement fabric, growth cells, and a strategic envelope.
+
+Additional showcases include PlanX Network Centrality (12 nodes), Urban
+Resilience Heat (15), PlanX Settlement Fabric (13), 15-Minute Transit City
+(15), and Suitability Constraints (16). Together they add parallel branches,
+multiple public outputs, and intentionally open inputs for attractive first-run
+diagrams without guessing project layers.
 
 Every showcase uses installed QGIS Processing algorithms, exports to native
 `.model3`, and is validated without accessing feature values or changing the

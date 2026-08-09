@@ -150,8 +150,8 @@ class FakeCatalog:
 class MicroPackageCatalogTests(unittest.TestCase):
     def test_shipped_catalog_builds_every_available_graph(self):
         summaries = MicroPackageCatalog.available(FakeCatalog)
-        self.assertEqual(len(summaries), 10)
-        self.assertTrue(all("showcase" in item.tags for item in summaries[:5]))
+        self.assertEqual(len(summaries), 15)
+        self.assertTrue(all("showcase" in item.tags for item in summaries[:10]))
         for summary in summaries:
             graph = MicroPackageCatalog.instantiate(
                 summary.package_id, FakeCatalog
@@ -165,7 +165,7 @@ class MicroPackageCatalogTests(unittest.TestCase):
             self.assertTrue(any(node.x for node in graph.nodes.values()))
 
         showcases = [item for item in summaries if "showcase" in item.tags]
-        self.assertEqual(len(showcases), 5)
+        self.assertEqual(len(showcases), 10)
         self.assertGreaterEqual(min(item.node_count for item in showcases), 11)
         self.assertGreaterEqual(
             sum(item.node_count for item in showcases),
