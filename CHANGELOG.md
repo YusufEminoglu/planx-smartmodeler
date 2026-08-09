@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.37] - 2026-08-09
+
+- Staged Agent workflow: label-bound choices and exact new field names
+
 ## [1.5.36] - 2026-08-09
 
 - Identify the failing algorithm in hard workflow apply errors
