@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.36] - 2026-08-09
+
+- Identify the failing algorithm in hard workflow apply errors
+
 ## [1.5.35] - 2026-08-09
 
 - Use the actual randomized area field in hard Field Calculator guidance

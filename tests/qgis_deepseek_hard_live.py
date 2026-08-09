@@ -283,7 +283,10 @@ def _stage(
         QCoreApplication.processEvents()
         time.sleep(0.01)
     if refusal or failed or len(finished) != 1:
-        raise RuntimeError(f"stage apply failed: refusal={refusal!r}, failures={failed!r}")
+        raise RuntimeError(
+            f"{expected_algorithm} stage apply failed: "
+            f"refusal={refusal!r}, failures={failed!r}"
+        )
 
     candidates = []
     for layer_id in set(project.mapLayers()) - before:
