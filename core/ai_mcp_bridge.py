@@ -72,6 +72,14 @@ class AiMcpBridge:
         except (AttributeError, TypeError, RuntimeError):
             return value
         wanted = re.sub(r"\s+", " ", value).strip().casefold()
+        wanted = {
+            "equals": "=",
+            "equal": "=",
+            "equal to": "=",
+            "not equals": "≠",
+            "not equal": "≠",
+            "does not equal": "≠",
+        }.get(wanted, wanted)
         matches = [
             index
             for index, option in enumerate(options)

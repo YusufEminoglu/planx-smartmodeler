@@ -161,9 +161,9 @@ def _run_agent(api_key: str, source: QgsVectorLayer) -> str:
         controller,
         "Use the advertised tools. Inspect before proposing. Never execute a run before the proposal is reviewed.",
         proposal_validator=validator.validate,
-        instruction_provider=lambda text, scope, power: PromptContextLoader().agent_context(
-            text, scope, power_enabled=power
-        ),
+        instruction_provider=lambda text, scope, power: PromptContextLoader(
+            context_dir=Path(__file__).resolve().parents[1] / "agent_context"
+        ).agent_context(text, scope, power_enabled=power),
         power_enabled_provider=lambda: False,
     )
     prompt = (

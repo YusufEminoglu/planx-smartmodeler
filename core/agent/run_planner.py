@@ -242,6 +242,14 @@ def _plan_enum(spec: ParamSpec, tag: str, value: Any) -> int:
             _reject("A choice index is outside the live options.", ProposalReason.VALIDATION_FAILED)
         return index
     wanted = str(value).strip().casefold()
+    wanted = {
+        "equals": "=",
+        "equal": "=",
+        "equal to": "=",
+        "not equals": "≠",
+        "not equal": "≠",
+        "does not equal": "≠",
+    }.get(wanted, wanted)
     for index, option in enumerate(options):
         if str(option).strip().casefold() == wanted:
             return index

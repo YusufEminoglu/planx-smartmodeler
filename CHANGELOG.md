@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.7] - 2026-08-09
+
+### Fixed
+
+- Make the live DeepSeek harness use the same versioned `agent_context` as the
+  shipped Agent Workflow instead of the legacy generic AI context.
+- Resolve semantic enum labels such as `equals` to the installed QGIS option
+  (`=`) in both Modeler graphs and reviewed Agent Processing plans.
+
 ## [1.5.6] - 2026-08-09
 
 ### Fixed
