@@ -351,7 +351,11 @@ def plan_processing_run(
         # active layer even when a provider echoes a stale id from an earlier
         # stage.  Secondary inputs remain provider-selected and are still
         # resolved strictly by exact project id.
-        if active_layer_id and (
+        # A *multi* primary input is the exception: rewriting it to the single
+        # active layer turns "merge these two layers" into a one-layer merge
+        # that still reports success. Keep every layer the proposal named and
+        # enforce the scope as membership instead, checked below.
+        if active_layer_id and tag != "layers" and (
             param == active_primary_param
             or (not active_primary_param and tag == "layer_extent")
         ):
@@ -433,7 +437,12 @@ def plan_processing_run(
                 if binding.tag == "layer_extent"
                 for view in layers_by_param.get(param, ())
             )
-        if not active_layer_id or not views or views[0].layer_id != active_layer_id:
+        # Membership, not position: a single-layer primary was pinned to the
+        # active layer above, so this is unchanged for it, while a multi-layer
+        # primary may legitimately list the active layer second.
+        if not active_layer_id or not views or all(
+            view.layer_id != active_layer_id for view in views
+        ):
             _reject(
                 "The run's primary input is not the current active layer.",
                 ProposalReason.TARGET_MISSING,

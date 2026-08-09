@@ -696,6 +696,40 @@ class ProcessingRunPlannerTests(unittest.TestCase):
             require_active_layer=True,
         )
 
+    def test_active_layer_scope_keeps_every_layer_of_a_multi_primary(self):
+        # Pinning a multi-layer primary to the single active layer turned
+        # "merge these two" into a one-layer merge that still reported success.
+        plan = self.plan(
+            "native:mergevectorlayers",
+            {"LAYERS": {"layers": ["L_vec", "L_vec2"]}},
+            MERGE_PARAMS,
+            active_layer_id="L_vec",
+            require_active_layer=True,
+        )
+        self.assertEqual(plan.input_layer_ids, ("L_vec", "L_vec2"))
+
+    def test_active_layer_scope_accepts_the_active_layer_second(self):
+        plan = self.plan(
+            "native:mergevectorlayers",
+            {"LAYERS": {"layers": ["L_vec2", "L_vec"]}},
+            MERGE_PARAMS,
+            active_layer_id="L_vec",
+            require_active_layer=True,
+        )
+        self.assertEqual(plan.input_layer_ids, ("L_vec2", "L_vec"))
+
+    def test_active_layer_scope_rejects_a_multi_primary_without_the_active_layer(self):
+        # The scope guarantee is membership, not absence of a check: a merge
+        # that never touches the active layer must still fail closed.
+        self.assert_rejects(
+            "native:mergevectorlayers",
+            {"LAYERS": {"layers": ["L_vec2"]}},
+            MERGE_PARAMS,
+            ProposalReason.TARGET_MISSING,
+            active_layer_id="L_vec",
+            require_active_layer=True,
+        )
+
 
 def build_graph(*nodes):
     graph = GraphModel("Runnable")
