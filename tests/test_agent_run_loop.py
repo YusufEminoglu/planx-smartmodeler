@@ -89,6 +89,7 @@ def build_loop(
     limits: AgentRunLimits = None,
     echo_handler: RecordingHandler = None,
     mutate_handler: RecordingHandler = None,
+    echo_active: bool = False,
 ):
     registry = AgentToolRegistry()
     echo_handler = echo_handler or RecordingHandler()
@@ -99,7 +100,9 @@ def build_loop(
             description="Echoes its arguments.",
             risk=AgentRisk.READ_ONLY,
             input_schema=ECHO_SCHEMA,
-            allowed_scopes=(AgentScope.PROJECT,),
+            allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER)
+            if echo_active
+            else (AgentScope.PROJECT,),
         ),
         echo_handler,
     )
@@ -158,6 +161,47 @@ class BasicLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(failed.kind, RunEventKind.FAILED)
         self.assertEqual(failed.reason_code, "provider_request_failed")
+
+    def test_empty_structured_provider_response_gets_one_bounded_retry(self) -> None:
+        loop, _, _, _ = build_loop()
+        first = loop.start("hi", AgentMode.ACT, AgentScope.ACTIVE_LAYER)
+        retried = loop.submit_provider_failure(
+            first.request.request_token,
+            "AI provider returned an unreadable response: Provider response content was empty.",
+        )
+        self.assertEqual(retried.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(retried.tool_events[0]["strategy"], "retry_transient_failure")
+        final = loop.submit_provider_response(
+            retried.request.request_token, final_turn_json("Recovered from empty output.")
+        )
+        self.assertEqual(final.kind, RunEventKind.FINAL)
+
+    def test_structured_agent_envelope_matrix_covers_thirty_small_turns(self) -> None:
+        """Exercise repeated DeepSeek-shaped envelopes without any network call."""
+        for index in range(30):
+            with self.subTest(index=index):
+                loop, _, echo_handler, _ = build_loop(echo_active=True)
+                first = loop.start(
+                    f"small acceptance task {index}",
+                    AgentMode.ACT,
+                    AgentScope.ACTIVE_LAYER,
+                )
+                if index % 2:
+                    next_event = loop.submit_provider_response(
+                        first.request.request_token,
+                        tool_calls_turn_json(
+                            [(f"call-{index}", "test.echo", "{}")],
+                            assistant_text="Inspecting the active layer.",
+                        ),
+                    )
+                    self.assertEqual(next_event.kind, RunEventKind.REQUEST_PROVIDER)
+                    self.assertEqual(len(echo_handler.calls), 1)
+                    first = next_event
+                final = loop.submit_provider_response(
+                    first.request.request_token,
+                    final_turn_json(f"Completed acceptance task {index}."),
+                )
+                self.assertEqual(final.kind, RunEventKind.FINAL)
 
     def test_auth_failure_is_not_retried(self) -> None:
         loop, _, _, _ = build_loop()

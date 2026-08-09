@@ -718,6 +718,9 @@ class AgentRunLoop:
             "(502)",
             "(503)",
             "(504)",
+            "empty response",
+            "empty content",
+            "content was empty",
         )
         return any(marker in text for marker in transient_markers)
 

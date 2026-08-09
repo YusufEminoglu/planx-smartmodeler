@@ -382,6 +382,15 @@ class WorkflowStudioRequestUnchangedTests(unittest.TestCase):
         self.assertIn("do not return an empty response", combined_prompt)
         self.assertEqual(payload["thinking"], {"type": "disabled"})
 
+    def test_deepseek_agent_contract_contains_a_concrete_envelope_example(self) -> None:
+        _, _, payload = AiNetworkClient.build_request(
+            make_profile("deepseek"), "key", "SYS", "USER", contract=AGENT_CONTRACT
+        )
+        system_prompt = payload["messages"][0]["content"]
+        self.assertIn('"action":"final"', system_prompt)
+        self.assertIn('"proposal_kind":"none"', system_prompt)
+        self.assertIn("Return all five envelope keys", system_prompt)
+
     def test_ollama(self) -> None:
         _, _, payload = AiNetworkClient.build_request(
             make_profile("ollama"), "", "sys", "user"
@@ -764,6 +773,23 @@ class CancellationTerminalBoundaryTests(unittest.TestCase):
         self.assertEqual(len(posts), 1)
         self.assertEqual(fails, [])
         self.assertTrue(client._retried_empty)
+
+    def test_deepseek_second_empty_content_fails_after_the_single_retry(self) -> None:
+        client, posts, fails = _run_on_finished(
+            "deepseek",
+            200,
+            b'{"choices":[{"message":{"content":""}}]}',
+            QNetworkReply.NetworkError.NoError,
+        )
+        client._reply = _FakeReply(
+            200,
+            b'{"choices":[{"message":{"content":""}}]}',
+            QNetworkReply.NetworkError.NoError,
+        )
+        client._on_finished()
+        self.assertEqual(len(posts), 1)
+        self.assertEqual(len(fails), 1)
+        self.assertIn("content was empty", fails[0])
 
 
 class ResponseBodyBoundTests(unittest.TestCase):

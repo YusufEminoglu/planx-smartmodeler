@@ -181,18 +181,33 @@ def _run_agent(api_key: str, source: QgsVectorLayer) -> str:
             name="agent_turn",
             description="Return the next agent_turn object.",
         )
-        response, usage = _request(
-            api_key,
-            _profile(),
-            event.request.system_prompt,
-            event.request.user_prompt,
-            contract,
-        )
+        try:
+            response, usage = _request(
+                api_key,
+                _profile(),
+                event.request.system_prompt,
+                event.request.user_prompt,
+                contract,
+            )
+        except RuntimeError as error:
+            # Mirror the GUI's provider-failure boundary: the network client
+            # already performs its own bounded empty-content retry, then the
+            # AgentRunLoop gets one final transient recovery turn. This keeps
+            # the live harness faithful to the shipped Agent Workflow path.
+            recovered = loop.submit_provider_failure(
+                event.request.request_token, str(error)
+            )
+            if recovered is None:
+                raise
+            event = recovered
+            continue
         if usage is not None:
             total_usage.append(usage)
         event = loop.submit_provider_response(event.request.request_token, response)
         if event is None:
             raise RuntimeError("DeepSeek Agent response was ignored as stale.")
+    if event.kind == RunEventKind.FAILED:
+        raise RuntimeError(f"DeepSeek Agent failed: {event.text}")
     if event.kind != RunEventKind.PROPOSAL:
         raise RuntimeError(f"DeepSeek Agent did not produce a reviewed proposal: {event.text}")
     ingredients = validator.take_last_validated()

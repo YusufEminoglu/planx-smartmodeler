@@ -266,12 +266,25 @@ class AiNetworkClient(QObject):
         # this provider compatibility rule in the shared request builder.
         if profile.provider_id == "deepseek":
             prompt_text = f"{system_prompt}\n{user_prompt}"
-            if "json" not in prompt_text:
+            deepseek_instruction = (
+                "Return exactly one valid json object matching the response "
+                "schema; do not return an empty response."
+            )
+            if deepseek_instruction not in prompt_text:
                 system_prompt = (
                     f"{system_prompt.rstrip()}\n\n"
-                    "Return one valid json object matching the response schema; "
-                    "do not return an empty response."
+                    f"{deepseek_instruction}"
                 )
+            if submission_name == "agent_turn":
+                agent_example = (
+                    'Agent envelope example: {"action":"final",'
+                    '"assistant_text":"The request is complete.",'
+                    '"tool_calls":[],"proposal_kind":"none",'
+                    '"proposal_json":""}. Return all five envelope keys.'
+                )
+                combined = f"{system_prompt}\n{user_prompt}"
+                if agent_example not in combined:
+                    system_prompt = f"{system_prompt.rstrip()}\n\n{agent_example}"
 
         if profile.provider_id == "openai":
             headers["Authorization"] = f"Bearer {api_key}"

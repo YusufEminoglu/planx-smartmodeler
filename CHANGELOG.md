@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.2] - 2026-08-09
+
+### Fixed
+
+- Add a concrete five-key Agent envelope example to DeepSeek structured
+  prompts, reducing empty or incomplete Agent turns.
+- Route one bounded empty-content provider failure through the existing
+  Agent transient recovery path instead of stopping the run immediately.
+- Make the live DeepSeek harness mirror the shipped GUI recovery boundary and
+  add a 30-case structured Agent envelope acceptance matrix.
+
 ## [1.4.1] - 2026-08-09
 
 ### Fixed
