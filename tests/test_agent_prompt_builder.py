@@ -155,6 +155,35 @@ class ScopeFilterTests(unittest.TestCase):
         self.assertIn("processing.describe", selected_names)
         self.assertNotIn("layer.style", selected_names)
 
+    def test_classification_wording_routes_to_the_style_tool(self) -> None:
+        # Classifying a layer is styling, but a user asks for it by method.
+        # Routing keyed only on style words left layer.style unadvertised, so
+        # the Agent answered that no styling tool existed, hunted for a
+        # Processing algorithm, and still refused after the user settled for
+        # equal interval.
+        names = (
+            "project.summary", "layer.list", "layer.describe",
+            "processing.resolve", "processing.search", "processing.describe",
+            "layer.style",
+        )
+        tools = [make_tool(name, [AgentScope.ACTIVE_LAYER]) for name in names]
+        for request in (
+            "aktif katmandaki binaları alan sütununa göre jenks olarak sınıflandır",
+            "natural breaks de olur",
+            "quintile da olur",
+            "classify the buildings by area",
+            "graduated symbols please",
+        ):
+            with self.subTest(request=request):
+                selected = {
+                    item.name
+                    for item in select_tools_for_request(
+                        tools, AgentScope.ACTIVE_LAYER, request
+                    )
+                }
+                self.assertIn("layer.style", selected)
+                self.assertIn("layer.describe", selected)
+
     def test_short_follow_up_preserves_previous_processing_capability_pack(self) -> None:
         names = (
             "project.summary", "layer.list", "layer.describe",

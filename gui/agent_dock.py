@@ -14,7 +14,7 @@ import contextlib
 import json
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from qgis.PyQt.QtCore import QEvent, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
@@ -1164,19 +1164,35 @@ class AgentWorkspaceDock(QDockWidget):
 
     # -- supervised continuation (Phase 06) ------------------------------
 
-    def _record_action_outcome(self, kind: str, status: str, target: str) -> None:
+    def _record_action_outcome(
+        self,
+        kind: str,
+        status: str,
+        target: str,
+        layer_ids: Sequence[str] = (),
+    ) -> None:
         """Count one terminal action and put a sanitized line into session memory.
 
         This is the *only* thing an action contributes to the conversation, so a
         later user-initiated turn can know what happened. It carries no
-        parameter, layer id, path, token, digest, or feature value -- the same
-        discipline as the action ledger. It never triggers a provider call: the
-        agent continues only when the human asks it to.
+        parameter, path, token, digest, or feature value -- the same discipline
+        as the action ledger. It never triggers a provider call: the agent
+        continues only when the human asks it to.
+
+        The ids of layers a run *created* are included. Withholding them did not
+        withhold anything -- `layer.list` returns the same ids in the same scope
+        -- it only made the next step guess which of several similarly named
+        temporary layers to continue from, which produced real failures: an
+        input layer "not in the project", a field "not on the bound input
+        layer", and a user having to type the layer name back to the agent.
         """
         self._session_action_count += 1
         note = f"[Action: {str(kind)[:40]}] {str(status)[:40]}"
         if target:
             note = f"{note} - {str(target)[:120]}"
+        produced = [str(layer_id)[:120] for layer_id in layer_ids if layer_id][:5]
+        if produced:
+            note = f"{note} (produced layer ids: {', '.join(produced)})"
         with contextlib.suppress(Exception):
             self.run_loop.session_memory.append("(agent action outcome)", note)
 
@@ -1511,7 +1527,10 @@ class AgentWorkspaceDock(QDockWidget):
         if pending is not None:
             self._record_ledger(pending, ActionStatus.COMPLETED)
         self._record_action_outcome(
-            str(summary.get("kind", "")), ActionStatus.COMPLETED, str(summary.get("target", ""))
+            str(summary.get("kind", "")),
+            ActionStatus.COMPLETED,
+            str(summary.get("target", "")),
+            [str(layer_id) for layer_id in (summary.get("layer_ids") or [])],
         )
         added = ", ".join(names) if names else "no layer"
         self._append_line(f"[run] Finished. Added as temporary layer(s): {added}.")

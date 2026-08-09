@@ -255,9 +255,21 @@ def select_tools_for_request(
         )
     if any(term in folded for term in ("plugin", "eklenti", "02agent", "02viz")):
         wanted.update(("plugin.list", "plugin.describe", "plugin.capabilities"))
+    # Classifying a layer *is* styling in QGIS, but a user asks for it by the
+    # method: "jenks", "natural breaks", "quantile", "sınıflandır". Keying only
+    # on style vocabulary left layer.style unadvertised for exactly those
+    # requests, so the Agent reported that no styling tool existed and hunted
+    # for a Processing algorithm instead -- even after the user settled for
+    # equal interval, which it could have proposed.
     if any(
         term in folded
-        for term in ("style", "symbol", "label", "renderer", "stil", "sembol", "etiket")
+        for term in (
+            "style", "symbol", "label", "renderer", "stil", "sembol", "etiket",
+            "classif", "sınıflandır", "siniflandir", "sınıf", "sinif",
+            "jenks", "natural break", "doğal kırılma", "dogal kirilma",
+            "quantile", "quintile", "kantil", "graduated", "kademeli",
+            "categor", "kategori", "renklendir", "colour", "color",
+        )
     ):
         wanted.update(("layer.list", "layer.describe", "layer.style"))
     if power_enabled and any(

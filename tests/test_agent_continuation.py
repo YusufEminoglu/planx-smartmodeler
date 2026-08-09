@@ -28,11 +28,16 @@ class _ContinuationHarness:
         self.provider_calls = 0
         self._session_action_count = 0
 
-    def record_action_outcome(self, kind: str, status: str, target: str) -> None:
+    def record_action_outcome(
+        self, kind: str, status: str, target: str, layer_ids=()
+    ) -> None:
         self._session_action_count += 1
         note = f"[Action: {str(kind)[:40]}] {str(status)[:40]}"
         if target:
             note = f"{note} - {str(target)[:120]}"
+        produced = [str(layer_id)[:120] for layer_id in layer_ids if layer_id][:5]
+        if produced:
+            note = f"{note} (produced layer ids: {', '.join(produced)})"
         self.session_memory.append("(agent action outcome)", note)
 
     def session_action_budget_left(self) -> bool:
@@ -60,18 +65,41 @@ class OutcomeMemoryTests(unittest.TestCase):
         self.assertIn("processing_run", history[0].assistant_text)
         self.assertIn("completed", history[0].assistant_text)
 
-    def test_the_note_carries_no_parameter_path_id_or_secret(self):
+    def test_the_note_carries_no_parameter_path_or_secret(self):
         agent = harness()
         agent.record_action_outcome("processing_run", ActionStatus.COMPLETED, "Buffer")
         text = agent.session_memory.exchanges()[0].assistant_text
-        for forbidden in ("C:\\", "/", "TEMPORARY_OUTPUT", "EPSG:", "layer_", "token"):
+        for forbidden in ("C:\\", "/", "TEMPORARY_OUTPUT", "EPSG:", "token"):
             self.assertNotIn(forbidden, text)
+
+    def test_the_note_names_the_layers_a_run_produced(self):
+        # Deliberate exception to the id discipline: layer.list already returns
+        # these ids in the same scope, and withholding them only made the next
+        # step guess which temporary layer to continue from.
+        agent = harness()
+        agent.record_action_outcome(
+            "processing_run", ActionStatus.COMPLETED, "Field calculator", ("Calculated_ab12",)
+        )
+        text = agent.session_memory.exchanges()[0].assistant_text
+        self.assertIn("Calculated_ab12", text)
 
     def test_the_note_is_bounded_even_for_hostile_input(self):
         agent = harness()
         agent.record_action_outcome("k" * 500, "s" * 500, "t" * 500)
         text = agent.session_memory.exchanges()[0].assistant_text
         self.assertLessEqual(len(text), 40 + 40 + 120 + 20)
+
+    def test_produced_layer_ids_are_bounded_in_count_and_length(self):
+        agent = harness()
+        agent.record_action_outcome(
+            "processing_run",
+            ActionStatus.COMPLETED,
+            "Run",
+            tuple(f"{'l' * 500}{index}" for index in range(20)),
+        )
+        text = agent.session_memory.exchanges()[0].assistant_text
+        # Five ids at most, each bounded, so a hostile run cannot flood memory.
+        self.assertLessEqual(len(text), 40 + 40 + 120 + 20 + 5 * 122 + 24)
 
     def test_every_terminal_status_can_be_recorded(self):
         agent = harness()
