@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.29] - 2026-08-09
+
+- Repair missing active-layer extent bindings in Agent Workflow
+
 ## [1.5.28] - 2026-08-09
 
 ### Fixed

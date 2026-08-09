@@ -315,6 +315,21 @@ class PureRecoveryTests(unittest.TestCase):
         self.assertIsNone(outcome.turn)
         self.assertEqual(outcome.inspection.tool_name, "layer.list")
 
+    def test_blank_layer_extent_uses_active_layer_in_active_scope(self) -> None:
+        proposal = _processing_proposal(token="trusted")
+        proposal["inputs"] = {"EXTENT": {"layer_extent": "<layer id>"}}
+        outcome = recover_agent_turn(
+            _turn(PROPOSAL_KIND_PROCESSING_RUN, proposal),
+            4,
+            {},
+            active_layer_id="active-layer-42",
+        )
+        self.assertIsNotNone(outcome.turn)
+        self.assertEqual(
+            dict(outcome.turn.proposal.inputs)["EXTENT"].value,
+            "active-layer-42",
+        )
+
 
 class RunLoopRecoveryTests(unittest.TestCase):
     @staticmethod

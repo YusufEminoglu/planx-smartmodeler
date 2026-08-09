@@ -191,6 +191,7 @@ def _stage(
             context_dir=Path(__file__).resolve().parents[1] / "agent_context"
         ).agent_context(text, scope, power_enabled=power),
         power_enabled_provider=lambda: False,
+        active_layer_id_provider=lambda: source.id(),
     )
     # Each stage receives the previous stage's output as its active source.
     # ACTIVE_LAYER scope makes that hand-off a trusted validator requirement,

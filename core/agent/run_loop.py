@@ -57,6 +57,7 @@ from .protocol import (
 ProposalValidator = Callable[[str, Any, str, str], ProposalValidation]
 InstructionProvider = Callable[[str, str, bool], str]
 PowerEnabledProvider = Callable[[], bool]
+ActiveLayerIdProvider = Callable[[], Optional[str]]
 
 TOTAL_TOKEN_WARNING_START = 300_000
 TOTAL_TOKEN_WARNING_STEP = 100_000
@@ -459,6 +460,7 @@ class AgentRunLoop:
         proposal_validator: Optional[ProposalValidator] = None,
         instruction_provider: Optional[InstructionProvider] = None,
         power_enabled_provider: Optional[PowerEnabledProvider] = None,
+        active_layer_id_provider: Optional[ActiveLayerIdProvider] = None,
     ) -> None:
         self.controller = controller
         self.static_instructions = static_instructions
@@ -467,6 +469,7 @@ class AgentRunLoop:
         self._proposal_validator = proposal_validator
         self._instruction_provider = instruction_provider
         self._power_enabled_provider = power_enabled_provider or (lambda: False)
+        self._active_layer_id_provider = active_layer_id_provider or (lambda: None)
         # controller.limits.max_prompt_chars is authoritative for the combined
         # system+user prompt. A caller may customize the other budget fields,
         # but its max_prompt_chars is always normalized to the controller's
@@ -1107,11 +1110,17 @@ class AgentRunLoop:
         # signature receipt and a project layer id for a layer_extent binding.
         # Complete both trusted inspections before spending another provider
         # turn, while keeping the bound explicit and small.
+        active_layer_id = ""
+        if self._scope == AgentScope.ACTIVE_LAYER:
+            value = self._active_layer_id_provider()
+            if isinstance(value, str):
+                active_layer_id = value.strip()
         for _ in range(2):
             outcome = recover_agent_turn(
                 raw_text,
                 self.controller.limits.max_tool_calls_per_turn,
                 self._proposal_receipts,
+                active_layer_id=active_layer_id,
             )
             if outcome.turn is not None:
                 return outcome.turn, tuple(events)

@@ -173,6 +173,9 @@ class AgentWorkspaceDock(QDockWidget):
                 )
             ),
             power_enabled_provider=lambda: self._power_mode_enabled,
+            active_layer_id_provider=lambda: (
+                self._active_layer().id() if self._active_layer() is not None else None
+            ),
         )
         # Trusted apply/undo boundary. A model_apply adapter (from the plugin,
         # wrapping the Workflow Studio window) enables model-patch apply; without

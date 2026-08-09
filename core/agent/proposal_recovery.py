@@ -351,6 +351,7 @@ def recover_agent_turn(
     raw_text: str,
     max_tool_calls_per_turn: int,
     receipts: Mapping[ReceiptKey, str],
+    active_layer_id: str = "",
 ) -> RecoveryResult:
     """Return a safely recovered proposal turn or its missing inspection.
 
@@ -396,11 +397,31 @@ def recover_agent_turn(
                 )
             )
     if kind == PROPOSAL_KIND_PROCESSING_RUN and _needs_layer_extent_inspection(proposal):
-        # The provider must choose the id from the trusted layer.list result;
-        # recovery deliberately does not guess or inject a project layer.
-        return RecoveryResult(
-            inspection=InspectionRequest("layer.list", {"limit": 100})
-        )
+        # ACTIVE_LAYER is an explicit user scope: the current active layer is
+        # the trusted source for a layer extent.  Providers sometimes return
+        # an empty placeholder here even after inspecting the live signature.
+        # Repair only that narrow missing/placeholder form; never overwrite a
+        # non-empty provider id and never infer a project-scope layer.
+        if isinstance(active_layer_id, str) and active_layer_id.strip():
+            inputs = proposal.get("inputs")
+            if isinstance(inputs, dict):
+                for binding in inputs.values():
+                    if not isinstance(binding, dict) or "layer_extent" not in binding:
+                        continue
+                    value = binding.get("layer_extent")
+                    if (
+                        not isinstance(value, str)
+                        or not value.strip()
+                        or value.strip().casefold()
+                        in {"<layer id>", "<layer_id>", "layer_id", "current_layer", "active_layer"}
+                    ):
+                        binding["layer_extent"] = active_layer_id.strip()
+        if _needs_layer_extent_inspection(proposal):
+            # The provider must choose the id from the trusted layer.list
+            # result when no active-layer scope is available.
+            return RecoveryResult(
+                inspection=InspectionRequest("layer.list", {"limit": 100})
+            )
 
     if kind == PROPOSAL_KIND_LAYER_STYLE:
         _normalize_style(proposal)
