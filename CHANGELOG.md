@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.11] - 2026-08-09
+
+### Fixed
+
+- Seed the sibling 02Agent OSM Downloader `_CACHE` for bounded hard-workflow
+  runs instead of importing SmartModeler's private cache.
+
 ## [1.5.10] - 2026-08-09
 
 ### Added

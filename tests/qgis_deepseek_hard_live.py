@@ -55,7 +55,7 @@ def _extent_layer() -> QgsVectorLayer:
 def _seed_osm_response(layer: QgsVectorLayer) -> None:
     """Seed the sibling downloader cache with three neighborhood polygons."""
     from zero2agent_osm_downloader.core.query import TagSpec, build_query
-    from zero2agent_osm_downloader.processing.osm_algorithms import _SESSION_CACHE
+    from zero2agent_osm_downloader.processing.osm_algorithms import _CACHE
 
     bbox = layer.extent()
     query = build_query(
@@ -66,7 +66,7 @@ def _seed_osm_response(layer: QgsVectorLayer) -> None:
         (bbox.yMinimum(), bbox.xMinimum(), bbox.yMaximum(), bbox.xMaximum()),
         "all",
     )
-    _SESSION_CACHE[query] = (
+    _CACHE[query] = (
         time.monotonic(),
         {
             "elements": [
