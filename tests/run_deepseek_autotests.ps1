@@ -2,7 +2,8 @@
 param(
     [int]$MatrixRuns = 2,
     [int]$MatrixLimit = 10,
-    [int]$HardSeed = 303
+    [int]$HardSeed = 303,
+    [switch]$HardOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,10 +12,10 @@ if ([string]::IsNullOrWhiteSpace($env:SMARTMODELER_DEEPSEEK_API_KEY) -and
     [string]::IsNullOrWhiteSpace($env:DEEPSEEK_API_KEY)) {
     throw "A DeepSeek API key must already be present in this PowerShell session."
 }
-if ($MatrixRuns -lt 1 -or $MatrixRuns -gt 20) {
+if (-not $HardOnly -and ($MatrixRuns -lt 1 -or $MatrixRuns -gt 20)) {
     throw "MatrixRuns must be between 1 and 20."
 }
-if ($MatrixLimit -lt 2 -or $MatrixLimit -gt 30) {
+if (-not $HardOnly -and ($MatrixLimit -lt 2 -or $MatrixLimit -gt 30)) {
     throw "MatrixLimit must be between 2 and 30."
 }
 
@@ -77,11 +78,14 @@ function Invoke-QgisLiveTest {
 try {
     $matrixPath = Join-Path $repoRoot "planx_smartmodeler\tests\qgis_deepseek_matrix.py"
     $hardPath = Join-Path $repoRoot "planx_smartmodeler\tests\qgis_deepseek_hard_live.py"
-    $env:SMARTMODELER_DEEPSEEK_MATRIX_LIMIT = [string]$MatrixLimit
-
-    for ($run = 1; $run -le $MatrixRuns; $run++) {
-        $env:SMARTMODELER_DEEPSEEK_MATRIX_SEED = [string](1000 + $run * 7919)
-        Invoke-QgisLiveTest "DeepSeek randomized matrix $run/$MatrixRuns" $matrixPath
+    if (-not $HardOnly) {
+        $env:SMARTMODELER_DEEPSEEK_MATRIX_LIMIT = [string]$MatrixLimit
+        for ($run = 1; $run -le $MatrixRuns; $run++) {
+            $env:SMARTMODELER_DEEPSEEK_MATRIX_SEED = [string](1000 + $run * 7919)
+            Invoke-QgisLiveTest "DeepSeek randomized matrix $run/$MatrixRuns" $matrixPath
+        }
+    } else {
+        Write-Host "Skipping randomized matrices (-HardOnly)." -ForegroundColor DarkGray
     }
 
     $env:SMARTMODELER_DEEPSEEK_HARD_SEED = [string]$HardSeed

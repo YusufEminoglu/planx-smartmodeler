@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.34] - 2026-08-09
+
+- Strengthen hard Field Calculator bindings and add HardOnly autotest mode
+
 ## [1.5.33] - 2026-08-09
 
 - Keep QGIS stderr diagnostics from aborting DeepSeek autotest reporting

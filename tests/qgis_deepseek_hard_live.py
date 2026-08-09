@@ -151,6 +151,32 @@ def _activate_sibling_plugin(plugins_root: str):
     return plugin, qgis_utils, package_name
 
 
+def _field_calculator_binding_hint() -> str:
+    """Return the live typed binding shape for the area-calculation stage."""
+    algorithm = QgsApplication.processingRegistry().algorithmById(
+        "native:fieldcalculator"
+    )
+    if algorithm is None:
+        return ""
+    definition = algorithm.parameterDefinition("FIELD_TYPE")
+    options = list(definition.options()) if definition is not None else []
+    for index, label in enumerate(options):
+        folded = str(label).casefold()
+        if "decimal" in folded or "double" in folded:
+            return (
+                'Use these exact typed input forms: FIELD_NAME={"string": '
+                '"<requested field>"}, FIELD_TYPE={"enum": '
+                + str(index)
+                + '}, FORMULA={"expression": "$area"}. '
+                f"The live FIELD_TYPE option at index {index} is {label}."
+            )
+    return (
+        "Use exact typed input forms: FIELD_NAME={\"string\": "
+        "<requested field>}, FIELD_TYPE={\"enum\": <live decimal option>}, "
+        "FORMULA={\"expression\": \"$area\"}."
+    )
+
+
 def _stage(
     api_key: str,
     source: QgsVectorLayer,
@@ -279,6 +305,7 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
     area_field = rng.choice(("area_m2", "surface_m2", "neighborhood_m2"))
     analysis_algorithm = rng.choice(("native:centroids", "native:boundingboxes"))
     extent = _extent_layer()
+    fieldcalc_hint = _field_calculator_binding_hint()
     if not os.environ.get("SMARTMODELER_DEEPSEEK_HARD_NETWORK"):
         _seed_osm_response(extent)
     try:
@@ -311,7 +338,7 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
             f"Use the reprojected neighborhood polygons. Prepare one reviewed "
             f"native:fieldcalculator run that adds a numeric field named {area_field} "
             "with FIELD_TYPE Decimal (double), FORMULA $area, and temporary output. "
-            "Do not use Python or SQL.",
+            f"{fieldcalc_hint} Do not use Python or SQL.",
             "native:fieldcalculator",
             "polygon",
         )
@@ -336,7 +363,9 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
         # provider-specific field-calculator proposal produced an empty or
         # unpopulated field. The source result is removed before retrying so
         # the provider can only select the intended reprojected layer.
-        if not _area_values(measured):
+        repair_attempts = 0
+        while not _area_values(measured) and repair_attempts < 2:
+            repair_attempts += 1
             project = QgsProject.instance()
             project.removeMapLayer(measured.id())
             measured, repair = _stage(
@@ -348,12 +377,13 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
                 f"native:fieldcalculator run. FIELD_NAME must be the exact "
                 f"string {area_field}; FIELD_TYPE must be the live Double "
                 f"option; FORMULA must be exactly the QGIS expression $area "
-                f"without extra quotes; use temporary output. Do not use "
+                f"without extra quotes; use temporary output. {fieldcalc_hint} "
+                f"Do not use "
                 f"Python or SQL, and do not claim execution.",
                 "native:fieldcalculator",
                 "polygon",
             )
-            third = f"{third}; semantic_repair={repair}"
+            third = f"{third}; semantic_repair_{repair_attempts}={repair}"
         analyzed, fourth = _stage(
             api_key,
             measured,
