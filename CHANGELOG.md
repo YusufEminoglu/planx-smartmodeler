@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.22] - 2026-08-09
+
+### Fixed
+
+- Preserve Processing algorithm ids, bindable parameter rows, and live context tokens when large resolve/describe results are compacted for the next AI turn.
+- Keep compact Processing receipts inside the working-trace budget so Agent Workflow can finish a reviewed proposal instead of repeating discovery.
+
 ## [1.5.21] - 2026-08-09
 
 ### Fixed

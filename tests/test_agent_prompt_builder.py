@@ -349,6 +349,48 @@ class BudgetTests(unittest.TestCase):
         # (already guaranteed by json.loads succeeding above) and small.
         self.assertLess(len(json.dumps(omitted)), MAX_TOOL_RESULT_PROMPT_CHARS)
 
+    def test_oversized_processing_receipt_keeps_token_and_bindings(self) -> None:
+        parameters = [
+            {
+                "name": f"PARAM_{index}",
+                "type": "number",
+                "required": index == 0,
+                "destination": False,
+                "proposal_binding": "number",
+                "alternative_binding": "",
+                "enum_options": ["equals", "less than", "greater than"] * 20,
+                "description": "display-only details " * 20,
+            }
+            for index in range(18)
+        ]
+        result = AgentToolResult(
+            "resolve",
+            "processing.resolve",
+            AgentResultStatus.SUCCESS,
+            {
+                "resolved": {
+                    "available": True,
+                    "algorithm_id": "zero2agentosm:download_advanced",
+                    "title": "Download advanced OSM data",
+                    "parameters": parameters,
+                    "context_token": "trusted-receipt-token",
+                },
+                "algorithms": [],
+            },
+        ).to_dict()
+        event = {"kind": "tool_result", "tool_name": "processing.resolve", "result": result}
+        prompt = build_prompt(**base_call(current_run_events=[event]))
+        payload = json.loads(prompt.user_prompt)
+        retained = payload["current_turn_events"][-1]["result"]
+        resolved = retained["data"]["resolved"]
+        self.assertEqual(resolved["context_token"], "trusted-receipt-token")
+        self.assertEqual(resolved["algorithm_id"], "zero2agentosm:download_advanced")
+        self.assertTrue(resolved["parameters"])
+        self.assertLess(
+            len(json.dumps(payload["current_turn_events"])),
+            2500,
+        )
+
     def test_small_tool_result_is_kept_verbatim(self) -> None:
         small_result = AgentToolResult(
             "c1", "project.summary", AgentResultStatus.SUCCESS, {"title": "My project"}

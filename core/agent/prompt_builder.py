@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .contracts import AgentToolSpec, MAX_ALLOWED_PROMPT_CHARS
 
@@ -297,6 +297,10 @@ def _omit_if_oversized(event: Dict[str, Any], max_chars: int) -> Dict[str, Any]:
     serialized = json.dumps(result, ensure_ascii=False, sort_keys=True)
     if len(serialized) <= max_chars:
         return event
+    if event.get("tool_name") in {"processing.resolve", "processing.describe"}:
+        compacted = _compact_processing_tool_event(event, max_chars)
+        if compacted is not None:
+            return compacted
     status = result.get("status") if isinstance(result, dict) else ""
     omitted = dict(event)
     omitted["result"] = {
@@ -305,6 +309,108 @@ def _omit_if_oversized(event: Dict[str, Any], max_chars: int) -> Dict[str, Any]:
         "original_chars": len(serialized),
     }
     return omitted
+
+
+def _compact_processing_tool_event(
+    event: Dict[str, Any], max_chars: int
+) -> Optional[Dict[str, Any]]:
+    """Keep the live receipt and bindable rows of a large Processing result."""
+    result = event.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
+        return None
+    data = result["data"]
+
+    def compact_description(description: Dict[str, Any]) -> Dict[str, Any]:
+        compact: Dict[str, Any] = {
+            key: description[key]
+            for key in (
+                "available", "algorithm_id", "title", "group", "provider_id",
+                "agent_runnable", "agent_reason", "context_token",
+            )
+            if key in description
+        }
+        rows = description.get("parameters")
+        if isinstance(rows, list):
+            compact_rows = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                compact_row = {
+                    key: row[key]
+                    for key in (
+                        "name", "type", "required", "destination", "multiple",
+                        "proposal_binding", "alternative_binding", "default_behavior",
+                        "minimum", "maximum",
+                    )
+                    if key in row
+                }
+                options = row.get("enum_options")
+                if isinstance(options, list):
+                    compact_row["enum_options"] = options[:12]
+                    if len(options) > 12:
+                        compact_row["enum_options_truncated"] = True
+                compact_rows.append(compact_row)
+            compact["parameters"] = compact_rows
+            compact["parameters_truncated"] = bool(description.get("parameters_truncated"))
+        return compact
+
+    compact_data = dict(data)
+    resolved = data.get("resolved")
+    if isinstance(resolved, dict):
+        compact_data["resolved"] = compact_description(resolved)
+        algorithms = data.get("algorithms")
+        if isinstance(algorithms, list):
+            compact_data["algorithms"] = [
+                {
+                    key: item[key]
+                    for key in ("algorithm_id", "title", "provider_id")
+                    if key in item
+                }
+                for item in algorithms
+                if isinstance(item, dict)
+            ]
+    else:
+        compact_data = compact_description(data)
+
+    compacted = dict(event)
+    compacted["result"] = dict(result)
+    compacted["result"]["data"] = compact_data
+    if len(json.dumps(compacted, ensure_ascii=False, sort_keys=True)) <= max_chars:
+        return compacted
+
+    description = compact_data.get("resolved", compact_data)
+    rows = description.get("parameters") if isinstance(description, dict) else None
+    if isinstance(rows, list):
+        description["parameters"] = [
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and (
+                row.get("required") is True
+                or row.get("proposal_binding")
+                or row.get("alternative_binding")
+            )
+            and row.get("destination") is not True
+        ]
+        description["parameters_truncated"] = True
+        if len(json.dumps(compacted, ensure_ascii=False, sort_keys=True)) <= max_chars:
+            return compacted
+        # Preserve enum choices only for rows whose type makes those choices
+        # actionable; display-only choice lists are not needed to build a
+        # proposal. Keep required rows first if a signature is still large.
+        for row in description["parameters"]:
+            if not isinstance(row, dict):
+                continue
+            if "enum_options" in row and "enum" not in str(row.get("type", "")).casefold():
+                row.pop("enum_options", None)
+                row.pop("enum_options_truncated", None)
+        if len(json.dumps(compacted, ensure_ascii=False, sort_keys=True)) <= max_chars:
+            return compacted
+        description["parameters"] = description["parameters"][:12]
+        description["parameters_truncated"] = True
+        if len(json.dumps(compacted, ensure_ascii=False, sort_keys=True)) <= max_chars:
+            return compacted
+    return None
 
 
 def _events_omitted_marker(dropped: int) -> Dict[str, Any]:
@@ -328,6 +434,12 @@ def _compact_working_events(
         item = dict(event)
         candidate = [item] + latest
         if len(json.dumps(candidate, ensure_ascii=False, sort_keys=True)) > max_chars:
+            if item.get("kind") == "tool_result":
+                compacted = _omit_if_oversized(item, max(256, max_chars - 220))
+                candidate = [compacted] + latest
+                if len(json.dumps(candidate, ensure_ascii=False, sort_keys=True)) <= max_chars:
+                    latest = candidate
+                    continue
             continue
         latest = candidate
     dropped = max(0, len(events) - len(latest))
