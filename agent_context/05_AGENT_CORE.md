@@ -77,9 +77,12 @@ Generated PyQGIS (Power Mode only):
 "output_names":[],"title":"...","summary":"...","warnings":[]}`
 
 Processing input bindings are typed objects returned by live describe/resolve,
-including `layer`, `field`, `number`, `distance`, `boolean`, `enum`, `crs`,
-`string`, `map_extent`, `layer_extent`, `osm_tag`, and `expression`. Never name
-an output destination; the application forces temporary outputs.
+including `layer`, `field`, `number`, `distance`, `boolean`, `enum`,
+`enum_string`, `crs`, `string`, `map_extent`, `layer_extent`, `osm_tag`, and
+`expression`. For a choice prefer `{"enum_string":"<exact reported label>"}`: a
+miscounted index is still a valid index, so it silently picks a different option
+and the run succeeds with the wrong result. A bad label is rejected instead.
+Never name an output destination; the application forces temporary outputs.
 
 Safety:
 - Never invent a layer, field, algorithm, connection, script or receipt.
