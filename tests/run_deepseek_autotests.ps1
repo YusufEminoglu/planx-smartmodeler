@@ -40,8 +40,19 @@ function Invoke-QgisLiveTest {
 
     Write-Host "`n=== $Name ===" -ForegroundColor Cyan
     Add-Content -LiteralPath $logPath -Value "`n=== $Name ==="
-    $captured = @(& $qgisPython $ScriptPath 2>&1 | Tee-Object -FilePath $logPath -Append)
-    $exitCode = $LASTEXITCODE
+    # QGIS/Qt may write benign network diagnostics to stderr (for example
+    # QIODevice::read on a closed QNetworkReply). With the runner's global
+    # Stop policy, PowerShell turns that diagnostic into a terminating native
+    # command error before the child exit code can be recorded. Capture both
+    # streams while this invocation is running and judge the test by exit code.
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $captured = @(& $qgisPython $ScriptPath 2>&1 | Tee-Object -FilePath $logPath -Append)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
     $passed = ($exitCode -eq 0)
     $detail = ""
     if (-not $passed) {

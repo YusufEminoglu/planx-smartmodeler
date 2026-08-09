@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.33] - 2026-08-09
+
+- Keep QGIS stderr diagnostics from aborting DeepSeek autotest reporting
+
 ## [1.5.32] - 2026-08-09
 
 - Continue active-layer proposals instead of asking for a supplied layer ID
