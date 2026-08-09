@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0] - 2026-08-09
+
+### Added
+
+- Add the reviewed AI-facing `smartmodeler:extractbyreferenceattribute`
+  Processing operation for requests that filter a reference layer by a supplied
+  district/area value and spatially keep features from a second layer.
+
+### Fixed
+
+- Preserve the Processing discovery pack for longer conversational follow-ups
+  such as “use the other district layer”, preventing the AI connection from
+  falling back to layer-only inspection tools.
+
 ## [1.2.1] - 2026-08-09
 
 ### Changed

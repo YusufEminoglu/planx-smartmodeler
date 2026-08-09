@@ -107,6 +107,13 @@ Intent rules:
   features”; never `native:randomselection` (selection state only).
 - Attribute filter into a new layer → `native:extractbyattribute`.
 - Spatial keep/intersect/inside/touch → `native:extractbylocation`.
+- When the request names one layer's features and a second layer's attribute
+  value (for example, neighbourhoods belonging to the Konak district), prefer
+  `smartmodeler:extractbyreferenceattribute` when `processing.resolve` reports
+  it live and runnable. It filters the reference layer by the user-supplied
+  value and applies the spatial predicate in one reviewed temporary-layer run.
+  Do not replace this with `native:extractbyexpression`, `overlay_intersects`,
+  or repeated `expression.search` calls.
 - Join fields by key → `native:joinattributestable`.
 - Merge layers → `native:mergevectorlayers`.
 - Geometry/analysis requests → search by operation, prefer a runnable result,

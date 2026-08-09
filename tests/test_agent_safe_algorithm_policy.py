@@ -66,7 +66,7 @@ class PolicyDefaultAllowlistTests(unittest.TestCase):
         # be tested one id at a time by trusted code.
         from planx_smartmodeler.core.agent.safe_algorithm_policy import _DEFAULT_ALLOWLIST
 
-        self.assertEqual(len(_DEFAULT_ALLOWLIST), 25)
+        self.assertEqual(len(_DEFAULT_ALLOWLIST), 26)
         self.assertIsNotNone(self.policy.record_for("native:buffer"))
         self.assertIsNotNone(self.policy.record_for("native:cellstatistics"))
         self.assertIsNotNone(self.policy.record_for("native:extractbyattribute"))

@@ -11,6 +11,7 @@ from .osm_download import (
     DownloadOsmPointsAlgorithm,
     DownloadOsmPolygonsAlgorithm,
 )
+from .reference_extract import ExtractByReferenceAttributeAlgorithm
 
 
 class SmartModelerProcessingProvider(QgsProcessingProvider):
@@ -32,7 +33,7 @@ class SmartModelerProcessingProvider(QgsProcessingProvider):
         return QIcon(path)
 
     def loadAlgorithms(self) -> None:
+        self.addAlgorithm(ExtractByReferenceAttributeAlgorithm())
         self.addAlgorithm(DownloadOsmPointsAlgorithm())
         self.addAlgorithm(DownloadOsmLinesAlgorithm())
         self.addAlgorithm(DownloadOsmPolygonsAlgorithm())
-

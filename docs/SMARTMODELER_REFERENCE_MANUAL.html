@@ -395,12 +395,13 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <h2 id="processing">Processing Provider &amp; Plugins</h2>
 
 <h3>Processing Provider &amp; Algorithms</h3>
-<p>SmartModeler registers as a QGIS Processing provider (<code>processing/provider.py</code>) with five algorithms:</p>
+<p>SmartModeler registers as a QGIS Processing provider (<code>processing/provider.py</code>) with six algorithms:</p>
 <table><tr><th>Algorithm ID</th><th>Purpose</th></tr>
 <tr><td><code>smartmodeler:osmdownload</code></td><td>Bounded OSM data acquisition for roads, buildings, and trees within a map-canvas extent</td></tr>
 <tr><td><code>smartmodeler:randomextract</code></td><td>Random feature subset extraction from a vector layer</td></tr>
 <tr><td><code>smartmodeler:fieldcalculator</code></td><td>QGIS field calculator with live expression validation</td></tr>
 <tr><td><code>smartmodeler:filterlayer</code></td><td>Attribute-based layer filtering with deterministic FID output</td></tr>
+<tr><td><code>smartmodeler:extractbyreferenceattribute</code></td><td>AI-facing district/area attribute filter followed by a reviewed spatial extraction</td></tr>
 <tr><td><code>smartmodeler:power</code></td><td>Power Mode execution gateway (only available when Power Mode is enabled)</td></tr>
 </table>
 

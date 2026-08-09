@@ -174,11 +174,21 @@ def select_tools_for_request(
     """Select the smallest useful deterministic capability pack for a request."""
     scoped = select_tools_for_scope(tool_specs, scope)
     folded = str(user_text or "").casefold()
+    continuation_markers = (
+        "o zaman", "other layer", "use it", "ilerle", "devam", "continue",
+        "tekrar", "retry", "dogru dedin", "haklisin",
+    )
     # Short follow-ups such as "hazır", "yapsana", a bare layer/field name,
     # or "why?" need the latest bounded exchange for capability routing.
     # The provider already receives that exchange; this merely keeps the same
     # scope-filtered discovery tools advertised for the continuation.
-    if len(folded.strip()) <= 80 and session_history:
+    if (
+        session_history
+        and (
+            len(folded.strip()) <= 80
+            or any(marker in folded for marker in continuation_markers)
+        )
+    ):
         # A retry can follow a short diagnostic exchange ("why couldn't you
         # do it?" -> "try again"). Looking at only the immediately preceding
         # message loses the original operation and falsely removes its tools.
@@ -203,6 +213,7 @@ def select_tools_for_request(
     processing_terms = (
         "process", "algorithm", "buffer", "reproject", "extract", "calculate",
         "field", "expression", "rand(", "$area", "$length", "clip", "merge",
+        "ilçe", "ilce", "district", "mahalle", "neighborhood", "konak",
         "dissolve", "processing", "filter", "filtre", "süz", "suz",
         "extract by attribute", "yeni katman", "katman olarak üret",
         "sütun", "sutun", "alan hesap",

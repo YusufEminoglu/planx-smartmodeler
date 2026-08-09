@@ -181,6 +181,29 @@ class ScopeFilterTests(unittest.TestCase):
             self.assertIn("processing.search", selected_names)
             self.assertIn("processing.describe", selected_names)
 
+    def test_long_other_layer_follow_up_preserves_processing_capability_pack(self) -> None:
+        names = (
+            "project.summary", "layer.list", "layer.describe",
+            "processing.resolve", "processing.search", "processing.describe",
+            "expression.search", "layer.style",
+        )
+        tools = [make_tool(name, [AgentScope.ACTIVE_LAYER]) for name in names]
+        history = (
+            SessionExchange(
+                "filter the neighbourhoods belonging to Konak into a new layer",
+                "The active layer has no district field.",
+            ),
+        )
+        selected = select_tools_for_request(
+            tools,
+            AgentScope.ACTIVE_LAYER,
+            "Use the other district layer and continue from there.",
+            session_history=history,
+        )
+        selected_names = {item.name for item in selected}
+        self.assertIn("processing.resolve", selected_names)
+        self.assertIn("processing.describe", selected_names)
+
     def test_retry_after_diagnostic_exchange_keeps_original_processing_pack(self) -> None:
         names = (
             "project.summary", "layer.list", "layer.describe",

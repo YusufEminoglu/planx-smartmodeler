@@ -98,6 +98,7 @@ _BLOCKED_ALGORITHM_IDS = frozenset(
 _STRUCTURALLY_TRUSTED_PREFIXES = (
     "native:",
     "qgis:",
+    "smartmodeler:",
     "planx:",
     "planx_",
 )
@@ -500,11 +501,13 @@ def _alg(
     required: Tuple[str, ...],
     destinations: Tuple[str, ...] = ("OUTPUT",),
     optional_destinations: Tuple[str, ...] = (),
+    required_params: Tuple[str, ...] = (),
 ) -> AllowedAlgorithm:
     return AllowedAlgorithm(
         algorithm_id=algorithm_id,
         bindable=dict(bindable),
         required_layer_params=required,
+        required_params=required_params,
         destinations=destinations,
         optional_destinations=optional_destinations,
     )
@@ -658,6 +661,18 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         "native:extractbylocation",
         {"INPUT": VECTOR_LAYER, "PREDICATE": ENUM, "INTERSECT": VECTOR_LAYER},
         ("INPUT", "INTERSECT"),
+    ),
+    "smartmodeler:extractbyreferenceattribute": _alg(
+        "smartmodeler:extractbyreferenceattribute",
+        {
+            "INPUT": VECTOR_LAYER,
+            "REFERENCE": VECTOR_LAYER,
+            "REFERENCE_FIELD": FIELD,
+            "REFERENCE_VALUE": STRING_LABEL,
+            "PREDICATE": ENUM,
+        },
+        ("INPUT", "REFERENCE"),
+        required_params=("REFERENCE_FIELD", "REFERENCE_VALUE"),
     ),
     # "Join the attributes of layer B onto layer A where a field matches" -- a
     # table join, no expression and no path. FIELD binds to INPUT and FIELD_2 to
