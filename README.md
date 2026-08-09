@@ -1,17 +1,17 @@
 # SmartModeler GIS
 
-[![QGIS](https://img.shields.io/badge/QGIS-4.0%2B-589632.svg)](https://qgis.org)
-[![Release](https://img.shields.io/badge/release-1.2.0-2f80ed.svg)](CHANGELOG.md)
+[![QGIS](https://img.shields.io/badge/QGIS-3.44%2B%20%7C%204.0%2B-589632.svg)](https://qgis.org)
+[![Release](https://img.shields.io/badge/release-1.2.1-2f80ed.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/📖_Reference_Manual-13a0a0)](https://yusufeminoglu.github.io/planx-smartmodeler/)
 
-SmartModeler GIS is a QGIS 4-only visual studio for building and running real QGIS Processing workflows. It combines a typed node canvas, live algorithm discovery, validated AI planning, native `.model3` interchange, and a focused dark Qt 6 interface.
+SmartModeler GIS is a QGIS 3.44+ and QGIS 4 visual studio for building and running real QGIS Processing workflows. It combines a typed node canvas, live algorithm discovery, validated AI planning, native `.model3` interchange, and a focused Qt5/Qt6 interface.
 
 ## 📖 Documentation
 
 **[Comprehensive Academic Reference Manual](https://yusufeminoglu.github.io/planx-smartmodeler/)** — OSM algorithms, Workflow Studio, AI agent architecture, workflow patterns, and 83 DOI-verified academic references. Hosted on GitHub Pages.
 
-Version 1.2.0 is the current production release. Every action proposed by a connected
+Version 1.2.1 is the current production release. Every action proposed by a connected
 provider remains inert until it passes local validation and the user explicitly
 approves it; deterministic offline workflow generation remains available
 without a network connection.
@@ -412,7 +412,7 @@ be managed with that database unlocked.
 
 ## Requirements and installation
 
-- QGIS 4.0 or newer
+- QGIS 3.44 LTR or newer (including QGIS 4)
 - No pip or external Python dependencies
 
 For a Hub release, open **Plugins > Manage and Install Plugins**, search for
@@ -453,8 +453,9 @@ standard library, and its fixed seed makes any failure reproducible.
 `tests/qgis_smoke.py` is the real-QGIS harness: catalog discovery, native
 Processing execution, progressless task cancellation, atomic result ownership,
 Qt widget construction, `.model3` round-tripping, and the full agent
-proposal/approval/run/undo path. The distributed plugin requires QGIS 4; QGIS
-3.44 LTR is retained as an additional compatibility/regression runtime.
+proposal/approval/run/undo path. The distributed plugin supports QGIS 3.44 LTR
+and QGIS 4. Older QGIS 3 releases are not covered by the current compatibility
+guarantee.
 `tests/qgis_modeler_catalog_matrix.py` separately walks every live Processing
 algorithm without executing arbitrary side effects, constructs its typed node,
 and verifies the complete port schema after JSON round-trip.

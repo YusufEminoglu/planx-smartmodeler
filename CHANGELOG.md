@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1] - 2026-08-09
+
+### Changed
+
+- Declare the verified QGIS 3.44 LTR compatibility range in plugin metadata and
+  documentation alongside QGIS 4 support. Older QGIS 3 releases remain outside
+  the current compatibility guarantee.
+
 ## [1.2.0] - 2026-08-09
 
 ### Added
