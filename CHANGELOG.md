@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.31] - 2026-08-09
+
+- Reject quoted geometry variables before Field Calculator execution
+
 ## [1.5.30] - 2026-08-09
 
 - Bind stale primary inputs to the active Agent Workflow layer

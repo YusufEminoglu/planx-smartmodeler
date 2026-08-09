@@ -91,7 +91,12 @@ def main() -> int:
                 check = validate_qgis_expression(formula, source)
                 if not check.ok:
                     raise RuntimeError(f"Valid QGIS expression was rejected: {formula}")
-            for formula in ("rand(1,", "env('PATH')", 'file_exists("id")'):
+            for formula in (
+                "rand(1,",
+                "env('PATH')",
+                'file_exists("id")',
+                "'$area'",
+            ):
                 check = validate_qgis_expression(formula, source)
                 if check.ok:
                     raise RuntimeError(f"Unsafe/invalid expression was admitted: {formula}")

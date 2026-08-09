@@ -76,6 +76,22 @@ def validate_qgis_expression(expression_text: str, layer: Any) -> ExpressionVali
     if not isinstance(expression_text, str) or not expression_text.strip():
         return ExpressionValidation(False, "A non-empty QGIS expression is required.")
 
+    # Geometry variables are evaluated by QGIS. Quoting one turns it into a
+    # literal string, which can silently produce NULLs in numeric Field
+    # Calculator outputs. Reject this common provider mistake before review
+    # and give the Agent a precise repair signal.
+    if expression_text.strip().casefold() in {
+        "'$area'",
+        "'$length'",
+        "'$perimeter'",
+        "'$x'",
+        "'$y'",
+    }:
+        return ExpressionValidation(
+            False,
+            "A geometry variable must be evaluated without quotes.",
+        )
+
     expression = QgsExpression(expression_text)
     if expression.hasParserError():
         return ExpressionValidation(

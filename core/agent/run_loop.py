@@ -745,6 +745,7 @@ class AgentRunLoop:
                 "requested settings are not valid for this algorithm",
                 "not been inspected in this session",
                 "inspect it again",
+                "geometry variable must be evaluated",
                 "layer extent id is required",
                 "input layer is not in the project",
             )
