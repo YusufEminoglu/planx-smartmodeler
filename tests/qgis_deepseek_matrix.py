@@ -8,6 +8,7 @@ because every case uses a billable external provider request.
 from __future__ import annotations
 
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -98,22 +99,81 @@ CASES = (
 )
 
 
-def _make_source() -> QgsVectorLayer:
+def _randomized_cases(seed: int) -> list[dict]:
+    """Build equally difficult but non-identical prompts for one live run."""
+    rng = random.Random(seed)
+    filter_field, filter_value = rng.choice(
+        (("category", "low"), ("category", "high"), ("zone_class", "core"), ("zone_class", "edge"))
+    )
+    distance = rng.choice((3, 5, 7))
+    segments = rng.choice((3, 5, 8))
+    dissolve = rng.choice(("false", "true"))
+    title_words = rng.choice(("Small", "Compact", "Quick", "Basic", "Focused"))
+    lead_words = rng.choice(
+        (
+            "First inspect the active vector layer and then",
+            "Use the active vector layer after inspecting it, then",
+            "Begin with a precise active-layer inspection; next",
+            "After checking the active layer fields,",
+        )
+    )
+    variants = []
+    for template in CASES:
+        case = dict(template)
+        case["modeler_prompt"] = case["modeler_prompt"].replace(
+            "Matrix ", f"{title_words} Matrix "
+        )
+        case["agent_prompt"] = case["agent_prompt"].replace(
+            "Inspect the active vector layer, then", f"{lead_words}"
+        )
+        case["agent_prompt"] += rng.choice(
+            (
+                " Return the reviewed proposal as the terminal JSON envelope.",
+                " The run is temporary and must be proposed, not claimed as already executed.",
+                " Do not stop at an explanation: emit the inert proposal after inspection.",
+            )
+        )
+        if case["algorithm_id"] == "native:buffer":
+            case["modeler_prompt"] = case["modeler_prompt"].replace(
+                "DISTANCE to 5", f"DISTANCE to {distance}"
+            ).replace("SEGMENTS to 5", f"SEGMENTS to {segments}").replace(
+                "DISSOLVE to false", f"DISSOLVE to {dissolve}"
+            )
+            case["agent_prompt"] = case["agent_prompt"].replace(
+                "DISTANCE to 5", f"DISTANCE to {distance}"
+            ).replace("SEGMENTS to 5", f"SEGMENTS to {segments}").replace(
+                "DISSOLVE to false", f"DISSOLVE to {dissolve}"
+            )
+        if case["algorithm_id"] == "native:extractbyattribute":
+            case["name"] = f"filter {filter_field} {filter_value}"
+            case["modeler_prompt"] = case["modeler_prompt"].replace(
+                "category", filter_field
+            ).replace("VALUE to low", f"VALUE to {filter_value}")
+            case["agent_prompt"] = case["agent_prompt"].replace(
+                "category", filter_field
+            ).replace("VALUE to low", f"VALUE to {filter_value}")
+        variants.append(case)
+    rng.shuffle(variants)
+    return variants
+
+
+def _make_source(layer_name: str) -> QgsVectorLayer:
     layer = QgsVectorLayer(
-        "Point?crs=EPSG:4326&field=id:integer&field=category:string(20)&field=value:double",
-        "DeepSeek matrix source",
+        "Point?crs=EPSG:4326&field=id:integer&field=category:string(20)&"
+        "field=zone_class:string(20)&field=value:double",
+        layer_name,
         "memory",
     )
     features = []
-    for feature_id, x, category, value in (
-        (1, 0.01, "low", 1.0),
-        (2, 0.02, "high", 2.0),
-        (3, 0.03, "low", 3.0),
-        (4, 0.04, "high", 4.0),
+    for feature_id, x, category, zone_class, value in (
+        (1, 0.01, "low", "core", 1.0),
+        (2, 0.02, "high", "edge", 2.0),
+        (3, 0.03, "low", "edge", 3.0),
+        (4, 0.04, "high", "core", 4.0),
     ):
         feature = QgsFeature(layer.fields())
         feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, x)))
-        feature.setAttributes([feature_id, category, value])
+        feature.setAttributes([feature_id, category, zone_class, value])
         features.append(feature)
     layer.dataProvider().addFeatures(features)
     layer.updateExtents()
@@ -237,14 +297,23 @@ def _run_agent_case(api_key: str, source: QgsVectorLayer, case: dict) -> str:
     return f"Agent PASS ({case['name']}, turns={loop.turns_used}, {_usage_text(last_usage)})"
 
 
-def run_matrix(api_key: str, limit: int = 10) -> tuple[str, bool]:
-    selected = CASES[: max(1, min(len(CASES), (limit + 1) // 2))]
-    source = _make_source()
+def run_matrix(api_key: str, limit: int = 10, seed: int | None = None) -> tuple[str, bool]:
+    if seed is None:
+        seed = random.SystemRandom().randrange(1, 2_147_483_647)
+    rng = random.Random(seed)
+    cases = _randomized_cases(seed)
+    selected = cases[: max(1, min(len(cases), (limit + 1) // 2))]
+    source = _make_source(
+        f"DeepSeek matrix {rng.choice(('alpha', 'beta', 'gamma', 'delta'))} "
+        f"{rng.randrange(100, 1000)}"
+    )
     passed = []
     failed = []
     try:
         for case in selected:
-            for label, runner in (("modeler", _run_modeler_case), ("agent", _run_agent_case)):
+            channels = [("modeler", _run_modeler_case), ("agent", _run_agent_case)]
+            rng.shuffle(channels)
+            for label, runner in channels:
                 try:
                     result = runner(api_key, source, case)
                 except Exception as error:
@@ -253,7 +322,10 @@ def run_matrix(api_key: str, limit: int = 10) -> tuple[str, bool]:
                 else:
                     passed.append(result)
                     print(result, flush=True)
-        summary = f"DEEPSEEK MATRIX: {len(passed)} passed, {len(failed)} failed, {len(selected) * 2} total"
+        summary = (
+            f"DEEPSEEK MATRIX: seed={seed}, {len(passed)} passed, "
+            f"{len(failed)} failed, {len(selected) * 2} total"
+        )
         if failed:
             return summary + "\n" + "\n".join(failed), False
         return summary, True
@@ -291,7 +363,9 @@ def main() -> int:
             registry.addProvider(added_provider)
         try:
             limit = int(os.environ.get("SMARTMODELER_DEEPSEEK_MATRIX_LIMIT", "10"))
-            summary, passed = run_matrix(api_key, limit)
+            seed_text = os.environ.get("SMARTMODELER_DEEPSEEK_MATRIX_SEED", "").strip()
+            seed = int(seed_text) if seed_text else None
+            summary, passed = run_matrix(api_key, limit, seed)
             print(summary, flush=True)
             return 0 if passed else 1
         finally:

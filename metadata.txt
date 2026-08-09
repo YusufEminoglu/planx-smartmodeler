@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=QGIS 3.44+ and QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=1.5.8
+version=1.5.9
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    1.5.9 - Randomize equal-difficulty live DeepSeek task wording, operation order, layer names, filter fields, and buffer settings with reproducible seeds.
     1.5.8 - Recover placeholder Agent context tokens through trusted inspection and normalize scalar/list Modeler enum labels and indices.
     1.5.7 - Align live DeepSeek harness prompts with the GUI Agent contract and resolve semantic enum labels such as equals against live QGIS options.
     1.5.6 - Recover additional DeepSeek proposal aliases, decorated legacy envelopes, concatenated terminal JSON, and human-readable Modeler enum labels.

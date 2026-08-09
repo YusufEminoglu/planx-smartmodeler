@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.9] - 2026-08-09
+
+### Added
+
+- Randomize equal-difficulty live DeepSeek task wording, case order, execution
+  channel order, active-layer names, filter fields/values, and buffer settings.
+- Print a reproducible matrix seed and accept
+  `SMARTMODELER_DEEPSEEK_MATRIX_SEED` for replaying a failing run.
+
 ## [1.5.8] - 2026-08-09
 
 ### Fixed
