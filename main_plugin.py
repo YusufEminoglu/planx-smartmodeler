@@ -81,7 +81,11 @@ class SmartModelerPlugin:
         self.action.setStatusTip("Design and run QGIS 4 Processing workflows")
         self.action.triggered.connect(self.run)
         self.iface.addPluginToMenu("SmartModeler GIS", self.action)
-        self.iface.addVectorToolBarIcon(self.action)
+        # The Plugins toolbar, like every other plugin here and the shared
+        # template. The Vector toolbar was used instead, and whether it is
+        # visible at all is per-profile UI state: the same build showed the icon
+        # in one QGIS profile and appeared to have none in another.
+        self.iface.addToolBarIcon(self.action)
 
         self.agent_dock = AgentWorkspaceDock(
             self.iface,
@@ -113,7 +117,7 @@ class SmartModelerPlugin:
         )
         self.agent_action.triggered.connect(self.open_agent_workspace)
         self.iface.addPluginToMenu("SmartModeler GIS", self.agent_action)
-        self.iface.addVectorToolBarIcon(self.agent_action)
+        self.iface.addToolBarIcon(self.agent_action)
 
         self.help_action = QAction(
             QgsApplication.getThemeIcon("/mActionHelpContents.svg"),
@@ -133,12 +137,12 @@ class SmartModelerPlugin:
             self.processing_provider = None
         if self.action is not None:
             self.iface.removePluginMenu("SmartModeler GIS", self.action)
-            self.iface.removeVectorToolBarIcon(self.action)
+            self.iface.removeToolBarIcon(self.action)
             self.action.deleteLater()
             self.action = None
         if self.agent_action is not None:
             self.iface.removePluginMenu("SmartModeler GIS", self.agent_action)
-            self.iface.removeVectorToolBarIcon(self.agent_action)
+            self.iface.removeToolBarIcon(self.agent_action)
             self.agent_action.deleteLater()
             self.agent_action = None
         if self.help_action is not None:

@@ -1086,11 +1086,21 @@ def run_checks() -> str:
             def removePluginMenu(self, _name, _action):
                 pass
 
-            def addVectorToolBarIcon(self, _action):
-                pass
+            # Recorded, not ignored. A stub that accepted any toolbar call let
+            # this plugin register on the Vector toolbar while every sibling and
+            # the shared template used the Plugins toolbar -- and whether the
+            # Vector toolbar is visible at all is per-profile UI state, so the
+            # same build looked icon-less in one QGIS profile and fine in
+            # another.
+            def __init__(self):
+                self.toolbar_added = []
+                self.toolbar_removed = []
 
-            def removeVectorToolBarIcon(self, _action):
-                pass
+            def addToolBarIcon(self, action):
+                self.toolbar_added.append(action)
+
+            def removeToolBarIcon(self, action):
+                self.toolbar_removed.append(action)
 
             def addDockWidget(self, _area, _dock):
                 pass
@@ -1106,6 +1116,11 @@ def run_checks() -> str:
             )
         lifecycle_plugin.initGui()
         try:
+            if len(fake_iface.toolbar_added) != 2:
+                raise RuntimeError(
+                    "Both plugin actions must reach the Plugins toolbar; "
+                    f"got {len(fake_iface.toolbar_added)}."
+                )
             if (
                 lifecycle_plugin.agent_action is None
                 or lifecycle_plugin.agent_action.icon().isNull()
@@ -1253,6 +1268,13 @@ def run_checks() -> str:
             lifecycle_plugin.unload()
         if lifecycle_plugin._current_graph() is not None:
             raise RuntimeError("Agent Workspace reported a model after unload().")
+        # Every icon added must be taken back, or an uninstall leaves a dead
+        # button on the user's toolbar.
+        if len(fake_iface.toolbar_removed) != len(fake_iface.toolbar_added):
+            raise RuntimeError(
+                f"unload() removed {len(fake_iface.toolbar_removed)} toolbar icons "
+                f"but initGui() added {len(fake_iface.toolbar_added)}."
+            )
 
         expected_agent_tools = {
             "project.summary",
