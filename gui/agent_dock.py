@@ -67,6 +67,10 @@ from .theme import STUDIO_STYLE
 # conversation can drive the project before the human must consciously start
 # over with New chat, which also rotates tokens and clears memory and the ledger.
 MAX_SESSION_ACTIONS = 10
+# How many automatic continuations one user message may trigger. A chained
+# request in practice is three or four steps ("download, add a field, filter,
+# classify"); beyond that the user should say what they want next.
+MAX_CHAIN_STEPS = 4
 
 # Phase 07 (§9.2): the transcript is a rolling window, not an archive. Without a
 # cap it grows for the whole life of the dock -- a long session with large tool
@@ -220,6 +224,10 @@ class AgentWorkspaceDock(QDockWidget):
         self._running_action = None
         # How many terminal actions this chat session has completed.
         self._session_action_count = 0
+        # How many times the *current* user message may be continued
+        # automatically. The session action cap still gates every approval;
+        # this only stops a chain from asking the provider indefinitely.
+        self._chain_steps_left = 0
         # One dock-owned timer whose only power is to *disable* an approval that
         # has aged past its TTL. It never creates, extends, repairs or re-arms a
         # pending action, and the authoritative expiry check stays at the click.
@@ -304,6 +312,16 @@ class AgentWorkspaceDock(QDockWidget):
         self.import_script_button.setEnabled(self._power_mode_enabled)
         self.import_script_button.clicked.connect(self._import_trusted_script)
         power_row.addWidget(self.import_script_button)
+        # Chaining is opt-in and visible. It never approves anything: each step
+        # still stops at its own approval card. It only saves the user from
+        # typing "continue" between the steps of a request they already stated.
+        self.auto_continue_check = QCheckBox("Continue multi-step requests")
+        self.auto_continue_check.setChecked(False)
+        self.auto_continue_check.setToolTip(
+            "After an approved step finishes, ask for the next step of the same "
+            "request automatically. Every step still needs your approval."
+        )
+        power_row.addWidget(self.auto_continue_check)
         power_row.addStretch(1)
         layout.addLayout(power_row)
         self.power_hint_label = QLabel(
@@ -803,6 +821,9 @@ class AgentWorkspaceDock(QDockWidget):
         self._append_line(f"> {text}")
         self._active_profile = profile
         self._active_api_key = api_key
+        # A new user message starts a new chain; it never inherits the previous
+        # message's remaining automatic steps.
+        self._chain_steps_left = MAX_CHAIN_STEPS
         # Starting a new run supersedes any un-applied pending action.
         self._invalidate_pending_action()
 
@@ -1199,6 +1220,50 @@ class AgentWorkspaceDock(QDockWidget):
     def _session_action_budget_left(self) -> bool:
         return self._session_action_count < MAX_SESSION_ACTIONS
 
+    def _maybe_continue_chain(self) -> None:
+        """Ask for the next step of a multi-step request, if the user opted in.
+
+        Chaining does not weaken the approval boundary: this starts a *turn*,
+        never an action, so the next step still stops at its own approval card
+        and still consumes the session action budget when it is approved. What
+        it removes is the user typing "continue" between steps of a request
+        they already stated once -- which is what a chained request looked like
+        in practice: download, then "devam et", then "yapsana", then "e yap".
+
+        Bounded three ways: the opt-in must be on, the chain is capped per user
+        message, and the session action cap still applies. The provider ends it
+        by returning a final answer instead of a proposal.
+        """
+        if not self.auto_continue_check.isChecked():
+            return
+        if self._chain_steps_left <= 0:
+            return
+        if self.run_loop.mode != AgentMode.ACT:
+            return
+        if not self._session_action_budget_left():
+            return
+        if self.run_loop.is_active() or self.run_coordinator.is_running():
+            return
+        if self._external_run_active():
+            return
+        if self._active_profile is None or not self._active_api_key:
+            return
+        self._chain_steps_left -= 1
+        self._invalidate_pending_action()
+        try:
+            event = self.run_loop.start(
+                "The approved step finished. Continue the same request: propose "
+                "the next step now, or state that the request is complete.",
+                self.run_loop.mode,
+                self.run_loop.scope,
+            )
+        except RunLoopError as error:
+            self._append_line(f"[chain] Could not continue automatically: {error}")
+            return
+        self._append_line("[chain] Continuing with the next step of your request.")
+        self._set_controls_active(True)
+        self._handle_run_event(event)
+
     def _create_pending_action(self, ingredients: dict, preview: dict) -> None:
         # A new validated Act proposal supersedes any previous pending action.
         if self._pending_action is not None:
@@ -1537,6 +1602,7 @@ class AgentWorkspaceDock(QDockWidget):
         self.status_label.setText("Run complete.")
         self._clear_approval_card()
         self._refresh_undo_button()
+        self._maybe_continue_chain()
 
     def _on_run_failed(self, reason_code: str, message: str) -> None:
         pending = self._running_action
@@ -1673,6 +1739,7 @@ class AgentWorkspaceDock(QDockWidget):
         self._running_action = None
         self._last_applied = None
         self._session_action_count = 0
+        self._chain_steps_left = 0
         self.action_ledger.clear()
         self._clear_approval_card()
         self._refresh_ledger_view()

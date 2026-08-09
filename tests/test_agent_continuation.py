@@ -1,8 +1,13 @@
 """QGIS-free tests for supervised multi-step continuation.
 
-Three properties matter: an action's outcome reaches the next turn in a bounded,
-sanitized form; the agent never continues on its own; and one chat session
-cannot drive an unbounded number of actions.
+Four properties matter: an action's outcome reaches the next turn in a bounded,
+sanitized form; recording that outcome never calls the provider; one chat
+session cannot drive an unbounded number of actions; and continuing a chained
+request is opt-in, capped per user message, and still bounded by the action cap.
+
+The agent used to never continue at all, which made a chained request cost the
+user a message per step. Chaining now starts a *turn* when the user opts in --
+never an action, since every step still stops at its own approval card.
 
 The dock owns this behaviour but imports Qt, so these tests exercise the same
 logic through the pure ``SessionMemory`` plus a minimal stand-in that mirrors
@@ -18,6 +23,9 @@ from planx_smartmodeler.core.agent.prompt_builder import PromptBudget, SessionMe
 # Mirrors gui/agent_dock.MAX_SESSION_ACTIONS; asserted equal below so the two
 # can never silently drift apart.
 MAX_SESSION_ACTIONS = 10
+# Mirrors gui/agent_dock.MAX_CHAIN_STEPS, asserted equal below for the same
+# reason.
+MAX_CHAIN_STEPS = 4
 
 
 class _ContinuationHarness:
@@ -27,6 +35,8 @@ class _ContinuationHarness:
         self.session_memory = memory
         self.provider_calls = 0
         self._session_action_count = 0
+        self.auto_continue = False
+        self._chain_steps_left = 0
 
     def record_action_outcome(
         self, kind: str, status: str, target: str, layer_ids=()
@@ -43,9 +53,26 @@ class _ContinuationHarness:
     def session_action_budget_left(self) -> bool:
         return self._session_action_count < MAX_SESSION_ACTIONS
 
+    def send_user_message(self) -> None:
+        self._chain_steps_left = MAX_CHAIN_STEPS
+        self.provider_calls += 1
+
+    def maybe_continue_chain(self) -> bool:
+        """Mirrors AgentWorkspaceDock._maybe_continue_chain's guards exactly."""
+        if not self.auto_continue:
+            return False
+        if self._chain_steps_left <= 0:
+            return False
+        if not self.session_action_budget_left():
+            return False
+        self._chain_steps_left -= 1
+        self.provider_calls += 1
+        return True
+
     def new_chat(self) -> None:
         self.session_memory.clear()
         self._session_action_count = 0
+        self._chain_steps_left = 0
 
 
 def budget() -> PromptBudget:
@@ -124,6 +151,80 @@ class OutcomeMemoryTests(unittest.TestCase):
         self.assertLessEqual(
             len(agent.session_memory.exchanges()), limits.max_session_exchanges
         )
+
+
+class ChainedContinuationTests(unittest.TestCase):
+    """Opt-in chaining: it starts turns, never actions.
+
+    A chained request used to cost the user a message per step -- "devam et",
+    "yapsana", "e yap". Chaining removes those, and nothing else: every step
+    still stops at its own approval card and still spends the session action
+    budget when approved.
+    """
+
+    def test_the_chain_cap_matches_the_dock_constant(self):
+        import re
+        from pathlib import Path
+
+        source = Path(__file__).resolve().parents[1] / "gui" / "agent_dock.py"
+        match = re.search(
+            r"^MAX_CHAIN_STEPS = (\d+)", source.read_text(encoding="utf-8"), re.MULTILINE
+        )
+        self.assertIsNotNone(match, "agent_dock must define MAX_CHAIN_STEPS")
+        self.assertEqual(int(match.group(1)), MAX_CHAIN_STEPS)
+
+    def test_chaining_is_off_by_default(self):
+        agent = harness()
+        agent.send_user_message()
+        agent.record_action_outcome("processing_run", ActionStatus.COMPLETED, "Buffer")
+        self.assertFalse(agent.maybe_continue_chain())
+        self.assertEqual(agent.provider_calls, 1)
+
+    def test_an_enabled_chain_continues_without_a_user_message(self):
+        agent = harness()
+        agent.auto_continue = True
+        agent.send_user_message()
+        agent.record_action_outcome("processing_run", ActionStatus.COMPLETED, "Download")
+        self.assertTrue(agent.maybe_continue_chain())
+        self.assertEqual(agent.provider_calls, 2)
+
+    def test_a_chain_is_bounded_per_user_message(self):
+        agent = harness()
+        agent.auto_continue = True
+        agent.send_user_message()
+        continued = 0
+        for _ in range(MAX_CHAIN_STEPS + 5):
+            agent.record_action_outcome("processing_run", ActionStatus.COMPLETED, "Step")
+            if agent.maybe_continue_chain():
+                continued += 1
+        self.assertEqual(continued, MAX_CHAIN_STEPS)
+
+    def test_a_new_user_message_restarts_the_chain_budget(self):
+        agent = harness()
+        agent.auto_continue = True
+        agent.send_user_message()
+        for _ in range(MAX_CHAIN_STEPS):
+            agent.maybe_continue_chain()
+        self.assertFalse(agent.maybe_continue_chain())
+        agent.send_user_message()
+        self.assertTrue(agent.maybe_continue_chain())
+
+    def test_the_session_action_cap_still_stops_a_chain(self):
+        # Chaining must not become a way around the action cap.
+        agent = harness()
+        agent.auto_continue = True
+        agent.send_user_message()
+        for _ in range(MAX_SESSION_ACTIONS):
+            agent.record_action_outcome("processing_run", ActionStatus.COMPLETED, "T")
+        self.assertFalse(agent.session_action_budget_left())
+        self.assertFalse(agent.maybe_continue_chain())
+
+    def test_a_new_chat_clears_the_chain_budget(self):
+        agent = harness()
+        agent.auto_continue = True
+        agent.send_user_message()
+        agent.new_chat()
+        self.assertFalse(agent.maybe_continue_chain())
 
 
 class SessionActionCapTests(unittest.TestCase):
