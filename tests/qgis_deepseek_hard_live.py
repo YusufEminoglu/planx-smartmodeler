@@ -29,6 +29,9 @@ from qgis_deepseek_live import _profile, _request, _usage_text
 
 
 def _extent_layer() -> QgsVectorLayer:
+    # The sibling downloader deliberately rejects extents above 100 km².
+    # Keep this bounded Konak test window below that limit while retaining all
+    # seeded neighborhood fixtures and a realistic Overpass request size.
     layer = QgsVectorLayer(
         "Polygon?crs=EPSG:4326",
         "Konak district extent",
@@ -38,11 +41,11 @@ def _extent_layer() -> QgsVectorLayer:
     feature.setGeometry(
         QgsGeometry.fromPolygonXY(
             [[
-                QgsPointXY(27.05, 38.35),
-                QgsPointXY(27.25, 38.35),
-                QgsPointXY(27.25, 38.50),
-                QgsPointXY(27.05, 38.50),
-                QgsPointXY(27.05, 38.35),
+                QgsPointXY(27.05, 38.38),
+                QgsPointXY(27.15, 38.38),
+                QgsPointXY(27.15, 38.46),
+                QgsPointXY(27.05, 38.46),
+                QgsPointXY(27.05, 38.38),
             ]]
         )
     )

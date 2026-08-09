@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=QGIS 3.44+ and QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=1.5.11
+version=1.5.12
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    1.5.12 - Keep the hard OSM workflow test extent below the sibling downloader's 100 km² safety limit.
     1.5.11 - Fix the cached hard DeepSeek OSM workflow to seed the 02Agent OSM Downloader provider cache.
     1.5.10 - Add a four-stage DeepSeek OSM-to-area-analysis workflow using the 02Agent OSM Downloader provider.
     1.5.9 - Randomize equal-difficulty live DeepSeek task wording, operation order, layer names, filter fields, and buffer settings with reproducible seeds.

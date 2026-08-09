@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.12] - 2026-08-09
+
+### Fixed
+
+- Keep the hard OSM workflow's bounded Konak test window below the sibling
+  downloader's 100 km² extent safety limit.
+
 ## [1.5.11] - 2026-08-09
 
 ### Fixed
