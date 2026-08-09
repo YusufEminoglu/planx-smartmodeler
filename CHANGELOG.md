@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.30] - 2026-08-09
+
+- Bind stale primary inputs to the active Agent Workflow layer
+
 ## [1.5.29] - 2026-08-09
 
 - Repair missing active-layer extent bindings in Agent Workflow

@@ -327,6 +327,11 @@ def plan_processing_run(
     resolved: List[ResolvedBinding] = []
     input_layer_ids: List[str] = []
     preview: List[str] = []
+    active_primary_param = (
+        record.required_layer_params[0]
+        if require_active_layer and record.required_layer_params
+        else ""
+    )
 
     # Pass 1 -- layer bindings only, so a later field binding can be checked
     # against the layer it names without depending on dict ordering.
@@ -341,6 +346,16 @@ def plan_processing_run(
             if tag in ("layer", "layer_extent")
             else tuple(binding.value)
         )
+        # ACTIVE_LAYER is an application-owned scope, not a suggestion to the
+        # provider.  Keep the first required layer input attached to the live
+        # active layer even when a provider echoes a stale id from an earlier
+        # stage.  Secondary inputs remain provider-selected and are still
+        # resolved strictly by exact project id.
+        if active_layer_id and (
+            param == active_primary_param
+            or (not active_primary_param and tag == "layer_extent")
+        ):
+            ids = (active_layer_id,)
         if len(ids) > MAX_PLAN_INPUT_LAYERS:
             _reject("Too many input layers were bound.", ProposalReason.LIMIT_EXCEEDED)
         views = tuple(_resolve_layer(layer_id, layer_lookup, kind) for layer_id in ids)

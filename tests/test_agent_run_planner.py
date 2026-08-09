@@ -608,15 +608,15 @@ class ProcessingRunPlannerTests(unittest.TestCase):
         )
         self.assertEqual(plan.input_layer_ids, ("L_vec",))
 
-    def test_active_layer_scope_rejects_a_different_primary_input(self):
-        self.assert_rejects(
+    def test_active_layer_scope_repairs_a_stale_primary_input(self):
+        plan = self.plan(
             "native:buffer",
             {"INPUT": {"layer": "L_vec2"}},
             BUFFER_PARAMS,
-            ProposalReason.TARGET_MISSING,
             active_layer_id="L_vec",
             require_active_layer=True,
         )
+        self.assertEqual(plan.input_layer_ids, ("L_vec",))
 
     def test_active_layer_scope_rejects_when_there_is_no_active_layer(self):
         self.assert_rejects(
