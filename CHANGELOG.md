@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.10] - 2026-08-09
+
+### Added
+
+- Add an opt-in four-stage DeepSeek hard workflow that discovers and uses the
+  02Agent OSM Downloader provider, downloads administrative neighborhood
+  polygons, reprojects them, calculates an area field, and runs a simple
+  follow-up geometry analysis.
+- Keep the hard workflow bounded and reproducible: cached OSM data is used by
+  default, a seed randomizes the area-field name and final analysis, and an
+  explicit environment switch is required for the real Overpass path.
+
 ## [1.5.9] - 2026-08-09
 
 ### Added
