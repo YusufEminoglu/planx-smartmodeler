@@ -330,6 +330,20 @@ class ProcessingRunPlannerTests(unittest.TestCase):
         self.assertEqual(extent.layer_ids, ("L_vec",))
         self.assertEqual(plan.input_layer_ids, ("L_vec",))
 
+    def test_osm_parameters_accept_generic_string_aliases(self):
+        plan = self.plan(
+            "smartmodeler:osm_download_polygons",
+            {
+                "KEY": {"string": "building"},
+                "VALUE": {"text": "*"},
+                "EXTENT": {"map_extent": True},
+            },
+            SMARTMODELER_OSM_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("KEY").tag, "osm_tag")
+        self.assertEqual(plan.binding_for("KEY").value, "building")
+        self.assertEqual(plan.binding_for("VALUE").tag, "osm_tag")
+
     def test_quickosm_plan_requires_key_and_extent(self):
         self.assert_rejects(
             "quickosm:downloadosmdataextentquery",

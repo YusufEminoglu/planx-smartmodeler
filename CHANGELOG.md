@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.15] - 2026-08-09
+
+### Fixed
+
+- Normalize safe generic Agent binding labels such as `string`/`text` for an
+  OSM tag or `number` for a distance to the exact live Processing kind before
+  planning, while retaining the same policy, bounds, and materialization checks.
+
 ## [1.5.14] - 2026-08-09
 
 ### Fixed

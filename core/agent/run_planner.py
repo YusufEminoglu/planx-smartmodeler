@@ -195,13 +195,32 @@ def _resolve_layer(layer_id: str, layer_lookup: LayerLookup, expected_kind: str)
     return view
 
 
+def _canonical_tag(kind: str, tag: str) -> str:
+    """Accept only safe semantic aliases for a live parameter kind.
+
+    Providers sometimes use the generic ``string``/``text`` or ``number``
+    labels even when the live Agent contract advertises a narrower typed form.
+    The conversion does not widen authority: the same live kind, bounds, and
+    policy check still apply before materialization.
+    """
+    aliases = {
+        OSM_TAG: {"string": "osm_tag", "text": "osm_tag"},
+        STRING_LABEL: {"text": "string"},
+        STRING_TEXT: {"string": "text"},
+        DISTANCE: {"number": "distance"},
+        NUMBER: {"distance": "number"},
+        ENUM: {"string": "enum_string", "text": "enum_string"},
+    }
+    return aliases.get(kind, {}).get(tag, tag)
+
+
 def _check_common(
     param: str,
     tag: str,
     policy: SafeAlgorithmPolicy,
     record,
     params_by_name: Mapping[str, ParamSpec],
-) -> Tuple[str, ParamSpec]:
+) -> Tuple[str, ParamSpec, str]:
     """Return the (kind, live spec) a binding must satisfy, or fail closed."""
     # The policy -- not this planner and not the proposal -- decides whether a
     # parameter is bindable at all, and to what kind.
@@ -218,9 +237,13 @@ def _check_common(
         _reject("An output destination cannot be supplied.", ProposalReason.UNSAFE_PARAMETER)
     if not kind_matches(kind, spec):
         _reject("A parameter changed type since review.", ProposalReason.SIGNATURE_MISMATCH)
-    if kind not in _TAG_KINDS.get(tag, frozenset()):
-        _reject("This value form is not valid for this parameter.", ProposalReason.UNSAFE_PARAMETER)
-    return kind, spec
+    canonical_tag = _canonical_tag(kind, tag)
+    if kind not in _TAG_KINDS.get(canonical_tag, frozenset()):
+        _reject(
+            "This value form is not valid for this parameter.",
+            ProposalReason.UNSAFE_PARAMETER,
+        )
+    return kind, spec, canonical_tag
 
 
 def _plan_number(spec: ParamSpec, value: Any) -> Any:
@@ -307,10 +330,12 @@ def plan_processing_run(
     for param, binding in proposal.inputs:
         if binding.tag not in ("layer", "layers", "layer_extent"):
             continue
-        kind, _spec = _check_common(param, binding.tag, policy, record, params_by_name)
+        kind, _spec, tag = _check_common(
+            param, binding.tag, policy, record, params_by_name
+        )
         ids = (
             (binding.value,)
-            if binding.tag in ("layer", "layer_extent")
+            if tag in ("layer", "layer_extent")
             else tuple(binding.value)
         )
         if len(ids) > MAX_PLAN_INPUT_LAYERS:
@@ -321,29 +346,31 @@ def plan_processing_run(
             ResolvedBinding(
                 param=param,
                 kind=kind,
-                tag=binding.tag,
+                tag=tag,
                 layer_ids=tuple(view.layer_id for view in views),
             )
         )
         input_layer_ids.extend(view.layer_id for view in views)
         names = ", ".join(_preview_value(view.name) for view in views)
-        label = "layer extent" if binding.tag == "layer_extent" else "layer"
+        label = "layer extent" if tag == "layer_extent" else "layer"
         preview.append(f"{param}: {label} {names}")
 
     # Pass 2 -- every other tagged binding.
     for param, binding in proposal.inputs:
         if binding.tag in ("layer", "layers", "layer_extent"):
             continue
-        kind, spec = _check_common(param, binding.tag, policy, record, params_by_name)
-        if binding.tag == "field":
+        kind, spec, tag = _check_common(
+            param, binding.tag, policy, record, params_by_name
+        )
+        if tag == "field":
             value: Any = _plan_field(binding, layers_by_param)
-        elif binding.tag in ("number", "distance"):
+        elif tag in ("number", "distance"):
             value = _plan_number(spec, binding.value)
-        elif binding.tag == "bool":
+        elif tag == "bool":
             value = bool(binding.value)
-        elif binding.tag in ("enum", "enum_string"):
-            value = _plan_enum(spec, binding.tag, binding.value)
-        elif binding.tag in ("string", "text", "osm_tag", "expression"):
+        elif tag in ("enum", "enum_string"):
+            value = _plan_enum(spec, tag, binding.value)
+        elif tag in ("string", "text", "osm_tag", "expression"):
             maximum = (
                 MAX_LABEL_STRING_CHARS
                 if kind == STRING_LABEL
@@ -352,11 +379,11 @@ def plan_processing_run(
             if len(str(binding.value)) > maximum:
                 _reject("A text value is too long.", ProposalReason.LIMIT_EXCEEDED)
             value = str(binding.value)
-        elif binding.tag == "map_extent":
+        elif tag == "map_extent":
             value = True
         else:  # crs -- the authid's validity is confirmed by the QGIS adapter
             value = str(binding.value)
-        resolved.append(ResolvedBinding(param=param, kind=kind, tag=binding.tag, value=value))
+        resolved.append(ResolvedBinding(param=param, kind=kind, tag=tag, value=value))
         preview.append(f"{param}: {_preview_value(value)}")
 
     # Every reviewed required input must actually be bound.
