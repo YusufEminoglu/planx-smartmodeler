@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.28] - 2026-08-09
+
+### Fixed
+
+- Run every hard multi-stage OSM workflow stage in `ACTIVE_LAYER` scope so the current stage input is enforced by the trusted validator.
+- Prevent providers from reusing the original extent or an older temporary layer when preparing later-stage Processing proposals.
+
 ## [1.5.27] - 2026-08-09
 
 ### Fixed

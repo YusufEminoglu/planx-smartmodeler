@@ -192,7 +192,11 @@ def _stage(
         ).agent_context(text, scope, power_enabled=power),
         power_enabled_provider=lambda: False,
     )
-    event = loop.start(prompt, AgentMode.ACT, AgentScope.PROJECT)
+    # Each stage receives the previous stage's output as its active source.
+    # ACTIVE_LAYER scope makes that hand-off a trusted validator requirement,
+    # so a provider cannot accidentally reuse the original extent or an older
+    # temporary result when several layers coexist in the project.
+    event = loop.start(prompt, AgentMode.ACT, AgentScope.ACTIVE_LAYER)
     usages = []
     turns_left = 10
     while event.kind == RunEventKind.REQUEST_PROVIDER and turns_left:
