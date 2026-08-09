@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.4] - 2026-08-09
+
+### Fixed
+
+- Recover the retired DeepSeek Processing proposal shape using `parameters`
+  and `temporary_output` by converting only bounded scalar values to typed
+  `inputs`; output destinations are discarded and temporary output remains
+  application-controlled.
+
 ## [1.5.3] - 2026-08-09
 
 ### Fixed

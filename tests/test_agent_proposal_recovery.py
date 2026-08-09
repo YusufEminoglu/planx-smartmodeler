@@ -139,6 +139,41 @@ class PureRecoveryTests(unittest.TestCase):
         self.assertTrue(outcome.turn.is_proposal)
         self.assertEqual(outcome.turn.proposal.algorithm_id, "native:randomextract")
 
+    def test_legacy_processing_parameters_become_typed_inputs_without_output(self) -> None:
+        legacy = {
+            "action": "proposal",
+            "assistant_text": "Run ready.",
+            "tool_calls": [],
+            "proposal_kind": "run",
+            "proposal_json": json.dumps(
+                {
+                    "algorithm_id": "native:buffer",
+                    "parameters": {
+                        "INPUT": "layer_1",
+                        "DISTANCE": 5,
+                        "SEGMENTS": 5,
+                        "DISSOLVE": False,
+                        "OUTPUT": "C:/should-never-be-used.gpkg",
+                    },
+                    "temporary_output": True,
+                }
+            ),
+        }
+        raw = json.dumps(legacy)
+        outcome = recover_agent_turn(raw, 4, {})
+        self.assertIsNone(outcome.turn)
+        self.assertEqual(outcome.inspection.tool_name, "processing.describe")
+        recovered = recover_agent_turn(
+            raw,
+            4,
+            {("processing_run", "native:buffer"): "trusted"},
+        )
+        self.assertIsNotNone(recovered.turn)
+        inputs = dict(recovered.turn.proposal.inputs)
+        self.assertEqual(inputs["INPUT"].tag, "layer")
+        self.assertEqual(inputs["DISTANCE"].tag, "distance")
+        self.assertNotIn("OUTPUT", inputs)
+
     def test_non_string_proposal_note_is_not_repaired(self) -> None:
         raw = json.loads(
             _turn(

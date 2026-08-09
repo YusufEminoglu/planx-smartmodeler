@@ -9,6 +9,8 @@ mechanical mistakes without asking the provider for another paid turn:
 * make a layer-style class count agree with its bounded palette/family.
 * replace a missing or blank proposal display note with a fixed safe note;
 * promote a semantically valid proposal accidentally labelled ``final``.
+* convert the retired ``parameters``/``temporary_output`` processing shape to
+  the current typed ``inputs`` shape without accepting a destination.
 
 It never changes a proposal target, algorithm, input binding, field, value,
 operation, output destination, mode, scope, or approval state.  The recovered
@@ -46,6 +48,84 @@ _PROPOSAL_KIND_ALIASES = {
     "run": PROPOSAL_KIND_PROCESSING_RUN,
     "style": PROPOSAL_KIND_LAYER_STYLE,
 }
+
+_LEGACY_LAYER_PARAMETER_NAMES = frozenset(
+    {"INPUT", "INPUT_LAYER", "SOURCE", "OVERLAY", "REFERENCE", "MASK", "CLIP", "LAYER"}
+)
+_LEGACY_ENUM_PARAMETER_NAMES = frozenset(
+    {"METHOD", "OPERATOR", "TYPE", "JOIN_STYLE", "END_CAP_STYLE", "CAP_STYLE"}
+)
+_LEGACY_DESTINATION_NAMES = frozenset(
+    {"OUTPUT", "DESTINATION", "OUTPUT_LAYER", "OUTPUT_FILE", "TEMPORARY_OUTPUT"}
+)
+
+
+def _legacy_binding(name: str, value: Any) -> Optional[dict]:
+    """Convert one old scalar parameter to a current inert binding."""
+    if isinstance(value, dict):
+        # Preserve an already-typed binding if a provider nested it under the
+        # legacy parameters object; the strict parser validates the tag.
+        if len(value) == 1 and next(iter(value)) in {
+            "layer", "layers", "number", "bool", "enum", "enum_string",
+            "string", "text", "crs", "distance", "map_extent", "layer_extent",
+            "osm_tag", "expression",
+        }:
+            return dict(value)
+        if set(value) == {"value"}:
+            value = value["value"]
+        else:
+            return None
+    upper = name.upper()
+    if upper in _LEGACY_DESTINATION_NAMES or upper.endswith("_DESTINATION"):
+        return None
+    if isinstance(value, bool):
+        return {"bool": value}
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if upper in _LEGACY_ENUM_PARAMETER_NAMES:
+            return {"enum": value}
+        if upper in {"DISTANCE", "RADIUS", "TOLERANCE"}:
+            return {"distance": value}
+        return {"number": value}
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return {"layers": list(value)} if upper.endswith("LAYERS") else {"string": ",".join(value)}
+    if isinstance(value, str):
+        if upper in _LEGACY_LAYER_PARAMETER_NAMES or upper.endswith("_LAYER"):
+            return {"layer": value}
+        if upper in {"FIELD", "FIELD_NAME"}:
+            return {"field": value, "layer_param": "INPUT"}
+        if upper in {"FORMULA", "EXPRESSION"}:
+            return {"expression": value}
+        if upper in {"CRS", "TARGET_CRS"}:
+            return {"crs": value}
+        return {"string": value}
+    return None
+
+
+def _normalize_legacy_processing(proposal: dict) -> None:
+    """Translate the retired DeepSeek processing shape in place.
+
+    The conversion is deliberately narrow and authority-reducing. It never
+    carries forward output destinations, file paths, SQL, or Python source.
+    The resulting object still has to pass ``parse_proposal`` and the trusted
+    runtime validator.
+    """
+    if "inputs" in proposal or not isinstance(proposal.get("parameters"), dict):
+        return
+    parameters = proposal["parameters"]
+    inputs = {}
+    for raw_name, value in list(parameters.items())[:30]:
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            return
+        binding = _legacy_binding(raw_name, value)
+        if binding is not None:
+            inputs[raw_name] = binding
+    proposal["inputs"] = inputs
+    proposal.pop("parameters", None)
+    proposal.pop("temporary_output", None)
+    proposal.setdefault("schema_version", 1)
+    proposal.setdefault("title", f"Run {proposal.get('algorithm_id', 'Processing algorithm')}")
+    proposal.setdefault("summary", "Run the reviewed Processing algorithm with temporary output.")
+    proposal.setdefault("warnings", [])
 
 
 @dataclass(frozen=True)
@@ -176,6 +256,9 @@ def recover_agent_turn(
     proposal = _object(proposal_json)
     if proposal is None:
         return RecoveryResult()
+
+    if kind == PROPOSAL_KIND_PROCESSING_RUN:
+        _normalize_legacy_processing(proposal)
 
     receipt_kind, target = _receipt_target(kind, proposal)
     if not receipt_kind or not target:
