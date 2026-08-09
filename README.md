@@ -1,7 +1,7 @@
 # SmartModeler GIS
 
 [![QGIS](https://img.shields.io/badge/QGIS-3.44%2B%20%7C%204.0%2B-589632.svg)](https://qgis.org)
-[![Release](https://img.shields.io/badge/release-1.3.0-2f80ed.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-1.4.0-2f80ed.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/📖_Reference_Manual-13a0a0)](https://yusufeminoglu.github.io/planx-smartmodeler/)
 
@@ -11,7 +11,7 @@ SmartModeler GIS is a QGIS 3.44+ and QGIS 4 visual studio for building and runni
 
 **[Comprehensive Academic Reference Manual](https://yusufeminoglu.github.io/planx-smartmodeler/)** — OSM algorithms, Workflow Studio, AI agent architecture, workflow patterns, and 83 DOI-verified academic references. Hosted on GitHub Pages.
 
-Version 1.3.0 is the current production release. Every action proposed by a connected
+Version 1.4.0 is the current production release. Every action proposed by a connected
 provider remains inert until it passes local validation and the user explicitly
 approves it; deterministic offline workflow generation remains available
 without a network connection.
@@ -459,6 +459,10 @@ guarantee.
 `tests/qgis_modeler_catalog_matrix.py` separately walks every live Processing
 algorithm without executing arbitrary side effects, constructs its typed node,
 and verifies the complete port schema after JSON round-trip.
+`tests/qgis_30_operation_matrix.py` executes thirty small in-memory operations
+through both the Graphical Modeler engine and the Agent Workflow validation /
+run boundary; it is verified on QGIS 3.44 LTR and QGIS 4.2 without an external
+AI request.
 Run the harness under both, each with its own throwaway profile:
 
 ```powershell

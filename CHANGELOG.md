@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.4.0] - 2026-08-09
+
+### Added
+
+- Add a thirty-case offline acceptance matrix covering small real Processing
+  operations through both Graphical Modeler and Agent Workflow execution.
+- Verify the matrix on QGIS 3.44 LTR and QGIS 4.2 without an external AI call;
+  every case uses in-memory inputs and temporary outputs.
+
 ## [1.3.0] - 2026-08-09
 
 ### Added

@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=QGIS 3.44+ and QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=1.3.0
+version=1.4.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    1.4.0 - Add a thirty-case offline acceptance matrix covering Graphical Modeler and Agent Workflow execution on QGIS 3.44 LTR and QGIS 4.2.
     1.3.0 - Add the reviewed AI-facing reference-layer spatial extraction operation and preserve Processing capability on long follow-up messages.
     1.2.1 - Declare verified QGIS 3.44 LTR compatibility alongside QGIS 4 and update support metadata.
     1.2.0 - Add ten branching urban-planning showcase workflows, bounded Agent provider recovery for malformed/transient responses, and clearer Power Mode guidance.
