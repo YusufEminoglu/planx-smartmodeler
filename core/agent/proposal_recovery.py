@@ -7,7 +7,8 @@ mechanical mistakes without asking the provider for another paid turn:
 * restore a freshness receipt from a trusted read-only inspection result;
 * request the one missing read-only inspection needed for that receipt;
 * make a layer-style class count agree with its bounded palette/family.
-* replace a missing or blank proposal display note with a fixed safe note.
+* replace a missing or blank proposal display note with a fixed safe note;
+* promote a semantically valid proposal accidentally labelled ``final``.
 
 It never changes a proposal target, algorithm, input binding, field, value,
 operation, output destination, mode, scope, or approval state.  The recovered
@@ -30,6 +31,7 @@ from .proposals import (
     PROPOSAL_KIND_PROCESSING_RUN,
 )
 from .protocol import (
+    ACTION_FINAL,
     ACTION_PROPOSAL,
     MAX_RAW_RESPONSE_CHARS,
     AgentTurn,
@@ -154,7 +156,7 @@ def recover_agent_turn(
     if not isinstance(raw_text, str) or len(raw_text) > MAX_RAW_RESPONSE_CHARS:
         return RecoveryResult()
     outer = _object(raw_text.strip())
-    if outer is None or outer.get("action") != ACTION_PROPOSAL:
+    if outer is None or outer.get("action") not in (ACTION_PROPOSAL, ACTION_FINAL):
         return RecoveryResult()
     if outer.get("tool_calls") not in (None, []):
         return RecoveryResult()
@@ -181,6 +183,12 @@ def recover_agent_turn(
         _normalize_style(proposal)
 
     repaired = dict(outer)
+    # DeepSeek occasionally labels a complete proposal envelope as ``final``.
+    # This promotion changes no proposal content or authority: the strict
+    # parser still requires a proposable kind, parses the inert proposal, and
+    # the live runtime validator still performs the freshness and scope checks.
+    if repaired.get("action") == ACTION_FINAL:
+        repaired["action"] = ACTION_PROPOSAL
     assistant_text = repaired.get("assistant_text")
     if assistant_text is None or (
         isinstance(assistant_text, str) and not assistant_text.strip()

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.1] - 2026-08-09
+
+### Fixed
+
+- Recover a complete DeepSeek proposal when the provider labels the envelope
+  `final`; the inert proposal still passes strict parsing, live freshness,
+  scope, and explicit approval validation.
+
 ## [1.5.0] - 2026-08-09
 
 ### Added

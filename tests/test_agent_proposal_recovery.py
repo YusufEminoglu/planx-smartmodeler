@@ -126,6 +126,19 @@ class PureRecoveryTests(unittest.TestCase):
         self.assertEqual(recovered.algorithm_id, "native:randomextract")
         self.assertEqual(dict(recovered.inputs)["NUMBER"].value, 3)
 
+    def test_final_label_with_complete_proposal_is_promoted_safely(self) -> None:
+        raw = json.loads(
+            _turn(
+                PROPOSAL_KIND_PROCESSING_RUN,
+                _processing_proposal(token="trusted"),
+            )
+        )
+        raw["action"] = "final"
+        outcome = recover_agent_turn(json.dumps(raw), 4, {})
+        self.assertIsNotNone(outcome.turn)
+        self.assertTrue(outcome.turn.is_proposal)
+        self.assertEqual(outcome.turn.proposal.algorithm_id, "native:randomextract")
+
     def test_non_string_proposal_note_is_not_repaired(self) -> None:
         raw = json.loads(
             _turn(
