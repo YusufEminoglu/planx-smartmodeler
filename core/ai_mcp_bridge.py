@@ -503,6 +503,17 @@ class AiMcpBridge:
         if len(edges_data) > cls.MAX_EDGES:
             raise AiResponseError(f"Graph exceeds the {cls.MAX_EDGES}-edge safety limit.")
 
+        # Providers sometimes echo the redacted local-value marker on a
+        # parameter that is simultaneously satisfied by an incoming graph
+        # edge.  The edge is authoritative for that port, so the marker is
+        # inert and can be discarded; a marker on an unconnected/new
+        # parameter remains a strict error below.
+        connected_inputs = {
+            (edge.get("to_node"), edge.get("to_input"))
+            for edge in edges_data
+            if isinstance(edge, dict)
+        }
+
         graph = GraphModel(title)
         graph.description = summary
         for item in nodes_data:
@@ -562,6 +573,8 @@ class AiMcpBridge:
                 if value is None:
                     continue
                 if value == cls.LOCAL_PARAMETER_MARKER:
+                    if (node_id, key) in connected_inputs:
+                        continue
                     if baseline_node is None or key not in baseline_node.parameters:
                         raise AiResponseError(
                             "AI used the local-value token without a matching "

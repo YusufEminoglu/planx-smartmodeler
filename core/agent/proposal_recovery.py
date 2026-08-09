@@ -227,6 +227,28 @@ def _inspection_for(kind: str, target: str) -> Optional[InspectionRequest]:
     return None
 
 
+def _needs_layer_extent_inspection(proposal: Mapping[str, Any]) -> bool:
+    """Detect a missing project-layer id without selecting a layer locally."""
+    inputs = proposal.get("inputs")
+    if not isinstance(inputs, dict):
+        return False
+    for binding in inputs.values():
+        if not isinstance(binding, dict) or "layer_extent" not in binding:
+            continue
+        value = binding.get("layer_extent")
+        if not isinstance(value, str) or not value.strip():
+            return True
+        if value.strip().casefold() in {
+            "<layer id>",
+            "<layer_id>",
+            "layer_id",
+            "current_layer",
+            "active_layer",
+        }:
+            return True
+    return False
+
+
 def _token_is_usable(value: Any) -> bool:
     if not isinstance(value, str) or not 0 < len(value) <= MAX_TOKEN_CHARS:
         return False
@@ -327,6 +349,13 @@ def recover_agent_turn(
         if not _token_is_usable(token):
             return RecoveryResult(inspection=_inspection_for(kind, target))
         proposal["context_token"] = token
+
+    if kind == PROPOSAL_KIND_PROCESSING_RUN and _needs_layer_extent_inspection(proposal):
+        # The provider must choose the id from the trusted layer.list result;
+        # recovery deliberately does not guess or inject a project layer.
+        return RecoveryResult(
+            inspection=InspectionRequest("layer.list", {"limit": 100})
+        )
 
     if kind == PROPOSAL_KIND_LAYER_STYLE:
         _normalize_style(proposal)

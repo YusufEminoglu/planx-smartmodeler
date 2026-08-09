@@ -629,16 +629,38 @@ class AgentRunLoop:
                     and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
                 ):
                     self._provider_recovery_attempts += 1
-                    recovery = {
-                        "kind": "provider_recovery",
-                        "strategy": "repair_typed_proposal",
-                        "instruction": (
+                    error_text = str(error).casefold()
+                    if "layer extent id" in error_text:
+                        repair_instruction = (
+                            "The previous proposal omitted a valid project layer id "
+                            "for EXTENT. Use the exact id from the latest successful "
+                            "layer.list result as {\"layer_extent\": \"<id>\"}; "
+                            "do not use an empty value, true, coordinates, or a "
+                            "guessed name. Preserve the inspected algorithm and "
+                            "return one corrected proposal."
+                        )
+                    elif "input binding" in error_text:
+                        repair_instruction = (
+                            "The previous proposal used an invalid input binding "
+                            "envelope. Each inputs value must be exactly one typed "
+                            "object such as {\"layer\": \"id\"}, {\"number\": 5}, "
+                            "{\"enum\": 0}, {\"string\": \"text\"}, or "
+                            "{\"layer_extent\": \"id\"}; do not use wrapper keys, "
+                            "parameters, or destinations. Return one corrected "
+                            "proposal."
+                        )
+                    else:
+                        repair_instruction = (
                             "The previous terminal proposal was mechanically invalid. "
                             "Return one corrected proposal using the exact typed "
                             "binding forms and the fresh context_token from the "
                             "successful inspection. Do not repeat successful tool "
                             "calls and do not claim execution."
-                        ),
+                        )
+                    recovery = {
+                        "kind": "provider_recovery",
+                        "strategy": "repair_typed_proposal",
+                        "instruction": repair_instruction,
                     }
                     self._turn_events.append(recovery)
                     return self._advance_turn(
@@ -684,6 +706,7 @@ class AgentRunLoop:
                 "missing or invalid context_token",
                 "unknown input binding form",
                 "an input binding must use exactly one tagged form",
+                "layer extent id is required",
             )
         )
 

@@ -292,6 +292,30 @@ class PureRecoveryTests(unittest.TestCase):
         self.assertIsNone(outcome.inspection)
 
 
+    def test_explicit_typed_binding_alias_is_normalized(self) -> None:
+        proposal = _processing_proposal(token="trusted")
+        proposal["inputs"]["NUMBER"] = {"type": "number", "value": 3}
+        outcome = recover_agent_turn(
+            _turn(PROPOSAL_KIND_PROCESSING_RUN, proposal),
+            4,
+            {},
+        )
+        self.assertIsNotNone(outcome.turn)
+        self.assertEqual(dict(outcome.turn.proposal.inputs)["NUMBER"].value, 3)
+
+    def test_blank_layer_extent_requests_layer_list(self) -> None:
+        proposal = _processing_proposal(token="trusted")
+        proposal["algorithm_id"] = "zero2agentosm:download_advanced"
+        proposal["inputs"] = {"EXTENT": {"layer_extent": ""}}
+        outcome = recover_agent_turn(
+            _turn(PROPOSAL_KIND_PROCESSING_RUN, proposal),
+            4,
+            {},
+        )
+        self.assertIsNone(outcome.turn)
+        self.assertEqual(outcome.inspection.tool_name, "layer.list")
+
+
 class RunLoopRecoveryTests(unittest.TestCase):
     @staticmethod
     def _registry(calls):

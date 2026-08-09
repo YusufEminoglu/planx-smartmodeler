@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.18] - 2026-08-09
+
+### Fixed
+
+- Normalize only explicit typed binding aliases returned by providers while
+  preserving the strict proposal and live-policy validation boundary.
+- Ignore a redacted local-value marker when the same Modeler input is supplied
+  by a validated incoming edge; new or unconnected local markers remain errors.
+- Request a trusted layer listing when an OSM proposal omits the project layer
+  id required by its `layer_extent` binding, and give the provider one precise
+  bounded repair instruction.
+
 ## [1.5.17] - 2026-08-09
 
 ### Fixed

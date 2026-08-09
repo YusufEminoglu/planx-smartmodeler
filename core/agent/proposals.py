@@ -1196,9 +1196,46 @@ _BINDING_SINGLE_KEYS = frozenset(
 _FIELD_BINDING_KEYS = {"field", "layer_param"}
 
 
+def _normalize_binding_alias(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize one explicit provider binding envelope.
+
+    Some providers serialize the same typed binding as ``{"type": "number",
+    "value": 5}`` (or with ``kind``/``tag``) even though the public contract
+    uses ``{"number": 5}``.  Accept only one unambiguous discriminator and
+    immediately convert it to the canonical form; unknown tags and ambiguous
+    objects remain strict failures below.
+    """
+    keys = set(item)
+    discriminators = [
+        key for key in ("type", "kind", "tag", "binding_type", "form")
+        if key in item
+    ]
+    if len(discriminators) != 1 or "value" not in keys:
+        return item
+    discriminator = item[discriminators[0]]
+    if not isinstance(discriminator, str):
+        return item
+    tag = discriminator.strip()
+    if tag not in _BINDING_SINGLE_KEYS and tag != "field":
+        return item
+    allowed = {discriminators[0], "value"}
+    if tag == "field":
+        allowed.add("layer_param")
+    if keys != allowed:
+        return item
+    normalized = {tag: item["value"]}
+    if tag == "field":
+        normalized = {
+            "field": item["value"],
+            "layer_param": item["layer_param"],
+        }
+    return normalized
+
+
 def _parse_binding(item: Any) -> RunBinding:
     if not isinstance(item, dict) or not item:
         raise ProposalError("Each input binding must be a non-empty object.", ProposalReason.MALFORMED)
+    item = _normalize_binding_alias(item)
     keys = set(item)
     if keys == _FIELD_BINDING_KEYS:
         field_value = _field_name(item["field"], "field binding")
