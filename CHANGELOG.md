@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.21] - 2026-08-09
+
+### Fixed
+
+- Reinspect stale Processing receipts before one bounded provider repair turn, so live AI responses can recover from an algorithm context that changed during a session.
+- Keep stale model and style proposals fail-closed instead of treating them as repairable Processing receipts.
+- Handle offline recovery requests without an AI profile safely, avoiding a `None` provider crash in QGIS smoke and local validation runs.
+
 ## [1.5.20] - 2026-08-09
 
 ### Fixed

@@ -891,6 +891,19 @@ class AgentWorkspaceDock(QDockWidget):
             self._last_estimated_tokens = int(
                 event.request.estimated_input_tokens or 0
             )
+            # A local/offline proposal-validation test can legitimately reach
+            # a bounded recovery request without an AI profile configured.
+            # Keep that path fail-closed instead of dereferencing ``None`` in
+            # the network client; a configured live profile still follows the
+            # normal provider path below.
+            if self._active_profile is None or not self._active_api_key:
+                failure = self.run_loop.submit_provider_failure(
+                    event.request.request_token,
+                    "No AI provider is configured for this recovery turn.",
+                )
+                if failure is not None:
+                    self._handle_run_event(failure)
+                return
             contract = StructuredResponseContract(
                 schema=event.request.response_schema,
                 name=_AGENT_TURN_SCHEMA_NAME,

@@ -727,7 +727,17 @@ class AgentRunLoop:
                 "a required input was not provided",
                 "this value form is not valid for this parameter",
                 "requested settings are not valid for this algorithm",
+                "not been inspected in this session",
+                "inspect it again",
             )
+        )
+
+    @staticmethod
+    def _is_stale_processing_validation(message: str) -> bool:
+        text = str(message or "").casefold()
+        return (
+            "not been inspected in this session" in text
+            or "inspect it again" in text
         )
 
     @staticmethod
@@ -1075,26 +1085,30 @@ class AgentRunLoop:
     def _recover_provider_proposal(
         self, raw_text: str
     ) -> Tuple[Optional[AgentTurn], Tuple[Dict[str, Any], ...]]:
-        """Recover one mechanical proposal error without another provider turn."""
+        """Recover mechanical proposal errors with bounded read-only receipts."""
 
-        outcome = recover_agent_turn(
-            raw_text,
-            self.controller.limits.max_tool_calls_per_turn,
-            self._proposal_receipts,
-        )
-        if outcome.turn is not None:
-            return outcome.turn, ()
-        if outcome.inspection is None:
-            return None, ()
-        _result, events = self._run_recovery_inspection(outcome.inspection)
-        if _result is None:
-            return None, events
-        retried = recover_agent_turn(
-            raw_text,
-            self.controller.limits.max_tool_calls_per_turn,
-            self._proposal_receipts,
-        )
-        return retried.turn, events
+        events: List[Dict[str, Any]] = []
+        # A proposal may need two independent facts: a fresh Processing
+        # signature receipt and a project layer id for a layer_extent binding.
+        # Complete both trusted inspections before spending another provider
+        # turn, while keeping the bound explicit and small.
+        for _ in range(2):
+            outcome = recover_agent_turn(
+                raw_text,
+                self.controller.limits.max_tool_calls_per_turn,
+                self._proposal_receipts,
+            )
+            if outcome.turn is not None:
+                return outcome.turn, tuple(events)
+            if outcome.inspection is None:
+                return None, tuple(events)
+            _result, inspection_events = self._run_recovery_inspection(
+                outcome.inspection
+            )
+            events.extend(inspection_events)
+            if _result is None:
+                return None, tuple(events)
+        return None, tuple(events)
 
     def _trace_call_id(self, call_id: str) -> str:
         """Return a run-unique id for this call's trace event.
@@ -1538,9 +1552,37 @@ class AgentRunLoop:
         if not validation.ok:
             if (
                 self._is_recoverable_proposal_validation(validation.message)
+                # A model/style proposal that says "inspect it again" is a
+                # genuine stale graph/style receipt and must remain fail
+                # closed.  Only Processing receipts can be repaired by
+                # re-describing the live algorithm and asking the provider
+                # for a fresh typed proposal.
+                and (
+                    kind == PROPOSAL_KIND_PROCESSING_RUN
+                    or not self._is_stale_processing_validation(validation.message)
+                )
                 and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
             ):
                 self._provider_recovery_attempts += 1
+                recovery_events = tool_events
+                if (
+                    kind == PROPOSAL_KIND_PROCESSING_RUN
+                    and self._is_stale_processing_validation(validation.message)
+                ):
+                    algorithm_id = getattr(turn.proposal, "algorithm_id", "")
+                    _result, inspection_events = self._run_recovery_inspection(
+                        InspectionRequest(
+                            "processing.describe",
+                            {"algorithm_id": algorithm_id},
+                        )
+                    )
+                    if _result is None:
+                        return self._fail(
+                            validation.message or "The proposal was rejected.",
+                            validation.reason_code or ProposalReason.VALIDATION_FAILED,
+                            tool_events=tool_events,
+                        )
+                    recovery_events = (*tool_events, *inspection_events)
                 recovery = {
                     "kind": "provider_recovery",
                     "strategy": "repair_live_validated_proposal",
@@ -1556,7 +1598,7 @@ class AgentRunLoop:
                     ),
                 }
                 self._turn_events.append(recovery)
-                return self._advance_turn(tool_events=(*tool_events, recovery))
+                return self._advance_turn(tool_events=(*recovery_events, recovery))
             return self._fail(
                 validation.message or "The proposal was rejected.",
                 validation.reason_code or ProposalReason.VALIDATION_FAILED,
