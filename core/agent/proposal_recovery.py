@@ -43,6 +43,7 @@ ReceiptKey = Tuple[str, str]
 
 _PROPOSAL_KIND_ALIASES = {
     "processing": PROPOSAL_KIND_PROCESSING_RUN,
+    "run": PROPOSAL_KIND_PROCESSING_RUN,
     "style": PROPOSAL_KIND_LAYER_STYLE,
 }
 

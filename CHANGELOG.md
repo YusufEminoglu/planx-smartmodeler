@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.3] - 2026-08-09
+
+### Fixed
+
+- Normalize DeepSeek's `run` proposal alias to the reviewed
+  `processing_run` contract before local parsing and recovery.
+
 ## [1.5.2] - 2026-08-09
 
 ### Fixed

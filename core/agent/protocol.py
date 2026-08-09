@@ -59,6 +59,7 @@ _PROPOSAL_KIND_ALIASES = {
     # This is a spelling-only normalization to the same locally validated,
     # inert processing_run proposal contract.
     "processing": PROPOSAL_KIND_PROCESSING_RUN,
+    "run": PROPOSAL_KIND_PROCESSING_RUN,
     "style": PROPOSAL_KIND_LAYER_STYLE,
     "sql": PROPOSAL_KIND_SQL_RUN,
     "python": PROPOSAL_KIND_PYTHON_RUN,

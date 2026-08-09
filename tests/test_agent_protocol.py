@@ -725,6 +725,16 @@ class ProposalProtocolTests(unittest.TestCase):
         turn = parse_agent_turn(raw, 3)
         self.assertTrue(turn.is_proposal)
         self.assertEqual(turn.proposal_kind, "processing_run")
+
+    def test_run_proposal_kind_alias_is_normalized(self) -> None:
+        raw = _turn_json(
+            "proposal",
+            "Run ready.",
+            proposal_kind="run",
+            proposal_json=VALID_PROCESSING_RUN_JSON,
+        )
+        turn = parse_agent_turn(raw, 3)
+        self.assertEqual(turn.proposal_kind, "processing_run")
         self.assertEqual(turn.proposal.algorithm_id, "native:extractbyattribute")
 
     def test_a_final_turn_without_proposal_keys_parses(self) -> None:
