@@ -151,7 +151,7 @@ def _activate_sibling_plugin(plugins_root: str):
     return plugin, qgis_utils, package_name
 
 
-def _field_calculator_binding_hint() -> str:
+def _field_calculator_binding_hint(field_name: str) -> str:
     """Return the live typed binding shape for the area-calculation stage."""
     algorithm = QgsApplication.processingRegistry().algorithmById(
         "native:fieldcalculator"
@@ -165,7 +165,9 @@ def _field_calculator_binding_hint() -> str:
         if "decimal" in folded or "double" in folded:
             return (
                 'Use these exact typed input forms: FIELD_NAME={"string": '
-                '"<requested field>"}, FIELD_TYPE={"enum": '
+                + '"'
+                + field_name
+                + '"}, FIELD_TYPE={"enum": '
                 + str(index)
                 + '}, FORMULA={"expression": "$area"}. '
                 f"The live FIELD_TYPE option at index {index} is {label}."
@@ -305,7 +307,7 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
     area_field = rng.choice(("area_m2", "surface_m2", "neighborhood_m2"))
     analysis_algorithm = rng.choice(("native:centroids", "native:boundingboxes"))
     extent = _extent_layer()
-    fieldcalc_hint = _field_calculator_binding_hint()
+    fieldcalc_hint = _field_calculator_binding_hint(area_field)
     if not os.environ.get("SMARTMODELER_DEEPSEEK_HARD_NETWORK"):
         _seed_osm_response(extent)
     try:

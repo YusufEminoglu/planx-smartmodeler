@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.35] - 2026-08-09
+
+- Use the actual randomized area field in hard Field Calculator guidance
+
 ## [1.5.34] - 2026-08-09
 
 - Strengthen hard Field Calculator bindings and add HardOnly autotest mode
