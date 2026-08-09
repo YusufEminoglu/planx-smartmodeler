@@ -729,6 +729,7 @@ class AgentRunLoop:
                 "requested settings are not valid for this algorithm",
                 "not been inspected in this session",
                 "inspect it again",
+                "layer extent id is required",
             )
         )
 
@@ -1575,6 +1576,25 @@ class AgentRunLoop:
                             "processing.describe",
                             {"algorithm_id": algorithm_id},
                         )
+                    )
+                    if _result is None:
+                        return self._fail(
+                            validation.message or "The proposal was rejected.",
+                            validation.reason_code or ProposalReason.VALIDATION_FAILED,
+                            tool_events=tool_events,
+                        )
+                    recovery_events = (*tool_events, *inspection_events)
+                elif (
+                    kind == PROPOSAL_KIND_PROCESSING_RUN
+                    and "layer extent id is required"
+                    in str(validation.message or "").casefold()
+                ):
+                    # The layer id is project evidence, not something the
+                    # provider may invent. Inspect it once, then let the
+                    # bounded repair turn select the exact id from the
+                    # trusted layer.list result.
+                    _result, inspection_events = self._run_recovery_inspection(
+                        InspectionRequest("layer.list", {"limit": 100})
                     )
                     if _result is None:
                         return self._fail(

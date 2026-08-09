@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.24] - 2026-08-09
+
+### Fixed
+
+- Recover missing project layer-extent bindings by performing one trusted `layer.list` inspection before requesting a bounded corrected Processing proposal.
+- Keep provider-generated extent placeholders fail-closed; the AI must select the exact layer id from inspected project evidence.
+
 ## [1.5.23] - 2026-08-09
 
 ### Fixed
