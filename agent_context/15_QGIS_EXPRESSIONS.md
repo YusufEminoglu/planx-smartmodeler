@@ -16,6 +16,11 @@ For a request to add a calculated column to one vector layer:
 3. Bind `INPUT`, `FIELD_NAME`, the live `FIELD_TYPE` enum, and `FORMULA` using
    `{"expression":"..."}`. Omit optional length/precision settings unless the
    user requested them.
+   A measurement is a decimal: `$area`, `$length`, `$perimeter`, a ratio or a
+   density must use the live **Decimal (double)** option, never the integer
+   one. An integer area silently rounds every value, so a threshold such as
+   "400 m² and under" then selects the wrong buildings. Bind the type by label
+   so the option cannot be miscounted.
 4. Return the validated `processing_run` proposal. Never claim that Field
    Calculator is manual-only when its live description is runnable.
 

@@ -206,6 +206,57 @@ class BasicLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(finished.kind, RunEventKind.FINAL)
 
+    def test_promised_but_unattached_proposal_gets_one_continuation(self) -> None:
+        # Observed in a real session: the model finished its inspections, wrote
+        # "approve the run below" and attached nothing, so no card appeared and
+        # the user asked twice for an approval that could never arrive.
+        loop, _, _, _ = build_loop()
+        first = loop.start(
+            "Filter buildings under 400 m2 into a new layer.",
+            AgentMode.ACT,
+            AgentScope.PROJECT,
+        )
+        continued = loop.submit_provider_response(
+            first.request.request_token,
+            final_turn_json(
+                "Alan sutunu dogrulandi ve filtre algoritmasi cozuldu. 400 m2 ve "
+                "daha kucuk binalari yeni katman olarak almak icin asagidaki "
+                "islemi onaylayin."
+            ),
+        )
+        self.assertEqual(continued.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(
+            continued.tool_events[0]["strategy"],
+            "attach_the_promised_proposal",
+        )
+
+    def test_an_explained_approval_card_is_not_a_promised_proposal(self) -> None:
+        # Answering "who shows the card?" is a legitimate final message and must
+        # not spend a continuation turn.
+        loop, _, _, _ = build_loop()
+        first = loop.start("Who approves runs?", AgentMode.ACT, AgentScope.PROJECT)
+        finished = loop.submit_provider_response(
+            first.request.request_token,
+            final_turn_json(
+                "Onay karti uygulama tarafindan gosterilir; ben islemi "
+                "calistiramam."
+            ),
+        )
+        self.assertEqual(finished.kind, RunEventKind.FINAL)
+
+    def test_promised_proposal_continuation_is_bounded(self) -> None:
+        loop, _, _, _ = build_loop()
+        event = loop.start("Filter them.", AgentMode.ACT, AgentScope.PROJECT)
+        promise = final_turn_json("Lutfen asagidaki islemi onaylayin.")
+        seen_continuations = 0
+        for _ in range(6):
+            event = loop.submit_provider_response(event.request.request_token, promise)
+            if event.kind != RunEventKind.REQUEST_PROVIDER:
+                break
+            seen_continuations += 1
+        self.assertEqual(event.kind, RunEventKind.FINAL)
+        self.assertLessEqual(seen_continuations, 2)
+
     def test_structured_agent_envelope_matrix_covers_thirty_small_turns(self) -> None:
         """Exercise repeated DeepSeek-shaped envelopes without any network call."""
         for index in range(30):

@@ -50,10 +50,17 @@ class PromptContextLoader:
         """
         folded = str(user_text or "").casefold()
         names = ["05_AGENT_CORE.md"]
+        # Routing must survive the words a request actually arrives in. A real
+        # "m2 biriminde alan sütüunu aç" matched none of the original terms --
+        # one typo in "sütun" -- so the pack that says an area is a Decimal and
+        # that length/precision are left alone never loaded, and the run bound
+        # an Integer area field. Match the subject of the request (area, a
+        # column, a calculation) rather than one exact spelling.
         expression_terms = (
             "expression", "field calculator", "calculate field", "formula",
             "rand(", "$area", "$length", "if(", "case ", "alan hesap",
-            "sütun", "sutun",
+            "sütun", "sutun", "alan", "area", "column", "m2", "m²",
+            "hesapla", "calculate",
         )
         if any(term in folded for term in expression_terms):
             names.append("15_QGIS_EXPRESSIONS.md")

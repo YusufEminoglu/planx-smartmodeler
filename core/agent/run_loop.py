@@ -727,6 +727,27 @@ class AgentRunLoop:
                 }
                 self._turn_events.append(recovery)
                 return self._advance_turn(tool_events=(recovery,))
+            if (
+                self._mode in (AgentMode.ACT, AgentMode.PLAN)
+                and self._promises_an_unattached_proposal(turn.assistant_text)
+                and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+            ):
+                self._provider_recovery_attempts += 1
+                recovery = {
+                    "kind": "provider_recovery",
+                    "strategy": "attach_the_promised_proposal",
+                    "instruction": (
+                        "Your final message told the user to approve a run, but no "
+                        "proposal was attached, so the application had nothing to "
+                        "show and the user cannot approve anything. Do not repeat "
+                        "the message and do not ask again. Return the run you just "
+                        "described as exactly one proposal now, reusing the "
+                        "algorithm, bindings and fresh context_token from your "
+                        "latest successful inspection."
+                    ),
+                }
+                self._turn_events.append(recovery)
+                return self._advance_turn(tool_events=(recovery,))
             return self._finish(turn.assistant_text)
         if turn.is_proposal:
             return self._handle_proposal(turn, tool_events=recovery_events)
@@ -766,6 +787,48 @@ class AgentRunLoop:
             for marker in ("input", "bind", "produced", "output layer")
         )
         return asks_for_id and asks_to_bind
+
+    @staticmethod
+    def _promises_an_unattached_proposal(message: str) -> bool:
+        """Recognize a final turn that asks the user to approve nothing.
+
+        After finishing its inspections a provider sometimes writes "approve the
+        run below" while returning ``final`` with no proposal attached. The
+        application shows the sentence, no approval card exists, and the user is
+        left asking for a card that was never proposed -- observed in a real
+        session where the same claim was repeated twice before the run ended.
+
+        This is only consulted for a turn that carried no proposal, so the worst
+        case is one extra bounded turn.
+        """
+        text = str(message or "").casefold()
+        # Explaining who shows the card is a legitimate answer, not a claim that
+        # one is waiting.
+        if any(
+            marker in text
+            for marker in (
+                "çalıştıramam",
+                "calistiramam",
+                "cannot run",
+                "uygulama tarafından",
+                "shown by the application",
+            )
+        ):
+            return False
+        return any(
+            marker in text
+            for marker in (
+                "onaylayın",
+                "onaylayin",
+                "onaylayarak",
+                "onaylayabilirsiniz",
+                "onay kartını",
+                "onay kartini",
+                "approve the",
+                "approval card",
+                "click run",
+            )
+        )
 
     @staticmethod
     def _is_recoverable_proposal_validation(message: str) -> bool:
