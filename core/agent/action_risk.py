@@ -28,6 +28,7 @@ from .identifiers import (
     SQL_RUN_KIND,
     STYLE_PROPOSAL_KIND,
     TRUSTED_SCRIPT_RUN_KIND,
+    WORKSPACE_PATCH_KIND,
 )
 
 RISK_LOW = "low"
@@ -143,6 +144,13 @@ def assess_risk(
             label=_LABELS[RISK_HIGH],
             reason="executes full Python with the current user's QGIS permissions",
             reversible=False,
+        )
+    if kind == WORKSPACE_PATCH_KIND:
+        return RiskAssessment(
+            level=RISK_HIGH,
+            label=_LABELS[RISK_HIGH],
+            reason="changes plugin source files and can be undone if they remain untouched",
+            reversible=True,
         )
     return RiskAssessment(
         level=RISK_HIGH,

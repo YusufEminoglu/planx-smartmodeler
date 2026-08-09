@@ -35,6 +35,7 @@ from .proposals import (
     PROPOSAL_KIND_PYTHON_RUN,
     PROPOSAL_KIND_SQL_RUN,
     PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+    PROPOSAL_KIND_WORKSPACE_PATCH,
     ProposalError,
     ProposalReason,
     ProposalValidation,
@@ -86,6 +87,7 @@ _PROPOSAL_SCOPES = {
     PROPOSAL_KIND_SQL_RUN: (AgentScope.PROJECT,),
     PROPOSAL_KIND_TRUSTED_SCRIPT_RUN: (AgentScope.PROJECT,),
     PROPOSAL_KIND_PYTHON_RUN: (AgentScope.PROJECT,),
+    PROPOSAL_KIND_WORKSPACE_PATCH: (AgentScope.WORKSPACE,),
 }
 
 # Bound on the preview text kept in bounded session memory after a proposal.

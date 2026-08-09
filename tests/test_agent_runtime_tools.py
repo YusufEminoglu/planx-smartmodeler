@@ -166,6 +166,11 @@ class DefaultRegistryTests(unittest.TestCase):
             "database.describe",
             "script.list",
             "script.describe",
+            "workspace.list",
+            "workspace.read",
+            "workspace.inspect",
+            "workspace.search",
+            "workspace.command",
         }
     )
 

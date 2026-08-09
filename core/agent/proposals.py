@@ -35,6 +35,7 @@ PROPOSAL_KIND_PLUGIN_ACTION = "plugin_action"
 PROPOSAL_KIND_SQL_RUN = "sql_run"
 PROPOSAL_KIND_TRUSTED_SCRIPT_RUN = "trusted_script_run"
 PROPOSAL_KIND_PYTHON_RUN = "python_run"
+PROPOSAL_KIND_WORKSPACE_PATCH = "workspace_patch"
 ALL_PROPOSAL_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_NONE,
     PROPOSAL_KIND_MODEL_PATCH,
@@ -45,6 +46,7 @@ ALL_PROPOSAL_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_SQL_RUN,
     PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
     PROPOSAL_KIND_PYTHON_RUN,
+    PROPOSAL_KIND_WORKSPACE_PATCH,
 )
 PROPOSABLE_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_MODEL_PATCH,
@@ -55,6 +57,7 @@ PROPOSABLE_KINDS: Tuple[str, ...] = (
     PROPOSAL_KIND_SQL_RUN,
     PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
     PROPOSAL_KIND_PYTHON_RUN,
+    PROPOSAL_KIND_WORKSPACE_PATCH,
 )
 
 
@@ -1430,6 +1433,122 @@ class PluginActionProposal:
         }
 
 
+MAX_WORKSPACE_PATCH_OPERATIONS = 12
+MAX_WORKSPACE_PATCH_TEXT_CHARS = 120_000
+MAX_WORKSPACE_PATCH_TOTAL_CHARS = 600_000
+
+
+@dataclass(frozen=True)
+class WorkspacePatchOperation:
+    """One exact, reviewable replacement inside the scoped workspace."""
+
+    path: str
+    old_text: str
+    new_text: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "path": self.path,
+            "old_text": self.old_text,
+            "new_text": self.new_text,
+        }
+
+
+@dataclass(frozen=True)
+class WorkspacePatchProposal:
+    """A bounded patch for the current plugin workspace."""
+
+    context_token: str
+    workspace_id: str
+    operations: Tuple[WorkspacePatchOperation, ...]
+    title: str
+    summary: str
+    warnings: Tuple[str, ...] = field(default_factory=tuple)
+    schema_version: int = 1
+
+    @property
+    def kind(self) -> str:
+        return PROPOSAL_KIND_WORKSPACE_PATCH
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "kind": PROPOSAL_KIND_WORKSPACE_PATCH,
+            "workspace_id": self.workspace_id,
+            "operations": [item.to_dict() for item in self.operations],
+            "title": self.title,
+            "summary": self.summary,
+            "warnings": list(self.warnings),
+        }
+
+
+_WORKSPACE_PATCH_KEYS = {
+    "schema_version",
+    "context_token",
+    "workspace_id",
+    "operations",
+    "title",
+    "summary",
+    "warnings",
+}
+_WORKSPACE_OPERATION_KEYS = {"path", "old_text", "new_text"}
+
+
+def _workspace_relative_path(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 256:
+        raise ProposalError("Workspace path is invalid.")
+    path = value.replace("\\", "/").strip()
+    if path.startswith("/") or re.match(r"^[A-Za-z]:/", path):
+        raise ProposalError("Workspace paths must be relative.")
+    parts = tuple(part for part in path.split("/") if part)
+    if not parts or any(part in (".", "..") for part in parts):
+        raise ProposalError("Workspace path escapes the plugin root.")
+    return "/".join(parts)
+
+
+def _parse_workspace_patch(data: Dict[str, Any]) -> WorkspacePatchProposal:
+    _require_exact_keys(data, _WORKSPACE_PATCH_KEYS, "workspace_patch")
+    operations_data = data["operations"]
+    if (
+        not isinstance(operations_data, list)
+        or not operations_data
+        or len(operations_data) > MAX_WORKSPACE_PATCH_OPERATIONS
+    ):
+        raise ProposalError("Workspace patch operations are invalid or exceed the limit.")
+    operations: List[WorkspacePatchOperation] = []
+    seen_paths = set()
+    total_chars = 0
+    for index, item in enumerate(operations_data):
+        if not isinstance(item, dict):
+            raise ProposalError(f"Workspace operation {index} must be an object.")
+        _require_exact_keys(item, _WORKSPACE_OPERATION_KEYS, f"workspace operation {index}")
+        path = _workspace_relative_path(item["path"])
+        if path in seen_paths:
+            raise ProposalError(f"Workspace operation {index} repeats a path.")
+        seen_paths.add(path)
+        old_text = item["old_text"]
+        new_text = item["new_text"]
+        if not isinstance(old_text, str) or not isinstance(new_text, str):
+            raise ProposalError(f"Workspace operation {index} text must be strings.")
+        if len(old_text) > MAX_WORKSPACE_PATCH_TEXT_CHARS or len(new_text) > MAX_WORKSPACE_PATCH_TEXT_CHARS:
+            raise ProposalError(f"Workspace operation {index} exceeds the text limit.")
+        if old_text == new_text:
+            raise ProposalError(f"Workspace operation {index} makes no change.")
+        total_chars += len(old_text) + len(new_text)
+        operations.append(WorkspacePatchOperation(path, old_text, new_text))
+    if total_chars > MAX_WORKSPACE_PATCH_TOTAL_CHARS:
+        raise ProposalError("Workspace patch exceeds the total text limit.")
+    return WorkspacePatchProposal(
+        schema_version=_schema_version(data["schema_version"]),
+        context_token=_token(data["context_token"]),
+        workspace_id=_safe_id_text(data["workspace_id"], 128, "workspace id"),
+        operations=tuple(operations),
+        title=_bounded_text(data["title"], "title", MIN_TITLE_CHARS, MAX_TITLE_CHARS),
+        summary=_bounded_text(data["summary"], "summary", MIN_SUMMARY_CHARS, MAX_SUMMARY_CHARS),
+        warnings=_warnings(data["warnings"]),
+    )
+
+
 _PLUGIN_ACTION_KEYS = {
     "schema_version",
     "context_token",
@@ -1823,6 +1942,8 @@ def parse_proposal(kind: str, proposal_json: str):
         return _parse_model_run(data)
     if kind == PROPOSAL_KIND_PLUGIN_ACTION:
         return _parse_plugin_action(data)
+    if kind == PROPOSAL_KIND_WORKSPACE_PATCH:
+        return _parse_workspace_patch(data)
     if kind == PROPOSAL_KIND_SQL_RUN:
         return _parse_sql_run(data)
     if kind == PROPOSAL_KIND_TRUSTED_SCRIPT_RUN:

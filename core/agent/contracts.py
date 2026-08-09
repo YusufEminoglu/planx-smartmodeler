@@ -132,7 +132,8 @@ class AgentScope:
     ACTIVE_LAYER = "active_layer"
     CURRENT_MODEL = "current_model"
     PLUGINS = "plugins"
-    ALL: Tuple[str, ...] = (PROJECT, ACTIVE_LAYER, CURRENT_MODEL, PLUGINS)
+    WORKSPACE = "workspace"
+    ALL: Tuple[str, ...] = (PROJECT, ACTIVE_LAYER, CURRENT_MODEL, PLUGINS, WORKSPACE)
 
 
 class AgentRisk:

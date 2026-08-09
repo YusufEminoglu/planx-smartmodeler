@@ -1273,14 +1273,19 @@ def run_checks() -> str:
             "database.describe",
             "script.list",
             "script.describe",
+            "workspace.list",
+            "workspace.read",
+            "workspace.inspect",
+            "workspace.search",
+            "workspace.command",
         }
         empty_dock = AgentWorkspaceDock(None, lambda: None)
         registry_tool_names = {spec.name for spec in empty_dock.registry.list_specs()}
         if registry_tool_names != expected_agent_tools:
             raise RuntimeError(
-                "The Agent Workspace registry must contain exactly the V1 tools."
+                "The Agent Workspace registry does not contain the expected tools."
             )
-        if empty_dock.scope_combo.count() != 4 or empty_dock.mode_combo.count() != 3:
+        if empty_dock.scope_combo.count() != 5 or empty_dock.mode_combo.count() != 3:
             raise RuntimeError("Agent Workspace dock did not construct its selectors under Qt 6.")
         if empty_dock.mode_combo.itemData(2) != AgentMode.ACT or empty_dock.mode_combo.itemText(
             2
@@ -2366,14 +2371,15 @@ def run_checks() -> str:
                 raise RuntimeError(f"plugin.capabilities failed for {package_name}.")
             return outcome.data
 
-        # The registry includes fourteen core and four default-denied Power tools.
+        # The registry includes the core, Power metadata, and Developer
+        # Workspace inspection tools.
         tool_names = {d["name"] for d in caps_dock.registry.public_tool_descriptions()}
         if (
-            len(tool_names) != 18
+            len(tool_names) != 23
             or "plugin.capabilities" not in tool_names
             or "expression.search" not in tool_names
         ):
-            raise RuntimeError(f"Expected the eighteen-tool registry, got {len(tool_names)}.")
+            raise RuntimeError(f"Expected the complete tool registry, got {len(tool_names)}.")
 
         # An unknown package is reported honestly, never invented.
         unknown = _capabilities("definitely_not_a_real_plugin_xyz")

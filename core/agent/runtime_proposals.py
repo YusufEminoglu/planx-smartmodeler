@@ -37,12 +37,14 @@ from .proposals import (
     ModelPatchProposal,
     ModelRunProposal,
     PluginActionProposal,
+    WorkspacePatchProposal,
     PythonRunProposal,
     PROPOSAL_KIND_LAYER_STYLE,
     PROPOSAL_KIND_MODEL_PATCH,
     PROPOSAL_KIND_MODEL_RUN,
     PROPOSAL_KIND_PROCESSING_RUN,
     PROPOSAL_KIND_PLUGIN_ACTION,
+    PROPOSAL_KIND_WORKSPACE_PATCH,
     PROPOSAL_KIND_PYTHON_RUN,
     PROPOSAL_KIND_SQL_RUN,
     PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
@@ -79,6 +81,7 @@ from .runtime_tools import (
     build_param_specs,
     extract_layer_style_state,
 )
+from .workspace import WorkspaceError, WorkspaceManager
 
 # Ceilings on the candidate graph a model_patch may produce; identical to the
 # existing AiMcpBridge safety limits so a proposal can never exceed them.
@@ -100,6 +103,7 @@ _KIND_SCOPES = {
     PROPOSAL_KIND_SQL_RUN: (AgentScope.PROJECT,),
     PROPOSAL_KIND_TRUSTED_SCRIPT_RUN: (AgentScope.PROJECT,),
     PROPOSAL_KIND_PYTHON_RUN: (AgentScope.PROJECT,),
+    PROPOSAL_KIND_WORKSPACE_PATCH: (AgentScope.WORKSPACE,),
 }
 
 # Stable, detail-free sentences for each policy denial. The reason code carries
@@ -204,6 +208,7 @@ class RuntimeProposalValidator:
         policy: Optional[SafeAlgorithmPolicy] = None,
         map_extent_provider: Optional[Callable[[], Any]] = None,
         power_runtime: Optional[Any] = None,
+        workspace_root_provider: Optional[Callable[[], Any]] = None,
     ) -> None:
         self._model_provider = model_provider
         self._token_service = token_service
@@ -216,6 +221,7 @@ class RuntimeProposalValidator:
         self._policy = policy or default_policy()
         self._map_extent_provider = map_extent_provider or (lambda: None)
         self._power_runtime = power_runtime
+        self._workspace_root_provider = workspace_root_provider or (lambda: None)
         # On a successful validation the trusted boundary retains the detached
         # parsed proposal plus its target/token so the dock can build the single
         # pending action for an Act-mode apply. This never reaches the provider
@@ -268,6 +274,10 @@ class RuntimeProposalValidator:
                 proposal, PluginActionProposal
             ):
                 return self._validate_plugin_action(proposal, scope)
+            if kind == PROPOSAL_KIND_WORKSPACE_PATCH and isinstance(
+                proposal, WorkspacePatchProposal
+            ):
+                return self._validate_workspace_patch(proposal)
             if kind in (
                 PROPOSAL_KIND_SQL_RUN,
                 PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
@@ -286,6 +296,39 @@ class RuntimeProposalValidator:
         return ProposalValidation.failure(
             ProposalReason.UNKNOWN_KIND, "Unknown or mismatched proposal kind."
         )
+
+    def _workspace_manager(self) -> WorkspaceManager:
+        root = self._workspace_root_provider()
+        if not root:
+            raise ProposalError(
+                "The workspace is unavailable.", ProposalReason.TARGET_MISSING
+            )
+        try:
+            return WorkspaceManager(root)
+        except WorkspaceError as error:
+            raise ProposalError(str(error), ProposalReason.TARGET_MISSING) from error
+
+    def _validate_workspace_patch(
+        self, proposal: WorkspacePatchProposal
+    ) -> ProposalValidation:
+        manager = self._workspace_manager()
+        state = manager.state(operation.path for operation in proposal.operations)
+        if not self._token_service.verify(
+            proposal.context_token, "workspace_patch", manager.workspace_id, state
+        ):
+            return ProposalValidation.failure(
+                ProposalReason.STALE_CONTEXT,
+                "The workspace changed since this patch was prepared. Inspect it again.",
+            )
+        preview = manager.preview(proposal)
+        self._last_validated = {
+            "kind": proposal.kind,
+            "proposal": proposal,
+            "preview": preview,
+            "target_identity": f"workspace:{manager.workspace_id}",
+            "context_token": proposal.context_token,
+        }
+        return ProposalValidation.success(preview)
 
     def _validate_power(self, proposal: Any) -> ProposalValidation:
         if self._power_runtime is None:

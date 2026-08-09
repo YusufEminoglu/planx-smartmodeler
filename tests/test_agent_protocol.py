@@ -702,6 +702,7 @@ class ProposalProtocolTests(unittest.TestCase):
                 "sql_run",
                 "trusted_script_run",
                 "python_run",
+                "workspace_patch",
             },
         )
 

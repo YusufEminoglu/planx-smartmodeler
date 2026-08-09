@@ -3,11 +3,11 @@ name=SmartModeler GIS
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=QGIS 3.44+ and QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=1.4.2
+version=1.5.0
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
-about=SmartModeler GIS is a QGIS 3.44+ and QGIS 4 visual Processing studio with typed workflows, native .model3 interchange, validated AI planning, reviewed temporary-layer Processing runs, first-class QGIS expressions, and bounded OSM acquisition. Agent Workspace uses compact intent-routed prompts and read-only metadata tools; proposals remain inert until an explicit Apply or Run click. Optional Power Mode is off by default and adds full-source SQL, trusted-script, and generated PyQGIS approval cards. Database writes and live in-process Python require a second confirmation; isolated Python uses a cancellable timeout-bounded QGIS subprocess but is not a security sandbox. Connection URIs, credentials, source paths, feature values, and API secrets are not sent as tool metadata. Provider-reported last-request, chat, and cached input usage is visible, with a local preflight estimate and milestone-based large-request notices that never impose an absolute token stop. The 02Agent Urban Context preset can obtain roads, buildings, and trees in one reviewed run when installed; built-in geometry-specific OSM tools remain available. API keys use session memory or the optional encrypted QGIS vault. No pip dependencies are required. Online User Manual & Documentation: https://yusufeminoglu.github.io/planx-smartmodeler/ | If you find this plugin helpful, please consider starring the repository on GitHub (https://github.com/YusufEminoglu/planx-smartmodeler)!
+about=SmartModeler GIS is a QGIS 3.44+ and QGIS 4 visual Processing studio with typed workflows, native .model3 interchange, validated AI planning, reviewed temporary-layer Processing runs, first-class QGIS expressions, and bounded OSM acquisition. Agent Workspace uses compact intent-routed prompts, read-only project tools, and a bounded Workspace (Developer) scope for source inspection, safe diagnostics, and exact reviewed patches; proposals remain inert until an explicit Apply or Run click. Optional Power Mode is off by default and adds full-source SQL, trusted-script, and generated PyQGIS approval cards. Database writes and live in-process Python require a second confirmation; isolated Python uses a cancellable timeout-bounded QGIS subprocess but is not a security sandbox. Connection URIs, credentials, source paths, feature values, and API secrets are not sent as tool metadata. Provider-reported last-request, chat, and cached input usage is visible, with a local preflight estimate and milestone-based large-request notices that never impose an absolute token stop. The 02Agent Urban Context preset can obtain roads, buildings, and trees in one reviewed run when installed; built-in geometry-specific OSM tools remain available. API keys use session memory or the optional encrypted QGIS vault. No pip dependencies are required. Online User Manual & Documentation: https://yusufeminoglu.github.io/planx-smartmodeler/ | If you find this plugin helpful, please consider starring the repository on GitHub (https://github.com/YusufEminoglu/planx-smartmodeler)!
 
 tracker=https://github.com/YusufEminoglu/planx-smartmodeler/issues
 repository=https://github.com/YusufEminoglu/planx-smartmodeler
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    1.5.0 - Add the bounded Workspace (Developer) Agent scope with source inspection, safe diagnostic commands, exact reviewed patches, and guarded undo.
     1.4.2 - Add concrete DeepSeek agent envelopes, bounded provider-failure recovery, and a live harness that mirrors the shipped Agent Workflow retry boundary.
     1.4.1 - Harden DeepSeek structured output with lowercase json instructions, disabled thinking, and one bounded empty-response retry for Modeler and Agent Workflow.
     1.4.0 - Add a thirty-case offline acceptance matrix covering Graphical Modeler and Agent Workflow execution on QGIS 3.44 LTR and QGIS 4.2.

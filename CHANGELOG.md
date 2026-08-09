@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.5.0] - 2026-08-09
+
+### Added
+
+- Add the bounded **Workspace (Developer)** Agent scope for source listing,
+  UTF-8 file inspection, bounded source search, and fixed diagnostic commands.
+- Add exact-text `workspace_patch` proposals with freshness receipts, a
+  unified-diff approval preview, atomic writes, and guarded single-level undo.
+- Add QGIS acceptance coverage for the complete inspect → approve → apply → undo
+  boundary and document the workspace contract in the shipped English prompt.
+
 ## [1.4.2] - 2026-08-09
 
 ### Fixed

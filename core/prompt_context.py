@@ -67,6 +67,8 @@ class PromptContextLoader:
             names.append("16_OSM.md")
         if power_enabled:
             names.append("25_POWER_MODE.md")
+        if str(scope) == "workspace":
+            names.append("30_WORKSPACE.md")
         return self._selected_context(names)
 
     def _selected_context(self, names: Sequence[str]) -> str:

@@ -39,6 +39,7 @@ from .proposals import (
     LayerStyleProposal,
     ModelPatchProposal,
     PluginActionProposal,
+    WorkspacePatchProposal,
     PROPOSAL_KIND_LAYER_STYLE,
     PROPOSAL_KIND_MODEL_PATCH,
     PROPOSAL_KIND_MODEL_RUN,
@@ -47,10 +48,12 @@ from .proposals import (
     PROPOSAL_KIND_PYTHON_RUN,
     PROPOSAL_KIND_SQL_RUN,
     PROPOSAL_KIND_TRUSTED_SCRIPT_RUN,
+    PROPOSAL_KIND_WORKSPACE_PATCH,
     ProposalError,
     ProposalReason,
     apply_model_patch_to_clone,
 )
+from .workspace import WorkspaceError, WorkspaceManager
 
 # The two execution kinds whose Undo removes the run's own result layers.
 RUN_KINDS = (
@@ -153,6 +156,9 @@ class AppliedAction:
     # added. Undo removes exactly these and nothing else -- never an input,
     # never a layer the run did not create.
     result_layers: Tuple[Tuple[str, str, int], ...] = field(default_factory=tuple)
+    # For a workspace patch: (relative path, old text, new text). Undo restores
+    # only these exact files and refuses if any one changed after apply.
+    workspace_backups: Tuple[Tuple[str, str, str], ...] = field(default_factory=tuple)
 
 
 @dataclass
@@ -183,6 +189,7 @@ class RuntimeApplyCoordinator:
         export_fn: Optional[Callable[[Any], str]] = None,
         import_fn: Optional[Callable[[str], Any]] = None,
         project_provider: Optional[Callable[[], Any]] = None,
+        workspace_root_provider: Optional[Callable[[], Any]] = None,
     ) -> None:
         self._model_adapter = model_adapter
         self._token_service = token_service
@@ -194,6 +201,7 @@ class RuntimeApplyCoordinator:
         # Injectable only so the run/undo bookkeeping is testable without a QGIS
         # runtime; production always resolves the live QgsProject singleton.
         self._project_provider = project_provider
+        self._workspace_root_provider = workspace_root_provider or (lambda: None)
         self._layer_change_versions: Dict[str, int] = {}
         self._watched_layers: Dict[str, Any] = {}
 
@@ -203,6 +211,12 @@ class RuntimeApplyCoordinator:
         from qgis.core import QgsProject
 
         return QgsProject.instance()
+
+    def _workspace_manager(self) -> WorkspaceManager:
+        root = self._workspace_root_provider()
+        if not root:
+            raise WorkspaceError("The workspace is unavailable.")
+        return WorkspaceManager(root)
 
     # -- lazy trusted bindings --------------------------------------------
 
@@ -286,11 +300,40 @@ class RuntimeApplyCoordinator:
                 pending.proposal, PluginActionProposal
             ):
                 return self._apply_plugin_action(pending)
+            if pending.kind == PROPOSAL_KIND_WORKSPACE_PATCH and isinstance(
+                pending.proposal, WorkspacePatchProposal
+            ):
+                return self._apply_workspace_patch(pending)
         except ProposalError as error:
             return ApplyResult(False, error.reason_code, _sanitize(str(error)))
         except Exception:  # noqa: BLE001 - any apply failure must be sanitized
             return ApplyResult(False, ApplyReason.FAILED, "The action could not be applied.")
         return ApplyResult(False, ProposalReason.UNKNOWN_KIND, "Unknown or mismatched action kind.")
+
+    def _apply_workspace_patch(self, pending: PendingAction) -> ApplyResult:
+        proposal: WorkspacePatchProposal = pending.proposal
+        manager = self._workspace_manager()
+        state = manager.state(operation.path for operation in proposal.operations)
+        if not self._token_service.verify(
+            pending.context_token, "workspace_patch", manager.workspace_id, state
+        ):
+            return ApplyResult(
+                False,
+                ProposalReason.STALE_CONTEXT,
+                "The workspace changed since this action was prepared.",
+            )
+        preview, backups = manager.apply(proposal)
+        post_state = manager.state(operation.path for operation in proposal.operations)
+        applied = AppliedAction(
+            action_id=pending.action_id,
+            kind=PROPOSAL_KIND_WORKSPACE_PATCH,
+            target_identity=f"workspace:{manager.workspace_id}",
+            title=agent_context.bound_text(proposal.title, 160),
+            is_destructive=False,
+            post_fingerprint=_hash_text(repr(post_state)),
+            workspace_backups=backups,
+        )
+        return ApplyResult(True, applied_action=applied)
 
     def _apply_plugin_action(self, pending: PendingAction) -> ApplyResult:
         """Invoke one exact reviewed adapter after freshness re-validation."""
@@ -782,6 +825,13 @@ class RuntimeApplyCoordinator:
                 return _style_fingerprint(layer) == applied.post_fingerprint
             except Exception:  # noqa: BLE001
                 return False
+        if applied.kind == PROPOSAL_KIND_WORKSPACE_PATCH:
+            try:
+                manager = self._workspace_manager()
+                current = manager.state(relative for relative, _old, _new in applied.workspace_backups)
+                return _hash_text(repr(current)) == applied.post_fingerprint
+            except Exception:  # noqa: BLE001
+                return False
         return False
 
     def undo(self, applied: Optional[AppliedAction]) -> UndoResult:
@@ -797,9 +847,18 @@ class RuntimeApplyCoordinator:
                 return self._undo_model(applied)
             if applied.kind == PROPOSAL_KIND_LAYER_STYLE:
                 return self._undo_style(applied)
+            if applied.kind == PROPOSAL_KIND_WORKSPACE_PATCH:
+                return self._undo_workspace(applied)
         except Exception:  # noqa: BLE001 - an undo failure must be sanitized
             return UndoResult(False, ApplyReason.FAILED, "The action could not be undone.")
         return UndoResult(False, ProposalReason.UNKNOWN_KIND, "Unknown action kind.")
+
+    def _undo_workspace(self, applied: AppliedAction) -> UndoResult:
+        try:
+            self._workspace_manager().undo(applied.workspace_backups)
+        except WorkspaceError as error:
+            return UndoResult(False, ApplyReason.STATE_CHANGED, _sanitize(str(error)))
+        return UndoResult(True)
 
     def _undo_model(self, applied: AppliedAction) -> UndoResult:
         _, import_ = self._serializer()

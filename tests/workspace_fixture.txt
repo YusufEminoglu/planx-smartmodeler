@@ -1,0 +1,1 @@
+This fixture is restored by test_agent_workspace.py.

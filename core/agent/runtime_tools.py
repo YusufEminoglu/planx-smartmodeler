@@ -27,12 +27,14 @@ from . import context as agent_context
 from .context_tokens import ContextTokenService
 from .contracts import AgentRisk, AgentScope, AgentToolCall, AgentToolSpec
 from .registry import AgentToolRegistry
+from .workspace import WorkspaceManager, WorkspaceError
 
 # Returns the live SmartModeler graph (duck-typed: .name, .nodes, .edges,
 # .validate()) or None when no studio/model is open. Implemented as a
 # callback owned by the plugin so the registry never holds a stale copy.
 ModelProvider = Callable[[], Optional[Any]]
 ActiveLayerProvider = Callable[[], Optional[Any]]
+WorkspaceRootProvider = Callable[[], Any]
 
 DEFAULT_LIST_LIMIT = agent_context.DEFAULT_LIST_LIMIT
 MAX_LIST_LIMIT = agent_context.MAX_LIST_ITEMS
@@ -1493,6 +1495,89 @@ def _tool_plugin_describe(call: AgentToolCall) -> Dict[str, Any]:
     return build_plugin_describe(qgis_utils, package_name)
 
 
+def _workspace_manager(root_provider: Optional[WorkspaceRootProvider]) -> WorkspaceManager:
+    if root_provider is None:
+        raise ToolExecutionError("Developer workspace access is unavailable.")
+    try:
+        return WorkspaceManager(root_provider())
+    except WorkspaceError as error:
+        raise ToolExecutionError(str(error)) from error
+
+
+def _tool_workspace_list_factory(root_provider: Optional[WorkspaceRootProvider]):
+    def handler(call: AgentToolCall) -> Dict[str, Any]:
+        try:
+            return _workspace_manager(root_provider).list(call.arguments.get("path", ""))
+        except WorkspaceError as error:
+            raise ToolExecutionError(str(error)) from error
+
+    return handler
+
+
+def _tool_workspace_read_factory(
+    root_provider: Optional[WorkspaceRootProvider], token_service: ContextTokenService
+):
+    def handler(call: AgentToolCall) -> Dict[str, Any]:
+        try:
+            manager = _workspace_manager(root_provider)
+            result = manager.read(call.arguments["path"], call.arguments.get("max_chars", 120_000))
+            result["context_token"] = token_service.issue(
+                "workspace_patch", manager.workspace_id, result["context_state"]
+            )
+            result.pop("context_state", None)
+            return result
+        except (WorkspaceError, KeyError) as error:
+            raise ToolExecutionError(str(error)) from error
+
+    return handler
+
+
+def _tool_workspace_inspect_factory(
+    root_provider: Optional[WorkspaceRootProvider], token_service: ContextTokenService
+):
+    def handler(call: AgentToolCall) -> Dict[str, Any]:
+        try:
+            manager = _workspace_manager(root_provider)
+            raw_paths = str(call.arguments.get("paths", ""))
+            paths = tuple(item.strip() for item in raw_paths.split(",") if item.strip())
+            if not paths or len(paths) > 12:
+                raise WorkspaceError("Provide between one and twelve workspace paths.")
+            state = manager.state(paths)
+            return {
+                "workspace_id": manager.workspace_id,
+                "files": state["files"],
+                "context_token": token_service.issue(
+                    "workspace_patch", manager.workspace_id, state
+                ),
+            }
+        except WorkspaceError as error:
+            raise ToolExecutionError(str(error)) from error
+
+    return handler
+
+
+def _tool_workspace_search_factory(root_provider: Optional[WorkspaceRootProvider]):
+    def handler(call: AgentToolCall) -> Dict[str, Any]:
+        try:
+            return _workspace_manager(root_provider).search(
+                call.arguments["query"], call.arguments.get("path", "")
+            )
+        except (WorkspaceError, KeyError) as error:
+            raise ToolExecutionError(str(error)) from error
+
+    return handler
+
+
+def _tool_workspace_command_factory(root_provider: Optional[WorkspaceRootProvider]):
+    def handler(call: AgentToolCall) -> Dict[str, Any]:
+        try:
+            return _workspace_manager(root_provider).command(call.arguments["command"])
+        except (WorkspaceError, KeyError) as error:
+            raise ToolExecutionError(str(error)) from error
+
+    return handler
+
+
 def build_default_registry(
     model_provider: ModelProvider,
     token_service: Optional[ContextTokenService] = None,
@@ -1500,6 +1585,7 @@ def build_default_registry(
     power_enabled_provider: Optional[Callable[[], bool]] = None,
     power_resources: Optional[Any] = None,
     script_library: Optional[Any] = None,
+    workspace_root_provider: Optional[WorkspaceRootProvider] = None,
 ) -> AgentToolRegistry:
     """Build the capability-routed Agent Workspace registry.
 
@@ -2007,5 +2093,105 @@ def build_default_registry(
             allowed_scopes=(AgentScope.PROJECT,),
         ),
         _script_describe,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="workspace.list",
+            title="List workspace files",
+            description=(
+                "Developer scope only. Lists source files below the current "
+                "SmartModeler plugin root; hidden build, virtual-environment, "
+                "and repository internals are excluded."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {"path": {"type": "string", "minLength": 0, "maxLength": 256}}
+            ),
+            allowed_scopes=(AgentScope.WORKSPACE,),
+        ),
+        _tool_workspace_list_factory(workspace_root_provider),
+    )
+    registry.register(
+        AgentToolSpec(
+            name="workspace.read",
+            title="Read workspace file",
+            description=(
+                "Developer scope only. Reads bounded UTF-8 source text and "
+                "returns a freshness receipt for a later reviewed patch."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "path": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "max_chars": {"type": "integer", "minimum": 1, "maximum": 120000},
+                },
+                required=["path"],
+            ),
+            allowed_scopes=(AgentScope.WORKSPACE,),
+        ),
+        _tool_workspace_read_factory(workspace_root_provider, token_service),
+    )
+    registry.register(
+        AgentToolSpec(
+            name="workspace.inspect",
+            title="Inspect workspace state",
+            description=(
+                "Developer scope only. Returns file existence and digests for "
+                "one or more comma-separated source paths plus a freshness "
+                "receipt used to validate a patch."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {"paths": {"type": "string", "minLength": 1, "maxLength": 2000}},
+                required=["paths"],
+            ),
+            allowed_scopes=(AgentScope.WORKSPACE,),
+        ),
+        _tool_workspace_inspect_factory(workspace_root_provider, token_service),
+    )
+    registry.register(
+        AgentToolSpec(
+            name="workspace.search",
+            title="Search workspace source",
+            description=(
+                "Developer scope only. Searches UTF-8 source files below the "
+                "plugin root with bounded paths, line text, and match count."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "query": {"type": "string", "minLength": 1, "maxLength": 200},
+                    "path": {"type": "string", "minLength": 0, "maxLength": 256},
+                },
+                required=["query"],
+            ),
+            allowed_scopes=(AgentScope.WORKSPACE,),
+        ),
+        _tool_workspace_search_factory(workspace_root_provider),
+    )
+    registry.register(
+        AgentToolSpec(
+            name="workspace.command",
+            title="Run safe workspace command",
+            description=(
+                "Developer scope only. Runs one fixed diagnostic command from "
+                "the allowlist (git status, git diff summary, or pytest). No "
+                "shell syntax, arbitrary executable, path, or network command "
+                "is accepted."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "command": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32,
+                    }
+                },
+                required=["command"],
+            ),
+            allowed_scopes=(AgentScope.WORKSPACE,),
+        ),
+        _tool_workspace_command_factory(workspace_root_provider),
     )
     return registry

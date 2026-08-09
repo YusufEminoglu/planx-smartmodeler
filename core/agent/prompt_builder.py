@@ -209,6 +209,16 @@ def select_tools_for_request(
         wanted.update(("model.summary", "model.describe", "model.validate"))
     if scope == "plugins":
         wanted.update(("plugin.list", "plugin.describe", "plugin.capabilities"))
+    if scope == "workspace":
+        wanted.update(
+            (
+                "workspace.list",
+                "workspace.read",
+                "workspace.inspect",
+                "workspace.search",
+                "workspace.command",
+            )
+        )
 
     processing_terms = (
         "process", "algorithm", "buffer", "reproject", "extract", "calculate",

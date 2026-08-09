@@ -149,6 +149,7 @@ class AgentWorkspaceDock(QDockWidget):
             power_enabled_provider=lambda: self._power_mode_enabled,
             power_resources=self._power_resources,
             script_library=self._script_library,
+            workspace_root_provider=lambda: Path(__file__).resolve().parent.parent,
         )
         self.controller = AgentController(self.registry)
         self._power_runtime = PowerRuntime(
@@ -160,6 +161,7 @@ class AgentWorkspaceDock(QDockWidget):
             active_layer_provider=self._active_layer,
             map_extent_provider=self._current_map_extent,
             power_runtime=self._power_runtime,
+            workspace_root_provider=lambda: Path(__file__).resolve().parent.parent,
         )
         self.run_loop = AgentRunLoop(
             self.controller,
@@ -177,7 +179,10 @@ class AgentWorkspaceDock(QDockWidget):
         # one, model apply fails closed while layer-style apply still works.
         adapter = model_apply if model_apply is not None else _NullModelAdapter(model_provider)
         self._apply_coordinator = RuntimeApplyCoordinator(
-            adapter, self.token_service, active_layer_provider=self._active_layer
+            adapter,
+            self.token_service,
+            active_layer_provider=self._active_layer,
+            workspace_root_provider=lambda: Path(__file__).resolve().parent.parent,
         )
         self.action_ledger = ActionLedger()
         # The trusted execution boundary. It owns the single running action;
@@ -271,6 +276,7 @@ class AgentWorkspaceDock(QDockWidget):
         self.scope_combo.addItem("Active layer", AgentScope.ACTIVE_LAYER)
         self.scope_combo.addItem("Current model", AgentScope.CURRENT_MODEL)
         self.scope_combo.addItem("Plugins", AgentScope.PLUGINS)
+        self.scope_combo.addItem("Workspace (Developer)", AgentScope.WORKSPACE)
         selectors.addWidget(self.scope_combo, 1)
         selectors.addWidget(QLabel("Mode:"))
         self.mode_combo = QComboBox()
