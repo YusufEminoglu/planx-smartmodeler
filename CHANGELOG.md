@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.16] - 2026-08-09
+
+### Added
+
+- Add `tests/run_deepseek_autotests.ps1`, which runs two reproducible
+  randomized 10-case DeepSeek matrix rounds plus the four-stage hard OSM
+  workflow, writes a bounded local log without the API key, and returns one
+  aggregate exit status.
+
 ## [1.5.15] - 2026-08-09
 
 ### Fixed
