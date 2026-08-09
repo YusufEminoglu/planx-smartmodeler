@@ -511,6 +511,7 @@ class AgentRunLoop:
         # previous request can never silently supply the new request's context.
         self._proposal_receipts: Dict[Tuple[str, str], str] = {}
         self._recovery_call_counter = 0
+        self._layer_extent_listing_attempted = False
         self._consecutive_fully_reused_turns = 0
         self._provider_recovery_attempts = 0
         self._transient_failure_retries = 0
@@ -888,6 +889,26 @@ class AgentRunLoop:
             self._consecutive_fully_reused_turns += 1
         else:
             self._consecutive_fully_reused_turns = 0
+
+        # A project-extent request needs two different facts: the algorithm
+        # signature and the concrete layer id. If a provider keeps repeating
+        # the signature call, obtain the missing read-only layer listing once
+        # on the application's side so the next provider turn has actionable
+        # evidence. This is bounded, scope-limited, and never selects a layer
+        # or creates a proposal automatically.
+        if (
+            fully_reused
+            and not self._layer_extent_listing_attempted
+            and self._should_autofetch_layer_extent_source()
+        ):
+            self._layer_extent_listing_attempted = True
+            _result, extent_events = self._run_recovery_inspection(
+                InspectionRequest("layer.list", {"limit": 100})
+            )
+            if extent_events:
+                this_turn_events.extend(extent_events)
+                self._consecutive_fully_reused_turns = 0
+
         if (
             self._consecutive_fully_reused_turns
             > MAX_NO_PROGRESS_INTERVENTIONS
@@ -909,6 +930,19 @@ class AgentRunLoop:
 
         return self._advance_turn(
             assistant_text=turn.assistant_text, tool_events=tuple(this_turn_events)
+        )
+
+    def _should_autofetch_layer_extent_source(self) -> bool:
+        """Whether the current project request clearly needs a layer id."""
+        if self._scope != AgentScope.PROJECT:
+            return False
+        folded = str(self._user_text or "").casefold()
+        return (
+            "layer_extent" in folded
+            or ("layer extent" in folded and "project" in folded)
+            or ("current extent" in folded and "layer" in folded)
+        ) and not any(
+            key[0] == "layer.list" for key in self._successful_tool_results
         )
 
     def _no_progress_intervention(self, level: int) -> Dict[str, Any]:

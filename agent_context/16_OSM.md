@@ -2,7 +2,8 @@
 
 Use Processing, not manual UI instructions. For roads, buildings and trees
 together, search once for `zero2agentosm:download_preset`, describe it, choose
-the live enum entry named **Urban context — roads, buildings & trees**, bind
+the live Urban Context enum entry (the title may be **roads, buildings &
+trees** or **Street, built form & nature** across downloader releases), bind
 the current canvas with `{"map_extent":true}`, and propose one
 `processing_run`. It returns temporary point, line and polygon outputs.
 

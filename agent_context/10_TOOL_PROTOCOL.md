@@ -156,8 +156,10 @@ reported enum index and `EXTENT` with `map_extent` or `layer_extent`. Its point,
 line and polygon destinations are application-forced temporary. The optional
 plugin is not a prerequisite for ordinary single-tag OSM requests.
 For a request combining roads, building footprints and trees in the same
-extent, prefer the single **Urban context — roads, buildings & trees** preset;
-it intentionally returns point, line and polygon outputs in one approved run.
+extent, prefer the single live Urban Context preset (the title may be **roads,
+buildings & trees** or **Street, built form & nature** across downloader
+releases); it intentionally returns point, line and polygon outputs in one
+approved run.
 
 ## `model_run`
 

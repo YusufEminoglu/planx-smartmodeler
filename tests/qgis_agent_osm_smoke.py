@@ -176,7 +176,13 @@ class SmartModelerAgentOsmSmoke(QgsProcessingAlgorithm):
                     for index, label in enumerate(
                         curated_parameters["PRESET"]["enum_options"]
                     )
-                    if "roads, buildings & trees" in str(label).casefold()
+                    if any(
+                        phrase in str(label).casefold()
+                        for phrase in (
+                            "roads, buildings & trees",
+                            "street, built form & nature",
+                        )
+                    )
                 ),
                 None,
             )

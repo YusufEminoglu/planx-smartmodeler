@@ -1195,6 +1195,18 @@ _BINDING_SINGLE_KEYS = frozenset(
 )
 _FIELD_BINDING_KEYS = {"field", "layer_param"}
 
+_BINDING_TAG_ALIASES = {
+    "integer": "number",
+    "float": "number",
+    "double": "number",
+    "boolean": "bool",
+    "vector_layer": "layer",
+    "raster_layer": "layer",
+    "layer_id": "layer",
+    "enum_index": "enum",
+    "option": "enum_string",
+}
+
 
 def _normalize_binding_alias(item: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize one explicit provider binding envelope.
@@ -1215,7 +1227,7 @@ def _normalize_binding_alias(item: Dict[str, Any]) -> Dict[str, Any]:
     discriminator = item[discriminators[0]]
     if not isinstance(discriminator, str):
         return item
-    tag = discriminator.strip()
+    tag = _BINDING_TAG_ALIASES.get(discriminator.strip(), discriminator.strip())
     if tag not in _BINDING_SINGLE_KEYS and tag != "field":
         return item
     allowed = {discriminators[0], "value"}
@@ -1237,6 +1249,12 @@ def _parse_binding(item: Any) -> RunBinding:
         raise ProposalError("Each input binding must be a non-empty object.", ProposalReason.MALFORMED)
     item = _normalize_binding_alias(item)
     keys = set(item)
+    if len(keys) == 1:
+        raw_tag = next(iter(keys))
+        tag = _BINDING_TAG_ALIASES.get(raw_tag)
+        if tag is not None:
+            item = {tag: item[raw_tag]}
+            keys = {tag}
     if keys == _FIELD_BINDING_KEYS:
         field_value = _field_name(item["field"], "field binding")
         if not field_value:

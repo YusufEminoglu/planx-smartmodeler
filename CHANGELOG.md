@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.20] - 2026-08-09
+
+### Fixed
+
+- Add bounded provider binding aliases for common integer, boolean, layer, and
+  enum envelope names.
+- Automatically obtain one read-only layer listing when a project-extent task
+  repeats its Processing signature inspection without discovering the extent
+  source layer.
+- Accept the live v0.5.0 02Agent Urban Context preset label alongside the
+  earlier equivalent label in the sibling-plugin compatibility smoke test.
+- Keep the no-progress guard and proposal/output safety boundaries intact.
+
 ## [1.5.19] - 2026-08-09
 
 ### Fixed
