@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.25] - 2026-08-09
+
+### Fixed
+
+- Recover stale or missing input layer ids in multi-stage Processing workflows through one trusted current-project layer inspection and a bounded provider repair turn.
+- Tell the provider explicitly to use only layer ids returned by the latest `layer.list` result when repairing a proposal.
+
 ## [1.5.24] - 2026-08-09
 
 ### Fixed

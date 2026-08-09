@@ -730,6 +730,7 @@ class AgentRunLoop:
                 "not been inspected in this session",
                 "inspect it again",
                 "layer extent id is required",
+                "input layer is not in the project",
             )
         )
 
@@ -1586,11 +1587,17 @@ class AgentRunLoop:
                     recovery_events = (*tool_events, *inspection_events)
                 elif (
                     kind == PROPOSAL_KIND_PROCESSING_RUN
-                    and "layer extent id is required"
-                    in str(validation.message or "").casefold()
+                    and any(
+                        marker in str(validation.message or "").casefold()
+                        for marker in (
+                            "layer extent id is required",
+                            "input layer is not in the project",
+                        )
+                    )
                 ):
-                    # The layer id is project evidence, not something the
-                    # provider may invent. Inspect it once, then let the
+                    # Layer ids are project evidence, not something the
+                    # provider may invent or carry forward from a prior
+                    # stage. Inspect the current project once, then let the
                     # bounded repair turn select the exact id from the
                     # trusted layer.list result.
                     _result, inspection_events = self._run_recovery_inspection(
@@ -1613,8 +1620,11 @@ class AgentRunLoop:
                         "Return one corrected proposal using only parameters whose "
                         "processing.describe row has a non-empty proposal_binding. "
                         "Omit every destination/output field; outputs are forced to "
-                        "temporary layers. Preserve the inspected algorithm, exact "
-                        "context_token, and user intent. Do not claim execution."
+                        "temporary layers. For every layer or layer_extent input, "
+                        "use only an id from the latest successful layer.list "
+                        "result; do not reuse a stale id or invent a name. "
+                        "Preserve the inspected algorithm, exact context_token, "
+                        "and user intent. Do not claim execution."
                     ),
                 }
                 self._turn_events.append(recovery)
