@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.23] - 2026-08-09
+
+### Fixed
+
+- Add a final minimal Processing receipt form so oversized multi-stage signatures still retain their algorithm id, context token, and proposal bindings inside the working trace.
+- Prevent large 02Agent OSM resolve responses from being replaced by a generic omission message before the provider can prepare its reviewed run.
+
 ## [1.5.22] - 2026-08-09
 
 ### Fixed

@@ -354,7 +354,7 @@ def _compact_processing_tool_event(
             compact["parameters_truncated"] = bool(description.get("parameters_truncated"))
         return compact
 
-    compact_data = dict(data)
+    compact_data: Dict[str, Any] = {}
     resolved = data.get("resolved")
     if isinstance(resolved, dict):
         compact_data["resolved"] = compact_description(resolved)
@@ -407,6 +407,28 @@ def _compact_processing_tool_event(
         if len(json.dumps(compacted, ensure_ascii=False, sort_keys=True)) <= max_chars:
             return compacted
         description["parameters"] = description["parameters"][:12]
+        description["parameters_truncated"] = True
+        if len(json.dumps(compacted, ensure_ascii=False, sort_keys=True)) <= max_chars:
+            return compacted
+
+        # Last bounded form: the provider still gets the exact receipt and the
+        # parameter binding contract, while verbose labels/options cannot make
+        # the trusted evidence disappear from the working trace altogether.
+        description["parameters"] = [
+            {
+                key: row[key]
+                for key in (
+                    "name", "type", "required", "proposal_binding",
+                    "alternative_binding",
+                )
+                if key in row
+            }
+            for row in description["parameters"]
+            if isinstance(row, dict)
+        ][:8]
+        description.pop("group", None)
+        description.pop("provider_id", None)
+        description.pop("agent_reason", None)
         description["parameters_truncated"] = True
         if len(json.dumps(compacted, ensure_ascii=False, sort_keys=True)) <= max_chars:
             return compacted
