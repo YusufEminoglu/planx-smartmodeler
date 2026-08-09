@@ -9,6 +9,7 @@ exercise the pinned Overpass path instead.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import random
 import sys
@@ -124,6 +125,30 @@ def _seed_osm_response(layer: QgsVectorLayer) -> None:
             ]
         },
     )
+
+
+def _activate_sibling_plugin(plugins_root: str):
+    """Load the sibling plugin lifecycle, not only its Processing provider.
+
+    Headless QGIS does not populate ``qgis.utils.available_plugins`` from the
+    workspace automatically. The Agent uses that registry to distinguish an
+    installed plugin from an arbitrary provider, so the hard acceptance test
+    must bootstrap the same installed-and-enabled state as the GUI.
+    """
+    import qgis.utils as qgis_utils
+
+    if plugins_root not in qgis_utils.plugin_paths:
+        qgis_utils.plugin_paths.append(plugins_root)
+    qgis_utils.updateAvailablePlugins()
+    from zero2agent_osm_downloader import classFactory
+
+    plugin = classFactory(None)
+    plugin.initGui()
+    package_name = "zero2agent_osm_downloader"
+    qgis_utils.plugins[package_name] = plugin
+    if package_name not in qgis_utils.active_plugins:
+        qgis_utils.active_plugins.append(package_name)
+    return plugin, qgis_utils, package_name
 
 
 def _stage(
@@ -331,6 +356,9 @@ def main() -> int:
 
         Processing.initialize()
         registry = QgsApplication.processingRegistry()
+        sibling_plugin, qgis_utils, sibling_package = _activate_sibling_plugin(
+            plugins_root
+        )
         added = []
         for provider_type in (SmartModelerProcessingProvider, AgentOsmProvider):
             if registry.providerById(provider_type.PROVIDER_ID) is None:
@@ -345,6 +373,10 @@ def main() -> int:
         finally:
             for provider in reversed(added):
                 registry.removeProvider(provider)
+            sibling_plugin.unload()
+            qgis_utils.plugins.pop(sibling_package, None)
+            with contextlib.suppress(ValueError):
+                qgis_utils.active_plugins.remove(sibling_package)
     except Exception as error:
         print(f"DEEPSEEK HARD WORKFLOW FAIL: {type(error).__name__}: {error}", flush=True)
         return 1

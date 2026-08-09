@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.13] - 2026-08-09
+
+### Fixed
+
+- Bootstrap the installed and enabled 02Agent OSM Downloader plugin state in
+  the hard DeepSeek QGIS test, so Agent plugin discovery matches the GUI
+  lifecycle instead of seeing only a manually registered provider.
+
 ## [1.5.12] - 2026-08-09
 
 ### Fixed
