@@ -176,6 +176,36 @@ class BasicLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(final.kind, RunEventKind.FINAL)
 
+    def test_active_layer_id_question_gets_one_proposal_continuation(self) -> None:
+        loop, controller, _, _ = build_loop(echo_active=True)
+        loop = AgentRunLoop(
+            controller,
+            STATIC_INSTRUCTIONS,
+            active_layer_id_provider=lambda: "active-layer-42",
+        )
+        first = loop.start(
+            "Use the active layer and reproject it.",
+            AgentMode.ACT,
+            AgentScope.ACTIVE_LAYER,
+        )
+        continued = loop.submit_provider_response(
+            first.request.request_token,
+            final_turn_json(
+                "I need to identify the polygon layer produced by the download. "
+                "Please provide the layer ID so I can bind it to the INPUT parameter."
+            ),
+        )
+        self.assertEqual(continued.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(
+            continued.tool_events[0]["strategy"],
+            "continue_active_layer_proposal",
+        )
+        finished = loop.submit_provider_response(
+            continued.request.request_token,
+            final_turn_json("The active layer is ready."),
+        )
+        self.assertEqual(finished.kind, RunEventKind.FINAL)
+
     def test_structured_agent_envelope_matrix_covers_thirty_small_turns(self) -> None:
         """Exercise repeated DeepSeek-shaped envelopes without any network call."""
         for index in range(30):

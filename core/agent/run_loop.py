@@ -706,6 +706,27 @@ class AgentRunLoop:
                 )
             turn = recovered
         if turn.is_final:
+            if (
+                self._scope == AgentScope.ACTIVE_LAYER
+                and self._is_active_layer_blocker(turn.assistant_text)
+                and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+            ):
+                self._provider_recovery_attempts += 1
+                recovery = {
+                    "kind": "provider_recovery",
+                    "strategy": "continue_active_layer_proposal",
+                    "instruction": (
+                        "You returned a final message asking for a layer id, but "
+                        "the run is already in ACTIVE_LAYER scope. Do not ask the "
+                        "user for an id or return final text. Continue the same "
+                        "request and return exactly one processing_run proposal. "
+                        "Bind the primary input to the current active layer using "
+                        "the exact id from the latest successful layer.list result; "
+                        "preserve the inspected algorithm and fresh context_token."
+                    ),
+                }
+                self._turn_events.append(recovery)
+                return self._advance_turn(tool_events=(recovery,))
             return self._finish(turn.assistant_text)
         if turn.is_proposal:
             return self._handle_proposal(turn, tool_events=recovery_events)
@@ -726,6 +747,25 @@ class AgentRunLoop:
                 "unknown proposal_kind",
             )
         )
+
+    @staticmethod
+    def _is_active_layer_blocker(message: str) -> bool:
+        """Recognize a provider asking for an id already supplied by scope."""
+        text = str(message or "").casefold()
+        asks_for_id = any(
+            marker in text
+            for marker in (
+                "layer id",
+                "layer_id",
+                "provide the layer",
+                "confirm the active layer",
+            )
+        )
+        asks_to_bind = any(
+            marker in text
+            for marker in ("input", "bind", "produced", "output layer")
+        )
+        return asks_for_id and asks_to_bind
 
     @staticmethod
     def _is_recoverable_proposal_validation(message: str) -> bool:
