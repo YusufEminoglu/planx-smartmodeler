@@ -397,6 +397,18 @@ def plan_processing_run(
             if len(str(binding.value)) > maximum:
                 _reject("A text value is too long.", ProposalReason.LIMIT_EXCEEDED)
             value = str(binding.value)
+            # A parameter that names a new field is normalized: QGIS would
+            # otherwise create "area_m2 " verbatim, the run would report
+            # success, and the requested "area_m2" would not exist on the
+            # result. Surrounding whitespace is never part of an intended
+            # field name, so strip it rather than fail an otherwise good run.
+            if param in record.new_field_params:
+                value = value.strip()
+                if not value:
+                    _reject(
+                        "A new field name cannot be blank.",
+                        ProposalReason.VALIDATION_FAILED,
+                    )
         elif tag == "map_extent":
             value = True
         else:  # crs -- the authid's validity is confirmed by the QGIS adapter

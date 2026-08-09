@@ -311,6 +311,78 @@ class SmartModelerAgentOsmSmoke(QgsProcessingAlgorithm):
                 raise RuntimeError(
                     "The advanced OSM proposal did not retain temporary outputs."
                 )
+            if advanced_ingredients["run_parameters"].get("GEOMETRY") != 3:
+                raise RuntimeError(
+                    "GEOMETRY did not resolve to the live Polygons option."
+                )
+
+            # Binding a choice by label is the form the tool protocol now asks
+            # for, because a miscounted index is still a valid index: it picks a
+            # different real option, the run succeeds and the wanted geometry
+            # comes back empty. Both spellings must reach the same live values.
+            def _advanced_by_label(match_mode: str, geometry: str):
+                described = controller.execute(
+                    AgentToolCall(
+                        call_id="advanced_label",
+                        tool_name="processing.describe",
+                        arguments={
+                            "algorithm_id": "zero2agentosm:download_advanced"
+                        },
+                    ),
+                    AgentMode.PLAN,
+                    AgentScope.PROJECT,
+                )
+                proposal = parse_proposal(
+                    PROPOSAL_KIND_PROCESSING_RUN,
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "context_token": described.data["context_token"],
+                            "algorithm_id": "zero2agentosm:download_advanced",
+                            "title": "Download school polygons",
+                            "summary": "Bind the choice parameters by label.",
+                            "inputs": {
+                                "MATCH_MODE": {"enum_string": match_mode},
+                                "GEOMETRY": {"enum_string": geometry},
+                                "KEY_1": {"osm_tag": "amenity"},
+                                "VALUE_1": {"osm_tag": "school"},
+                                "EXTENT": {"layer_extent": extent_layer.id()},
+                            },
+                            "warnings": [],
+                        }
+                    ),
+                )
+                validator = RuntimeProposalValidator(lambda: None, token_service)
+                return validator, validator.validate(
+                    PROPOSAL_KIND_PROCESSING_RUN,
+                    proposal,
+                    AgentMode.ACT,
+                    AgentScope.PROJECT,
+                )
+
+            label_validator, label_validation = _advanced_by_label(
+                "Match all tags (AND)", "Polygons"
+            )
+            if not label_validation.ok:
+                raise RuntimeError(
+                    "A label-bound advanced OSM proposal was rejected: "
+                    f"{label_validation.reason_code} {label_validation.message}"
+                )
+            label_parameters = label_validator.take_last_validated()["run_parameters"]
+            if (
+                label_parameters.get("GEOMETRY") != 3
+                or label_parameters.get("MATCH_MODE") != 1
+            ):
+                raise RuntimeError(
+                    "Label-bound choices resolved to the wrong live options: "
+                    f"GEOMETRY={label_parameters.get('GEOMETRY')!r}, "
+                    f"MATCH_MODE={label_parameters.get('MATCH_MODE')!r}"
+                )
+            _, wrong_label = _advanced_by_label("Match all tags (AND)", "Areas")
+            if wrong_label.ok:
+                raise RuntimeError(
+                    "An unknown choice label was accepted instead of rejected."
+                )
 
             planx_algorithm = QgsApplication.processingRegistry().algorithmById(
                 "planx:networkcentrality"

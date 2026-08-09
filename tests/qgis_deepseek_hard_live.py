@@ -179,12 +179,68 @@ def _field_calculator_binding_hint(field_name: str) -> str:
     )
 
 
+def _safe_parameter_text(parameters: dict) -> str:
+    """Render accepted run parameters as bounded, secret-free metadata.
+
+    Only the shapes the acceptance workflow reasons about are rendered: layers
+    become their project id, scalars are shown as-is, and any other value is
+    reduced to its type name and length. Source URIs, file paths and provider
+    text never reach the log.
+    """
+    parts = []
+    for name in sorted(parameters):
+        value = parameters[name]
+        if isinstance(value, QgsVectorLayer):
+            rendered = f"<layer {value.id()} n={value.featureCount()}>"
+        elif isinstance(value, (bool, int, float)):
+            rendered = repr(value)
+        elif isinstance(value, str):
+            rendered = repr(value if len(value) <= 60 else value[:57] + "...")
+        else:
+            rendered = f"<{type(value).__name__} len={len(str(value))}>"
+        parts.append(f"{name}={rendered}")
+    return ", ".join(parts)
+
+
+def _field_report(layer: QgsVectorLayer, field_name: str) -> str:
+    """Describe one layer's field population without printing any values."""
+    index = layer.fields().indexOf(field_name)
+    names = [field.name() for field in layer.fields()]
+    if index < 0:
+        # A case- or whitespace-only difference is the failure this report
+        # exists to name, so show how the requested name was actually stored.
+        near = [name for name in names if name.strip().casefold() == field_name.casefold()]
+        return (
+            f"field {field_name!r} ABSENT; fields={names!r}; "
+            f"case/space variants={near!r}; features={layer.featureCount()}"
+        )
+    nulls = 0
+    numeric = 0
+    for feature in layer.getFeatures():
+        value = feature[field_name]
+        if value is None or (hasattr(value, "isNull") and value.isNull()):
+            nulls += 1
+            continue
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            continue
+        numeric += 1
+    definition = layer.fields().at(index)
+    return (
+        f"field {field_name!r} present as {definition.typeName()}"
+        f"({definition.length()},{definition.precision()}); "
+        f"features={layer.featureCount()}; nulls={nulls}; numeric={numeric}"
+    )
+
+
 def _stage(
     api_key: str,
     source: QgsVectorLayer,
     prompt: str,
     expected_algorithm: str,
     output_kind: str = "vector",
+    min_features: int = 0,
 ) -> tuple[QgsVectorLayer, str]:
     from planx_smartmodeler.core.agent.context_tokens import ContextTokenService
     from planx_smartmodeler.core.agent.contracts import AgentMode, AgentScope
@@ -263,6 +319,17 @@ def _stage(
         actual = ingredients["algorithm_id"] if ingredients else "none"
         raise RuntimeError(f"expected {expected_algorithm}, received {actual}")
 
+    # Bounded pre-execution receipt. The accepted proposal -- not the prompt --
+    # decides what actually runs, so record it before the run rather than
+    # guessing afterwards from the result alone.
+    print(
+        f"[stage {expected_algorithm}] accepted: "
+        f"{_safe_parameter_text(ingredients['run_parameters'])}; "
+        f"destinations={ingredients['destinations']}; "
+        f"active_input={source.id()} n={source.featureCount()}",
+        flush=True,
+    )
+
     project = QgsProject.instance()
     before = set(project.mapLayers())
     finished = []
@@ -300,8 +367,24 @@ def _stage(
             project.removeMapLayer(layer_id)
     if len(candidates) != 1:
         raise RuntimeError(f"expected one {output_kind} output, got {len(candidates)}")
+    result = candidates[0]
+    print(
+        f"[stage {expected_algorithm}] result: features={result.featureCount()}; "
+        f"fields={[field.name() for field in result.fields()]!r}",
+        flush=True,
+    )
+    # An empty result is not a Processing failure, so nothing upstream rejects
+    # it. Without this the workflow carried an empty layer through every later
+    # stage and blamed the last one -- the previous investigation chased the
+    # Field Calculator when the OSM query had returned nothing.
+    if result.featureCount() < min_features:
+        raise RuntimeError(
+            f"{expected_algorithm} produced {result.featureCount()} features, "
+            f"expected at least {min_features}; the accepted bindings selected "
+            f"nothing for this request"
+        )
     usage = usages[-1] if usages else None
-    return candidates[0], f"{expected_algorithm}: turns={loop.turns_used}, {_usage_text(usage)}"
+    return result, f"{expected_algorithm}: turns={loop.turns_used}, {_usage_text(usage)}"
 
 
 def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
@@ -327,6 +410,7 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
             "invent a URL or claim the download already ran.",
             "zero2agentosm:download_advanced",
             "polygon",
+            min_features=1,
         )
         projected, second = _stage(
             api_key,
@@ -336,6 +420,7 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
             "EPSG:3857 so the next area calculation is in square metres.",
             "native:reprojectlayer",
             "polygon",
+            min_features=1,
         )
         measured, third = _stage(
             api_key,
@@ -369,6 +454,7 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
         # unpopulated field. The source result is removed before retrying so
         # the provider can only select the intended reprojected layer.
         repair_attempts = 0
+        print(f"[area] after field calculator: {_field_report(measured, area_field)}", flush=True)
         while not _area_values(measured) and repair_attempts < 2:
             repair_attempts += 1
             project = QgsProject.instance()
@@ -389,6 +475,11 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
                 "polygon",
             )
             third = f"{third}; semantic_repair_{repair_attempts}={repair}"
+            print(
+                f"[area] after repair {repair_attempts}: "
+                f"{_field_report(measured, area_field)}",
+                flush=True,
+            )
         analyzed, fourth = _stage(
             api_key,
             measured,
@@ -401,7 +492,13 @@ def run_hard_workflow(api_key: str, seed: int | None = None) -> str:
         )
         areas = _area_values(measured)
         if not areas:
-            raise RuntimeError(f"area field {area_field!r} was not populated")
+            # Name what actually went wrong. "not populated" was previously
+            # reported for an absent field, an all-NULL field and an empty
+            # layer alike, which sent the last investigation after the wrong
+            # cause.
+            raise RuntimeError(
+                f"area field {area_field!r} is unusable: {_field_report(measured, area_field)}"
+            )
         mean = sum(areas) / len(areas)
         return (
             f"DEEPSEEK HARD WORKFLOW PASS: seed={seed}; neighborhoods={len(areas)}; "

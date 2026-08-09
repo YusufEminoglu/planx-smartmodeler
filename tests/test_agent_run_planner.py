@@ -252,6 +252,74 @@ class ProcessingRunPlannerTests(unittest.TestCase):
         self.assertEqual(formula.value, "rand(1, 15)")
         self.assertEqual(plan.binding_for("FIELD_TYPE").value, 1)
 
+    def test_new_field_name_drops_surrounding_whitespace(self):
+        # QGIS stores a new field name verbatim. A provider that echoes
+        # "area_m2 " produced a run that reported success while the requested
+        # "area_m2" did not exist on the result, so nothing downstream -- a
+        # later stage or the person who asked -- could reach the value.
+        plan = self.plan(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_vec"},
+                "FIELD_NAME": {"string": "  area_m2 "},
+                "FIELD_TYPE": {"enum_string": "Float"},
+                "FORMULA": {"expression": "$area"},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("FIELD_NAME").value, "area_m2")
+        # The approval card must show the field that will really be created.
+        self.assertIn("FIELD_NAME: area_m2", plan.preview_lines)
+
+    def test_new_field_name_keeps_interior_spaces(self):
+        # Interior spaces are legal in QGIS field names and may be exactly what
+        # the user asked for; only the surrounding whitespace is noise.
+        plan = self.plan(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_vec"},
+                "FIELD_NAME": {"string": " net area "},
+                "FIELD_TYPE": {"enum_string": "Float"},
+                "FORMULA": {"expression": "$area"},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("FIELD_NAME").value, "net area")
+
+    def test_whitespace_only_new_field_name_is_rejected(self):
+        self.assert_rejects(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_vec"},
+                "FIELD_NAME": {"string": "   "},
+                "FIELD_TYPE": {"enum_string": "Float"},
+                "FORMULA": {"expression": "$area"},
+            },
+            FIELD_CALCULATOR_PARAMS,
+            ProposalReason.VALIDATION_FAILED,
+        )
+
+    def test_ordinary_label_strings_are_not_normalized(self):
+        # Only parameters that name a new field are normalized. A comparison
+        # value is data, and trimming it would silently change the run.
+        params = [
+            spec("INPUT", SOURCE),
+            spec("FIELD", FIELD_PARAM),
+            spec("OPERATOR", ENUM_PARAM, default=True, options=("=", "!=")),
+            spec("VALUE", STRING_PARAM, optional=True),
+            spec("OUTPUT", SINK, destination=True),
+        ]
+        plan = self.plan(
+            "native:extractbyattribute",
+            {
+                "INPUT": {"layer": "L_vec"},
+                "FIELD": {"field": "name", "layer_param": "INPUT"},
+                "VALUE": {"string": " keep me "},
+            },
+            params,
+        )
+        self.assertEqual(plan.binding_for("VALUE").value, " keep me ")
+
     def test_planx_space_syntax_accepts_reviewed_domain_text(self):
         params = [
             spec("NETWORK", SOURCE),
