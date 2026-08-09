@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.8] - 2026-08-09
+
+### Fixed
+
+- Treat common provider context-token placeholders as missing and recover the
+  trusted live Processing receipt instead of sending them to strict parsing.
+- Normalize scalar, one-item-list, numeric-string, and semantic enum values in
+  Modeler against the installed QGIS Processing option list.
+
 ## [1.5.7] - 2026-08-09
 
 ### Fixed

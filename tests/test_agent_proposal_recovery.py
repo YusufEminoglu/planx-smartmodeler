@@ -221,6 +221,16 @@ class PureRecoveryTests(unittest.TestCase):
         self.assertEqual(outcome.turn.proposal.algorithm_id, "native:randomextract")
         self.assertEqual(outcome.turn.tool_calls, ())
 
+    def test_placeholder_context_token_requests_trusted_reinspection(self) -> None:
+        proposal = _processing_proposal(token="context_token")
+        outcome = recover_agent_turn(
+            _turn(PROPOSAL_KIND_PROCESSING_RUN, proposal),
+            4,
+            {},
+        )
+        self.assertIsNone(outcome.turn)
+        self.assertEqual(outcome.inspection.tool_name, "processing.describe")
+
     def test_non_string_proposal_note_is_not_repaired(self) -> None:
         raw = json.loads(
             _turn(

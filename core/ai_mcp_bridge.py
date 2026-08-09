@@ -48,7 +48,18 @@ class AiMcpBridge:
         """
         port = node.inputs.get(name)
         if port is None or port.socket_type != SocketType.ENUM or not isinstance(value, str):
-            return value
+            if port is None or port.socket_type != SocketType.ENUM:
+                return value
+            if isinstance(value, list) and len(value) == 1:
+                value = value[0]
+            elif isinstance(value, float) and value.is_integer():
+                return int(value)
+            elif isinstance(value, str) and re.fullmatch(r"[+-]?\d+", value.strip()):
+                return int(value.strip())
+            if not isinstance(value, str):
+                return value
+        elif re.fullmatch(r"[+-]?\d+", value.strip()):
+            return int(value.strip())
         processing_registry = QgsApplication.processingRegistry()
         algorithm = (
             processing_registry.algorithmById(node.algorithm_id)

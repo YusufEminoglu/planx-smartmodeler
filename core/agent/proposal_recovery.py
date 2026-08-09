@@ -228,7 +228,26 @@ def _inspection_for(kind: str, target: str) -> Optional[InspectionRequest]:
 
 
 def _token_is_usable(value: Any) -> bool:
-    return isinstance(value, str) and 0 < len(value) <= MAX_TOKEN_CHARS
+    if not isinstance(value, str) or not 0 < len(value) <= MAX_TOKEN_CHARS:
+        return False
+    folded = value.strip().casefold()
+    if not folded:
+        return False
+    # Providers sometimes echo the schema placeholder instead of the receipt
+    # returned by processing.describe. Treat these values as missing so the
+    # trusted recovery inspection can supply the real session token.
+    return folded not in {
+        "context_token",
+        "<context_token>",
+        "your_context_token",
+        "insert_context_token",
+        "replace_with_context_token",
+        "none",
+        "null",
+        "n/a",
+        "na",
+        "...",
+    } and "context_token" not in folded
 
 
 def _normalize_style(proposal: dict) -> None:
