@@ -18,7 +18,15 @@ different geometry families; state that limitation honestly.
 For a request that explicitly combines two to four tag conditions, search for
 and describe `zero2agentosm:download_advanced`. Bind only its live enum choices,
 plain `KEY_1`..`KEY_4` / optional `VALUE_1`..`VALUE_4` OSM tags, and a
-QGIS-owned extent. Use **Match all tags (AND)** only when every condition must
+QGIS-owned extent. Bind both of its choices by label, not by index.
+
+`GEOMETRY` must be the geometry family the request actually asks for:
+**Polygons** for areas, boundaries, footprints and land use, **Lines** for ways
+and roads, **Points** for nodes, **All geometries** only when the request spans
+several. The wrong scope is not an error — it returns an empty layer for the
+geometry that was wanted, and every later step then succeeds on nothing.
+
+Use **Match all tags (AND)** only when every condition must
 exist on the same OSM element; use **Match any tag (OR)** for a union. Omit
 unused optional rows. The endpoint still does not accept Overpass text, URLs,
 paths, credentials, or persistent destinations.

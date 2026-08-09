@@ -49,8 +49,15 @@ normally 5–8, then describe the best result. Prefer search rows where
 runnable search result before giving up.
 
 Only bind parameters whose `processing.describe.proposal_binding` is non-empty;
-omit destinations and unneeded optional parameters. Use the reported enum
-indexes and bounds.
+omit destinations and unneeded optional parameters. Respect the reported bounds.
+
+For a choice parameter prefer `{"enum_string":"<exact reported label>"}` over
+`{"enum":<index>}`. `enum_options` is ordered from index 0, and a miscounted
+index is still a *valid* index: it silently selects a different real option, the
+run succeeds, and the result is quietly wrong — a geometry scope of `Lines` when
+polygons were asked for returns an empty polygon layer, not an error. A label
+that matches nothing is rejected instead, so you can correct it. Copy the label
+exactly as reported.
 
 For a field-based request, `layer.describe` is the field authority. Once a
 user-named field appears there, proceed with it; never ask which field they
@@ -151,10 +158,19 @@ explicitly asks to override them.
 
 For a curated thematic pack, prefer
 `zero2agentosm:download_preset` when `processing.search` and
-`processing.describe` report it live and runnable. Bind `PRESET` with the exact
-reported enum index and `EXTENT` with `map_extent` or `layer_extent`. Its point,
+`processing.describe` report it live and runnable. Bind `PRESET` with its exact
+reported label and `EXTENT` with `map_extent` or `layer_extent`. Its point,
 line and polygon destinations are application-forced temporary. The optional
 plugin is not a prerequisite for ordinary single-tag OSM requests.
+
+`zero2agentosm:download_advanced` has two choice parameters that decide whether
+the run can return anything at all, so bind both by label. `GEOMETRY` scopes the
+query: `"Polygons"` for areas and boundaries, `"Lines"` for ways, `"Points"` for
+nodes, `"All geometries"` when the request spans several. Scoping to the wrong
+one yields an empty layer for the geometry that was actually wanted, and every
+later step then succeeds on nothing. `MATCH_MODE` is `"Match all tags (AND)"`
+when the request says every tag must hold, and `"Match any tag (OR)"` when any
+one is enough.
 For a request combining roads, building footprints and trees in the same
 extent, prefer the single live Urban Context preset (the title may be **roads,
 buildings & trees** or **Street, built form & nature** across downloader

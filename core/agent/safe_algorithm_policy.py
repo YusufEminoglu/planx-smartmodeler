@@ -206,6 +206,14 @@ class AllowedAlgorithm:
     # A reviewed network adapter is visible as high risk and always needs the
     # normal explicit Run approval.
     network_access: bool = False
+    # Reviewed parameters that name a *new* field the run creates. QGIS stores
+    # such a name verbatim, so a provider's stray surrounding whitespace makes a
+    # field that nothing -- neither the requester nor a later run -- can address
+    # by the name that was actually asked for. The run completes, the receipt is
+    # clean, and the value is simply unreachable. The planner normalizes these
+    # names before the run is previewed so the approval card shows the field
+    # that will really exist.
+    new_field_params: Tuple[str, ...] = ()
 
     @property
     def label_safe_string_params(self) -> Tuple[str, ...]:
@@ -502,6 +510,7 @@ def _alg(
     destinations: Tuple[str, ...] = ("OUTPUT",),
     optional_destinations: Tuple[str, ...] = (),
     required_params: Tuple[str, ...] = (),
+    new_field_params: Tuple[str, ...] = (),
 ) -> AllowedAlgorithm:
     return AllowedAlgorithm(
         algorithm_id=algorithm_id,
@@ -510,6 +519,7 @@ def _alg(
         required_params=required_params,
         destinations=destinations,
         optional_destinations=optional_destinations,
+        new_field_params=new_field_params,
     )
 
 
@@ -747,6 +757,7 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         "native:countpointsinpolygon",
         {"POLYGONS": VECTOR_LAYER, "POINTS": VECTOR_LAYER, "FIELD": STRING_LABEL},
         ("POLYGONS", "POINTS"),
+        new_field_params=("FIELD",),
     ),
     # QGIS Field Calculator is the reviewed expression execution boundary.
     # FORMULA is not ordinary text: runtime_proposals validates it with the
@@ -766,6 +777,7 @@ _DEFAULT_ALLOWLIST: Mapping[str, AllowedAlgorithm] = {
         required_layer_params=("INPUT",),
         required_params=("FIELD_NAME", "FIELD_TYPE", "FORMULA"),
         destinations=("OUTPUT",),
+        new_field_params=("FIELD_NAME",),
     ),
     "native:cellstatistics": _alg(
         "native:cellstatistics",
