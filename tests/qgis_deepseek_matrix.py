@@ -82,14 +82,17 @@ CASES = (
         "modeler_prompt": (
             "Create exactly a two-node workflow named Matrix Category Filter. Use "
             "smart:input_layer connected to native:extractbyattribute. Set FIELD "
-            "to the category field, OPERATOR to equals, and VALUE to low. Return "
-            "two nodes and one edge with exact catalog port ids; keep input configurable."
+            "to the exact existing field name category (do not use Filter or invent "
+            "a field), OPERATOR to the exact live catalog option for equals, and "
+            "VALUE to low. Return two nodes and one edge with exact catalog port "
+            "ids; keep input configurable."
         ),
         "agent_prompt": (
             "Inspect the active vector layer and its fields, then prepare one reviewed "
-            "Processing run using native:extractbyattribute. Filter FIELD category "
-            "with the equals operator and VALUE low. Do not use Python, SQL, Power "
-            "Mode, or network."
+            "Processing run using native:extractbyattribute. Set FIELD to the exact "
+            "existing field name category (not the word Filter), use the equals "
+            "operator, and set VALUE to low. Do not use Python, SQL, Power Mode, "
+            "or network."
         ),
     },
 )

@@ -46,6 +46,8 @@ ReceiptKey = Tuple[str, str]
 _PROPOSAL_KIND_ALIASES = {
     "processing": PROPOSAL_KIND_PROCESSING_RUN,
     "run": PROPOSAL_KIND_PROCESSING_RUN,
+    "run_processing": PROPOSAL_KIND_PROCESSING_RUN,
+    "processing_run_proposal": PROPOSAL_KIND_PROCESSING_RUN,
     "style": PROPOSAL_KIND_LAYER_STYLE,
 }
 
@@ -57,6 +59,17 @@ _LEGACY_ENUM_PARAMETER_NAMES = frozenset(
 )
 _LEGACY_DESTINATION_NAMES = frozenset(
     {"OUTPUT", "DESTINATION", "OUTPUT_LAYER", "OUTPUT_FILE", "TEMPORARY_OUTPUT"}
+)
+_PROCESSING_RUN_KEYS = frozenset(
+    {
+        "schema_version",
+        "context_token",
+        "algorithm_id",
+        "title",
+        "summary",
+        "inputs",
+        "warnings",
+    }
 )
 
 
@@ -93,6 +106,8 @@ def _legacy_binding(name: str, value: Any) -> Optional[dict]:
             return {"layer": value}
         if upper in {"FIELD", "FIELD_NAME"}:
             return {"field": value, "layer_param": "INPUT"}
+        if upper in _LEGACY_ENUM_PARAMETER_NAMES:
+            return {"enum_string": value}
         if upper in {"FORMULA", "EXPRESSION"}:
             return {"expression": value}
         if upper in {"CRS", "TARGET_CRS"}:
@@ -109,17 +124,24 @@ def _normalize_legacy_processing(proposal: dict) -> None:
     The resulting object still has to pass ``parse_proposal`` and the trusted
     runtime validator.
     """
-    if "inputs" in proposal or not isinstance(proposal.get("parameters"), dict):
+    parameters = proposal.get("parameters")
+    if "inputs" not in proposal and isinstance(parameters, dict):
+        inputs = {}
+        for raw_name, value in list(parameters.items())[:30]:
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                return
+            binding = _legacy_binding(raw_name, value)
+            if binding is not None:
+                inputs[raw_name] = binding
+        proposal["inputs"] = inputs
+    if "inputs" not in proposal:
         return
-    parameters = proposal["parameters"]
-    inputs = {}
-    for raw_name, value in list(parameters.items())[:30]:
-        if not isinstance(raw_name, str) or not raw_name.strip():
-            return
-        binding = _legacy_binding(raw_name, value)
-        if binding is not None:
-            inputs[raw_name] = binding
-    proposal["inputs"] = inputs
+    # DeepSeek sometimes adds provider-facing decoration such as ``reviewed``
+    # or ``kind`` to the inner object. Dropping unknown inert metadata is safe;
+    # targets, bindings, receipts and warnings remain strictly validated below.
+    for key in tuple(proposal):
+        if key not in _PROCESSING_RUN_KEYS:
+            proposal.pop(key, None)
     proposal.pop("parameters", None)
     proposal.pop("temporary_output", None)
     proposal.setdefault("schema_version", 1)
@@ -156,9 +178,27 @@ def _reject_duplicate_keys(pairs):
 def _object(text: str) -> Optional[dict]:
     try:
         value = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+        return value if isinstance(value, dict) else None
+    except json.JSONDecodeError:
+        # A few DeepSeek structured responses concatenate a second JSON value
+        # after a complete terminal object. Recovery may safely consider only
+        # the first object when it is an inert proposal envelope; tool calls
+        # are never recovered from a concatenated response.
+        try:
+            decoder = json.JSONDecoder(object_pairs_hook=_reject_duplicate_keys)
+            value, end = decoder.raw_decode(text)
+        except (RecursionError, ValueError, TypeError):
+            return None
+        if (
+            not isinstance(value, dict)
+            or value.get("action") not in (ACTION_PROPOSAL, ACTION_FINAL)
+            or value.get("tool_calls") not in (None, [])
+            or not text[end:].strip()
+        ):
+            return None
+        return value
     except (RecursionError, ValueError, TypeError):
         return None
-    return value if isinstance(value, dict) else None
 
 
 def _receipt_target(kind: str, proposal: Mapping[str, Any]) -> Tuple[str, str]:

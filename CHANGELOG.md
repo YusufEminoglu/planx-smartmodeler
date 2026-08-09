@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.6] - 2026-08-09
+
+### Fixed
+
+- Recover `run_processing` and related Processing proposal aliases.
+- Drop inert provider decoration from legacy Processing proposals while keeping
+  strict typed-input, receipt, scope, and runtime validation.
+- Recover a terminal proposal when DeepSeek appends a second JSON value without
+  ever accepting appended tool calls.
+- Resolve safe human-readable Modeler enum labels against the live QGIS option
+  list, including the attribute-filter `equals` option.
+
 ## [1.5.5] - 2026-08-09
 
 ### Added

@@ -60,6 +60,8 @@ _PROPOSAL_KIND_ALIASES = {
     # inert processing_run proposal contract.
     "processing": PROPOSAL_KIND_PROCESSING_RUN,
     "run": PROPOSAL_KIND_PROCESSING_RUN,
+    "run_processing": PROPOSAL_KIND_PROCESSING_RUN,
+    "processing_run_proposal": PROPOSAL_KIND_PROCESSING_RUN,
     "style": PROPOSAL_KIND_LAYER_STYLE,
     "sql": PROPOSAL_KIND_SQL_RUN,
     "python": PROPOSAL_KIND_PYTHON_RUN,

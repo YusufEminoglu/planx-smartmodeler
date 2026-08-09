@@ -3,7 +3,7 @@ name=SmartModeler GIS
 qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=QGIS 3.44+ and QGIS 4 visual Processing studio with typed graphs, validated AI planning, smart proposals, and native model interchange.
-version=1.5.5
+version=1.5.6
 author=Yusuf Eminoglu
 email=yusuf.eminoglu@deu.edu.tr
 
@@ -23,6 +23,7 @@ hasProcessingProvider=yes
 license=GPL-3
 
 changelog=
+    1.5.6 - Recover additional DeepSeek proposal aliases, decorated legacy envelopes, concatenated terminal JSON, and human-readable Modeler enum labels.
     1.5.5 - Add a ten-case opt-in DeepSeek acceptance matrix covering Modeler and Agent Workflow Processing runs.
     1.5.4 - Recover DeepSeek's retired parameters/temporary_output Processing proposal shape into typed inputs without accepting destinations.
     1.5.3 - Normalize DeepSeek's run proposal alias to the reviewed Processing proposal contract.

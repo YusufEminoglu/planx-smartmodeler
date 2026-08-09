@@ -7,9 +7,11 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Tuple
 
+from qgis.core import QgsApplication
+
 from .algorithm_catalog import AlgorithmCatalog
 from .auto_layout import AutoLayoutEngine
-from .graph_model import GraphModel, GraphValidationError, NodeDefinition
+from .graph_model import GraphModel, GraphValidationError, NodeDefinition, SocketType
 
 
 class AiResponseError(ValueError):
@@ -30,6 +32,52 @@ class AiMcpBridge:
     MAX_EDGES = 240
     ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,63}$")
     LOCAL_PARAMETER_MARKER = "__SMARTMODELER_RETAIN_LOCAL_VALUE__"
+
+    @classmethod
+    def _normalize_live_enum_label(
+        cls, node: NodeDefinition, name: str, value: Any
+    ) -> Any:
+        """Convert a safe live enum label to its catalog index.
+
+        Workflow Studio's graph contract stores enum values as indices, while
+        providers often answer with the human-readable option (for example
+        ``equals``). Resolving that label against the installed algorithm's
+        live options is lossless and keeps the existing value allowlist intact.
+        Ambiguous or unknown labels are deliberately left unchanged so the
+        normal strict rejection remains in force.
+        """
+        port = node.inputs.get(name)
+        if port is None or port.socket_type != SocketType.ENUM or not isinstance(value, str):
+            return value
+        processing_registry = QgsApplication.processingRegistry()
+        algorithm = (
+            processing_registry.algorithmById(node.algorithm_id)
+            if processing_registry is not None
+            else None
+        )
+        if algorithm is None:
+            return value
+        definition = next(
+            (
+                item
+                for item in algorithm.parameterDefinitions()
+                if item.name() == name
+            ),
+            None,
+        )
+        if definition is None or not hasattr(definition, "options"):
+            return value
+        try:
+            options = list(definition.options())
+        except (AttributeError, TypeError, RuntimeError):
+            return value
+        wanted = re.sub(r"\s+", " ", value).strip().casefold()
+        matches = [
+            index
+            for index, option in enumerate(options)
+            if re.sub(r"\s+", " ", str(option)).strip().casefold() == wanted
+        ]
+        return matches[0] if len(matches) == 1 else value
 
     @classmethod
     def response_schema(cls) -> Dict[str, Any]:
@@ -495,6 +543,7 @@ class AiMcpBridge:
                         )
                     node.parameters[key] = baseline_node.parameters[key]
                     continue
+                value = cls._normalize_live_enum_label(node, key, value)
                 if not AlgorithmCatalog.ai_parameter_value_allowed(
                     node, key, value
                 ):

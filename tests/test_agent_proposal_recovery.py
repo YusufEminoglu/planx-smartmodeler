@@ -174,6 +174,53 @@ class PureRecoveryTests(unittest.TestCase):
         self.assertEqual(inputs["DISTANCE"].tag, "distance")
         self.assertNotIn("OUTPUT", inputs)
 
+    def test_legacy_processing_decorations_alias_and_enum_label_are_recovered(self) -> None:
+        legacy = {
+            "action": "proposal",
+            "assistant_text": "Run ready.",
+            "tool_calls": [],
+            "proposal_kind": "run_processing",
+            "proposal_json": json.dumps(
+                {
+                    "algorithm_id": "native:extractbyattribute",
+                    "parameters": {
+                        "INPUT": "layer_1",
+                        "FIELD": "category",
+                        "OPERATOR": "equals",
+                        "VALUE": "low",
+                    },
+                    "temporary_output": True,
+                    "reviewed": True,
+                    "kind": "processing_run",
+                }
+            ),
+        }
+        raw = json.dumps(legacy)
+        outcome = recover_agent_turn(
+            raw,
+            4,
+            {("processing_run", "native:extractbyattribute"): "trusted"},
+        )
+        self.assertIsNotNone(outcome.turn)
+        inputs = dict(outcome.turn.proposal.inputs)
+        self.assertEqual(inputs["FIELD"].tag, "field")
+        self.assertEqual(inputs["OPERATOR"].tag, "enum_string")
+        self.assertNotIn("reviewed", outcome.turn.proposal.to_dict())
+
+    def test_terminal_proposal_with_trailing_json_is_recovered_without_extra_authority(self) -> None:
+        proposal = _processing_proposal(token="trusted")
+        raw = _turn(PROPOSAL_KIND_PROCESSING_RUN, proposal)
+        trailing = raw + json.dumps(
+            {
+                "action": "tool_calls",
+                "tool_calls": [{"tool_name": "script.run"}],
+            }
+        )
+        outcome = recover_agent_turn(trailing, 4, {})
+        self.assertIsNotNone(outcome.turn)
+        self.assertEqual(outcome.turn.proposal.algorithm_id, "native:randomextract")
+        self.assertEqual(outcome.turn.tool_calls, ())
+
     def test_non_string_proposal_note_is_not_repaired(self) -> None:
         raw = json.loads(
             _turn(
