@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.45] - 2026-08-10
+
+### Fixed
+
+- Close the reference manual's two unbalanced tags: a duplicated `</ul>` that
+  ended the sidebar table of contents one level too early, and a stray `</div>`
+  before `</main>` at the end of the bibliography. Both predate this release
+  and browsers recovered from them silently, which is exactly why they
+  survived. The document now parses with no stray closing tag and nothing left
+  open, with all nine navigation groups, both appendix link sets and every
+  internal anchor intact.
+
 ## [1.5.44] - 2026-08-10
 
 ### A Manual button, and a manual worth opening
