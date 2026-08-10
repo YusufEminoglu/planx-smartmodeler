@@ -1836,7 +1836,14 @@ def _tool_plugin_capabilities(
     package_name = call.arguments.get("package_name")
     if not isinstance(package_name, str) or not package_name.strip():
         raise ToolExecutionError("package_name must be a non-empty string.")
-    limit = _clamp_limit(call.arguments.get("limit"))
+    # Default to the *algorithm* cap, not the generic 25-row list default.
+    # A capability listing is sorted by algorithm id, so a 25-row default did
+    # not sample a plugin -- it truncated it alphabetically. PlanX registers 69
+    # algorithms; the model saw the ones up to "F" and concluded, correctly for
+    # what it had been shown and wrongly in fact, that "network centrality"
+    # did not exist. Oversized listings are compacted rather than dropped now,
+    # so asking for all of them is affordable.
+    limit = _clamp_limit(call.arguments.get("limit"), default=MAX_ALGORITHMS)
     try:
         import qgis.utils as qgis_utils
     except ImportError as error:

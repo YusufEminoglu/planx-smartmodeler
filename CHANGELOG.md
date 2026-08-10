@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.5.49] - 2026-08-10
+
+### A plugin's algorithms were being cut off alphabetically
+
+The agent reported that PlanX has no "network centrality" algorithm. PlanX has
+one. It listed twenty-five tools ending at *Facility Adequacy* — every id from
+"A" to "F" and nothing after.
+
+`plugin.capabilities` fell back to the generic 25-row list default instead of
+its own algorithm cap, and the listing is **sorted by algorithm id**, so any cap
+below the true count does not sample a plugin — it removes a contiguous
+alphabetical tail. Anything named after roughly "F" was invisible, and "it is
+not in the list" read as "it does not exist".
+
+- The tool now defaults to the algorithm cap, and that cap is **120**, up from
+  60, so a 69-algorithm provider is listed whole. Oversized listings are
+  compacted rather than dropped (1.5.47), which is what makes this affordable.
+- Every listing reports **`algorithms_total`**, so a genuinely truncated one can
+  no longer be mistaken for a complete one.
+
+### Build workflow could not produce a workflow
+
+Workflow Studio's **Build workflow** reached the agent and then failed three
+different ways: `layer.describe` denied, "This proposal is not compatible with
+the selected scope", and "There is no current workflow to run". None was a
+planning mistake — the request never said which artefact to produce, so the
+model answered a task ("buffer the roads and dissolve") with a `processing_run`,
+which the Current model scope does not accept, and on an empty canvas reached
+for `model_run`.
+
+- The Studio's request now states its contract: return exactly one
+  `model_patch` that adds nodes and connections, resolve each algorithm's live
+  signature first, and do not bind input layers — a workflow names algorithms
+  and parameters, and layers are chosen later in Run setup.
+- The **Processing lookups are now always advertised in Current model scope**.
+  They had arrived only when the request happened to contain a verb the keyword
+  table knew, so a differently phrased request reached the provider with no way
+  to resolve the algorithms it needed.
+- A scope refusal now names what the scope *does* accept, so the bounded repair
+  turn has something to act on.
+
 ## [1.5.48] - 2026-08-10
 
 ### A dock that opens ready to work

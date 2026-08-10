@@ -1660,8 +1660,22 @@ class AgentRunLoop:
                 tool_events=tool_events,
             )
         if self._scope not in _PROPOSAL_SCOPES.get(kind, ()):
+            # Name what this scope *does* accept. The bare version left both the
+            # model and the user guessing: a correct Workflow Studio plan came
+            # back as a processing_run, was refused, and nothing in the refusal
+            # said that model_patch was the artefact being asked for.
+            allowed = sorted(
+                proposal_kind
+                for proposal_kind, scopes in _PROPOSAL_SCOPES.items()
+                if self._scope in scopes
+            )
             return self._fail(
-                "This proposal is not compatible with the selected scope.",
+                f"A {kind} proposal is not valid in the {self._scope} scope. "
+                + (
+                    f"This scope accepts: {', '.join(allowed)}."
+                    if allowed
+                    else "This scope accepts no proposals."
+                ),
                 ProposalReason.SCOPE_MISMATCH,
                 tool_events=tool_events,
             )

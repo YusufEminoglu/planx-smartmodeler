@@ -60,6 +60,24 @@ class ScopeFilterTests(unittest.TestCase):
         selected = select_tools_for_scope([PROJECT_TOOL, MODEL_TOOL], AgentScope.PROJECT)
         self.assertEqual([spec.name for spec in selected], ["project.summary"])
 
+    def test_current_model_scope_always_carries_the_processing_lookups(self) -> None:
+        # Building a graph means looking up algorithm signatures. These used to
+        # arrive only when the request happened to contain a verb the keyword
+        # table knew, so a Workflow Studio request phrased differently reached
+        # the provider with no way to resolve the algorithms it needed.
+        names = (
+            "model.summary", "model.describe", "model.validate",
+            "processing.resolve", "processing.search", "processing.describe",
+        )
+        tools = [make_tool(name, [AgentScope.CURRENT_MODEL]) for name in names]
+        selected = select_tools_for_request(
+            tools,
+            AgentScope.CURRENT_MODEL,
+            "built something mcda alike things",
+            power_enabled=False,
+        )
+        self.assertEqual({spec.name for spec in selected}, set(names))
+
     def test_request_routing_advertises_expression_tools_without_power_tools(self) -> None:
         names = (
             "project.summary", "layer.list", "layer.describe",

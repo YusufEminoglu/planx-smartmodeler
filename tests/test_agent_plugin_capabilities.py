@@ -88,6 +88,31 @@ class ConfirmedMappingTests(unittest.TestCase):
         self.assertEqual(len(result["algorithms"]), 5)
         self.assertTrue(result["algorithms_truncated"])
 
+    def test_a_real_sized_provider_is_listed_whole(self):
+        # PlanX registers 69 algorithms and the listing is sorted by id, so any
+        # cap below the true count hides a contiguous alphabetical tail rather
+        # than thinning the list. With a 25-row default the agent saw ids up to
+        # "F" and reported that "network centrality" did not exist.
+        many = provider("planx", "PlanX", "planx", [
+            (f"planx:alg{i:03d}", f"Alg {i}", "Group") for i in range(69)
+        ])
+        plugin = PluginView("planx", declares_processing_provider=True)
+        result = build_capabilities(plugin, [many])
+        self.assertEqual(len(result["algorithms"]), 69)
+        self.assertFalse(result["algorithms_truncated"])
+        self.assertEqual(result["algorithms_total"], 69)
+
+    def test_a_truncated_listing_reports_how_many_exist(self):
+        # Without the total, a truncated listing looks complete and "it is not
+        # in the list" reads as "it does not exist".
+        many = provider("big", "Big", "big_plugin", [
+            (f"big:alg{i:03d}", f"Alg {i}", "Group") for i in range(80)
+        ])
+        plugin = PluginView("big_plugin", declares_processing_provider=True)
+        result = build_capabilities(plugin, [many], limit=5)
+        self.assertTrue(result["algorithms_truncated"])
+        self.assertEqual(result["algorithms_total"], 80)
+
     def test_confirmed_plugin_requires_per_algorithm_safe_run_check(self):
         plugin = PluginView("planx_suitability_lab", declares_processing_provider=True)
         result = build_capabilities(plugin, [SUITABILITY])

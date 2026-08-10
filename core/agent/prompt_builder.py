@@ -216,7 +216,20 @@ def select_tools_for_request(
             ("project.summary", "layer.list", "layer.describe", "layer.field_values")
         )
     if scope == "current_model":
-        wanted.update(("model.summary", "model.describe", "model.validate"))
+        # Building a graph means looking up algorithm signatures, so the
+        # Processing lookups belong to this scope unconditionally rather than
+        # arriving by accident when the request happens to contain a verb the
+        # keyword table knows.
+        wanted.update(
+            (
+                "model.summary",
+                "model.describe",
+                "model.validate",
+                "processing.search",
+                "processing.resolve",
+                "processing.describe",
+            )
+        )
     if scope == "plugins":
         wanted.update(("plugin.list", "plugin.describe", "plugin.capabilities"))
     if scope == "workspace":

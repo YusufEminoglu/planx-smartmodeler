@@ -39,7 +39,11 @@ CONFIDENCE_CANDIDATE = "candidate"
 CONFIDENCE_NONE = "none"
 
 MAX_PROVIDERS = 10
-MAX_ALGORITHMS = 60
+# Raised from 60: real providers are larger than that (PlanX registers 69), and
+# the listing is sorted by id, so any cap below the true count hides a
+# contiguous alphabetical tail rather than thinning the list. A compacted
+# listing of ~120 ids still fits the per-result prompt budget.
+MAX_ALGORITHMS = 120
 MAX_PROVIDER_TEXT = 128
 
 # Guidance is chosen from this fixed, application-owned table and is never
@@ -175,7 +179,7 @@ def build_capabilities(
 
     confirmed = [p for p in providers if p.owning_package and p.owning_package == plugin.package_name]
     if confirmed:
-        rows, truncated = _collect_algorithms(confirmed, limit, algorithm_allowed)
+        rows, truncated, total = _collect_algorithms(confirmed, limit, algorithm_allowed)
         return _report(
             package_name=plugin.package_name,
             plugin=plugin,
@@ -184,6 +188,7 @@ def build_capabilities(
             providers=[_bounded_provider(p, True) for p in confirmed[:MAX_PROVIDERS]],
             algorithms=rows,
             truncated=truncated,
+            total=total,
         )
 
     # Nothing proved. A resemblance may be reported, but only as a candidate and
@@ -236,7 +241,7 @@ def _collect_algorithms(
     rows.sort(key=lambda row: row["algorithm_id"])
     bounded = max(1, min(int(limit), MAX_ALGORITHMS))
     truncated = len(rows) > bounded
-    return rows[:bounded], truncated
+    return rows[:bounded], truncated, len(rows)
 
 
 def _report(
@@ -248,6 +253,7 @@ def _report(
     providers: List[Dict[str, Any]],
     algorithms: List[Dict[str, str]],
     truncated: bool,
+    total: Optional[int] = None,
 ) -> Dict[str, Any]:
     return {
         "available": plugin is not None,
@@ -268,6 +274,10 @@ def _report(
         "providers": providers,
         "algorithms": algorithms,
         "algorithms_truncated": bool(truncated),
+        # How many the provider actually registers. Without it a truncated
+        # listing looks complete, and "it is not in the list" reads as "it does
+        # not exist" -- which is exactly the wrong conclusion the agent drew.
+        "algorithms_total": int(total if total is not None else len(algorithms)),
         # This field refers to invoking/driving the plugin itself. Individual
         # Processing algorithms are evaluated later by processing.describe.
         "agent_executable": False,

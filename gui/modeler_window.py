@@ -535,16 +535,36 @@ class SmartModelerWindow(QMainWindow):
         store = AiSettingsStore()
         profile = store.active_profile()
         if profile.provider_id != "offline" and self._agent_request is not None:
+            # Name the required output explicitly. Phrased only as a task
+            # ("buffer the roads layer and dissolve overlaps") the model
+            # answered with a processing_run, which is not legal in
+            # CURRENT_MODEL scope, so a correct plan died on "This proposal is
+            # not compatible with the selected scope" -- and on an empty canvas
+            # it reached for model_run and died on "There is no current
+            # workflow to run". Neither was a planning mistake; the request
+            # never said which artefact to produce.
+            contract = (
+                "\n\nBuild this as a Workflow Studio graph. Return exactly one "
+                "model_patch proposal that adds the Processing nodes and the "
+                "connections between them. Do not return a processing_run or a "
+                "model_run: this scope accepts neither, and nothing is executed "
+                "here. Resolve each algorithm's live signature with "
+                "processing.resolve before adding its node. Do not bind input "
+                "layers -- a workflow names algorithms and parameters, and the "
+                "user chooses layers later in Run setup."
+            )
             request = (
                 "Improve the currently open workflow according to this request. "
                 "Preserve all unrelated nodes, parameters, and connections:\n\n"
                 + prompt_text
+                + contract
                 if mode == "improve"
                 else
                 "Replace the currently open workflow with a new workflow for "
                 "this request. Remove existing nodes and connections that are "
                 "not part of the requested result:\n\n"
                 + prompt_text
+                + contract
             )
             if self._agent_request(request):
                 self.status_label.setText(
