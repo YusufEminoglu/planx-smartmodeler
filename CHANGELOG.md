@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.5.44] - 2026-08-10
+
+### A Manual button, and a manual worth opening
+
+- **New `Manual` button** in the Agent Workspace button row, next to `New chat`.
+  Most of what makes the agent succeed — naming a layer exactly, one operation
+  per message, why a measure needs a metric CRS — takes five minutes to learn
+  and is invisible from the chat box.
+- **New reference-manual chapter, "Using the Agent in Practice"**, written from
+  real sessions including the ones that went badly:
+  - *A worked session, start to finish* — the exact seven messages that take
+    you from an empty project to classified buildings, and why each is phrased
+    the way it is.
+  - *Writing requests the agent can act on* — a before/after table of phrasings,
+    and how to steer the agent when it goes wrong (correct the fact, not the
+    behaviour; paste the layer id; ask about the data before asking for a redo).
+  - *Ways of working* — when to use Ask vs Plan vs Act, which scope, when to
+    reach for Workflow Studio instead, and what the action budget is for.
+  - *What the messages mean* — every refusal the plugin can produce, what
+    actually happened, and the action that resolves it. Most refusals are the
+    plugin stopping a run that would have succeeded and given a wrong answer,
+    and the manual now says so.
+- **Corrected stale documentation.** The tool catalogue listed eighteen tools
+  under names that do not exist in the registry (`project_info`, `list_layers`,
+  `layer_fields`, …) and included four Processing algorithms as if they were
+  tools. Both the chapter table and Appendix B now list the real twenty-five,
+  grouped, with their live scopes and conditions. The manual's version stamp
+  tracked v1.2.0.
+
 ## [1.5.43] - 2026-08-10
 
 ### Five dead ends from an owner session, none of them a GIS mistake

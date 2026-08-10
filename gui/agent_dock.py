@@ -16,7 +16,8 @@ import time
 import uuid
 from typing import Any, Optional, Sequence
 
-from qgis.PyQt.QtCore import QEvent, Qt, QTimer
+from qgis.PyQt.QtCore import QEvent, Qt, QTimer, QUrl
+from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -67,6 +68,11 @@ from .theme import STUDIO_STYLE
 # (applied / completed / canceled / failed / undone) before the human must
 # consciously decide to keep going. The cap bounds how far one conversation can
 # drive the project without a deliberate human decision.
+REFERENCE_MANUAL_URL = (
+    "https://yusufeminoglu.github.io/planx-smartmodeler/"
+    "SMARTMODELER_REFERENCE_MANUAL.html"
+)
+
 MAX_SESSION_ACTIONS = 10
 # How many times that decision may be made in one chat. The cap used to be
 # renewable only by New chat, which also discards the conversation: an owner
@@ -541,6 +547,18 @@ class AgentWorkspaceDock(QDockWidget):
         self.new_chat_button = QPushButton("New chat")
         self.new_chat_button.clicked.connect(self._on_new_chat_clicked)
         button_row.addWidget(self.new_chat_button)
+        button_row.addStretch(1)
+        # Most of what makes the agent succeed -- naming a layer exactly, one
+        # operation per message, why a measure needs a metric CRS -- is
+        # learnable in five minutes and invisible from the chat box. Put the
+        # manual one click from where the questions actually occur.
+        self.manual_button = QPushButton("Manual")
+        self.manual_button.setToolTip(
+            "Open the online reference manual: worked examples, how to phrase "
+            "requests, and what each error message means."
+        )
+        self.manual_button.clicked.connect(self._on_manual_clicked)
+        button_row.addWidget(self.manual_button)
         layout.addLayout(button_row)
 
         # Narrow/short dock behaviour (§9.2): the panel has a natural minimum
@@ -655,6 +673,7 @@ class AgentWorkspaceDock(QDockWidget):
             (self.send_button, "Send the message"),
             (self.stop_button, "Stop the current turn"),
             (self.new_chat_button, "Start a new chat"),
+            (self.manual_button, "Open the online reference manual"),
         )
         for widget, name in names:
             widget.setAccessibleName(name)
@@ -904,6 +923,10 @@ class AgentWorkspaceDock(QDockWidget):
         self._append_line("Run cancelled.")
         self._set_controls_active(False)
         self.status_label.setText("Ready.")
+
+    def _on_manual_clicked(self) -> None:
+        """Open the online reference manual in the user's browser."""
+        QDesktopServices.openUrl(QUrl(REFERENCE_MANUAL_URL))
 
     def _on_new_chat_clicked(self) -> None:
         if self.run_loop.is_active():

@@ -91,7 +91,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 </head>
 <body>
 <nav id="sidebar">
-<div id="sidebar-header"><div class="logo">SmartModeler GIS</div><div class="subtitle">Reference Manual · v1.2.0</div></div>
+<div id="sidebar-header"><div class="logo">SmartModeler GIS</div><div class="subtitle">Reference Manual · v1.5.43</div></div>
 <div id="search-wrap"><input type="text" id="search" placeholder="Search…" autocomplete="off"></div>
 <ul id="toc">
 <li class="toc-group"><button class="toc-group-btn" aria-expanded="true" style="border-left:3px solid var(--accent)"><span class="arrow">▼</span> Architecture &amp; Design</button>
@@ -113,10 +113,17 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <ul class="toc-algs">
 <li><a href="#agent-arch" data-name="agent" data-display="agent workspace architecture">Agent Workspace Architecture</a></li>
 <li><a href="#agent-protocol" data-name="protocol" data-display="protocol structured envelope">Provider-Neutral Structured Protocol</a></li>
-<li><a href="#agent-tools" data-name="tools" data-display="eighteen read only tools">18 Read-Only Inspection Tools</a></li>
+<li><a href="#agent-tools" data-name="tools" data-display="twenty five read only inspection tools">25 Read-Only Inspection Tools</a></li>
 <li><a href="#agent-modes" data-name="modes" data-display="plan mode act mode">Plan Mode vs Act Mode</a></li>
 <li><a href="#agent-proposals" data-name="agent-proposals" data-display="validated proposal types">Eight Validated Proposal Types</a></li>
 <li><a href="#agent-ledger" data-name="ledger" data-display="action ledger undo">Action Ledger &amp; Undo</a></li>
+</ul></li>
+<li class="toc-group"><button class="toc-group-btn" aria-expanded="true" style="border-left:3px solid var(--accent)"><span class="arrow">▼</span> Using the Agent</button>
+<ul class="toc-algs">
+<li><a href="#usage-walkthrough" data-name="walkthrough" data-display="worked example tutorial first session getting started">A Worked Session, Start to Finish</a></li>
+<li><a href="#usage-prompting" data-name="prompting" data-display="prompting how to phrase requests steering ai wording">Writing Requests the Agent Can Act On</a></li>
+<li><a href="#usage-patterns" data-name="usage-patterns" data-display="ways of working ask plan act scope modes budget">Ways of Working</a></li>
+<li><a href="#usage-troubleshooting" data-name="troubleshooting" data-display="troubleshooting errors messages problems fixes solutions">What the Messages Mean</a></li>
 </ul></li>
 <li class="toc-group"><button class="toc-group-btn" aria-expanded="true"><span class="arrow">▼</span> Document System</button>
 <ul class="toc-algs">
@@ -156,7 +163,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <div class="hero">
 <h1>SmartModeler GIS</h1>
 <div class="tagline">QGIS 4 Visual Processing Studio with Validated AI Planning — Academic Reference Manual</div>
-<div class="meta">v1.2.0 · Yusuf Emino&#287;lu · Dokuz Eyl&uuml;l University · August 2026 · <a href="https://github.com/YusufEminoglu/planx-smartmodeler">GitHub</a></div>
+<div class="meta">v1.5.43 · Yusuf Emino&#287;lu · Dokuz Eyl&uuml;l University · August 2026 · <a href="https://github.com/YusufEminoglu/planx-smartmodeler">GitHub</a></div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════ -->
@@ -178,7 +185,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <h3 id="dual-surface">Dual-Surface Architecture</h3>
 <table><tr><th>Surface</th><th>UI</th><th>Purpose</th></tr>
 <tr><td><b>Workflow Studio</b></td><td>Full-window canvas (<code>SmartModelerWindow</code>)</td><td>Visual graph editing: drag nodes from the algorithm palette, wire ports, configure parameters, run workflows. The primary design surface.</td></tr>
-<tr><td><b>Agent Workspace</b></td><td>Dockable panel (<code>AgentWorkspaceDock</code>)</td><td>Multi-turn AI conversation with 18 read-only inspection tools. Generates validated proposals that the user reviews and approves. Integrated with Workflow Studio: proposals can patch the live graph or run Processing algorithms.</td></tr>
+<tr><td><b>Agent Workspace</b></td><td>Dockable panel (<code>AgentWorkspaceDock</code>)</td><td>Multi-turn AI conversation with 25 read-only inspection tools. Generates validated proposals that the user reviews and approves. Integrated with Workflow Studio: proposals can patch the live graph or run Processing algorithms.</td></tr>
 </table>
 <p>Both surfaces share one execution slot — they cannot run or apply competing changes concurrently. The Agent Workspace reads the Workflow Studio's current graph through a read-only adapter; proposals are applied through a single trusted seam that validates the graph before installation.</p>
 
@@ -187,7 +194,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <table><tr><th>Layer</th><th>Mechanism</th></tr>
 <tr><td><b>1. Transport</b></td><td>Raw provider response capped at 100,000 characters. Rejected before JSON parsing if oversized.</td></tr>
 <tr><td><b>2. Envelope</b></td><td>Strict 5-key JSON schema. Ambiguous aliases, prose, or JSON substrings extracted from prose are rejected by the local parser.</td></tr>
-<tr><td><b>3. Tool validation</b></td><td>Every tool call is validated against a registry of exactly 18 read-only tools. Tool names must match a narrow regex. Argument shapes are structurally validated.</td></tr>
+<tr><td><b>3. Tool validation</b></td><td>Every tool call is validated against a registry of exactly 25 read-only tools. Tool names must match a narrow regex. Argument shapes are structurally validated.</td></tr>
 <tr><td><b>4. Proposal validation</b></td><td>Eight proposal kinds, each with strict local validation. Model patches are validated against a detached graph clone. Style proposals are validated against the live layer's fields.</td></tr>
 <tr><td><b>5. Runtime policy</b></td><td>At Apply or Run time, the live state is re-checked. Processing runs are signature-pinned; only reviewed algorithms whose live signature passes the structural policy can execute. Results go to temporary layers only — no user-selected file, folder, or database destination.</td></tr>
 <tr><td><b>6. Power Mode gate</b></td><td>SQL, trusted scripts, and PyQGIS are opt-in only (off by default). Database writes and live Python require a second explicit confirmation.</td></tr>
@@ -299,7 +306,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <h2 id="agent-arch">Agent Workspace</h2>
 
 <h3>Agent Workspace Architecture</h3>
-<p>The Agent Workspace (<code>gui/agent_dock.py</code>) is a dockable multi-turn AI chat panel. It operates through a <b>capability-routed registry</b> of 18 read-only inspection tools. Every provider turn is parsed as a strict structured envelope; mode, scope, and tool execution stay under application control.</p>
+<p>The Agent Workspace (<code>gui/agent_dock.py</code>) is a dockable multi-turn AI chat panel. It operates through a <b>capability-routed registry</b> of 25 read-only inspection tools. Every provider turn is parsed as a strict structured envelope; mode, scope, and tool execution stay under application control.</p>
 <p>The workspace connects through <code>core/ai_client.py</code> and <code>core/ai_settings.py</code> — a provider-neutral AI client supporting OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible, and Azure OpenAI backends. API keys are stored in session memory or the optional encrypted QGIS vault. The <code>offline</code> profile keeps quick inspections working without any language model.</p>
 
 <h3 id="agent-protocol">Provider-Neutral Structured Protocol</h3>
@@ -313,27 +320,35 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 }</pre>
 <p>The <b>local parser</b> accepts a narrow set of authority-neutral tool-call field aliases used by real providers, normalizes them to the canonical contract, then performs the same local tool/argument validation. Ambiguous aliases, unknown fields, malformed shapes, prose, or JSON substrings extracted from prose are <b>rejected</b>. A <code>fence: true</code> response is a valid empty turn — the provider declined to answer.</p>
 
-<h3 id="agent-tools">18 Read-Only Inspection Tools</h3>
-<p>No source URI, style/label expression, baseline model parameter value, or credential is ever sent. Attribute values reach the model through <b>one</b> tool, <code>layer.field_values</code>, and only for a single explicitly named field: aggregate statistics plus a capped value sample, never a feature and never a row. That single exception exists because an agent that cannot see a value cannot distinguish a filter that correctly matched nothing from one that measured the wrong quantity &mdash; and it filled the gap by inventing an answer. Every other tool below remains metadata-only. Each tool reads one aspect of the QGIS environment:</p>
-<table><tr><th>#</th><th>Tool</th><th>What It Reads</th></tr>
-<tr><td>1</td><td><code>project_info</code></td><td>Project title, CRS, layer count, home path</td></tr>
-<tr><td>2</td><td><code>list_layers</code></td><td>Layer names, types, feature counts, geometry types, field counts</td></tr>
-<tr><td>3</td><td><code>layer_fields</code></td><td>Field names, types for one named layer</td></tr>
-<tr><td>4</td><td><code>layer_extent</code></td><td>Bounding box of one named layer</td></tr>
-<tr><td>5</td><td><code>layer_crs</code></td><td>CRS authority and code for one layer</td></tr>
-<tr><td>6</td><td><code>layer_style</code></td><td>Current symbology type, renderer category, labels enabled</td></tr>
-<tr><td>7</td><td><code>list_algorithms</code></td><td>Provider + algorithm IDs from the Processing registry</td></tr>
-<tr><td>8</td><td><code>algorithm_help</code></td><td>Short help string for one algorithm</td></tr>
-<tr><td>9</td><td><code>algorithm_params</code></td><td>Parameter names, types, and defaults for one algorithm</td></tr>
-<tr><td>10</td><td><code>current_model</code></td><td>Node IDs, algorithm IDs, and socket-level graph structure</td></tr>
-<tr><td>11</td><td><code>model_node_params</code></td><td>Parameters for one node in the current model</td></tr>
-<tr><td>12</td><td><code>expression_help</code></td><td>QGIS expression function list and syntax check for a formula</td></tr>
-<tr><td>13</td><td><code>list_plugins</code></td><td>Installed plugin names and their Processing providers</td></tr>
-<tr><td>14</td><td><code>plugin_capabilities</code></td><td>What one installed plugin can be used for (algorithms, UI-only status)</td></tr>
-<tr><td>15</td><td><code>osm_query</code></td><td>Bounded OSM acquisition: roads, buildings, trees within a bounding box</td></tr>
-<tr><td>16</td><td><code>filter_layer</code></td><td>Active-layer attribute filter (deterministic FID-based, reviewed temp-layer run)</td></tr>
-<tr><td>17</td><td><code>field_calculator</code></td><td>QGIS field calculator with live <code>QgsExpression</code> parser validation</td></tr>
-<tr><td>18</td><td><code>random_extract</code></td><td>Random feature subset extraction</td></tr>
+<h3 id="agent-tools">25 Read-Only Inspection Tools</h3>
+<p>No source URI, style/label expression, baseline model parameter value, or credential is ever sent. Attribute values reach the model through <b>one</b> tool, <code>layer.field_values</code>, and only for a single explicitly named field: aggregate statistics plus a capped value sample, never a feature and never a row. That single exception exists because an agent that cannot see a value cannot distinguish a filter that correctly matched nothing from one that measured the wrong quantity &mdash; and it filled the gap by inventing an answer. Every other tool below remains metadata-only.</p>
+<p>Tools are <b>capability-routed</b>: only the ones relevant to the current scope and request are advertised on a given turn, so a styling question never carries the database schemas. Power Mode and Workspace tools are absent entirely unless that mode is switched on.</p>
+<table><tr><th>Group</th><th>Tool</th><th>What It Reads</th></tr>
+<tr><td>Project &amp; layers</td><td><code>project.summary</code></td><td>Project title, CRS and layer count. Never the saved project path.</td></tr>
+<tr><td></td><td><code>layer.list</code></td><td>Every layer's id, bounded name, kind, geometry type, CRS, visibility, provider key, an exact active-layer marker, and whether its CRS can measure area truthfully.</td></tr>
+<tr><td></td><td><code>layer.describe</code></td><td>Field names, broad field types and feature count for one layer. Resolves an exact unique layer name as well as an id.</td></tr>
+<tr><td></td><td><code>layer.field_values</code></td><td>The one tool that returns attribute values: minimum, maximum, mean, median, null count, distinct count and a capped sample for <b>one named field</b>. Ordering statistics appear only when every value is numeric.</td></tr>
+<tr><td></td><td><code>layer.suggest_crs</code></td><td>Metric CRS candidates whose declared area of use actually contains the layer: its UTM zone, the project CRS, CRSs used by other layers, and recently used ones.</td></tr>
+<tr><td></td><td><code>layer.style</code></td><td>Current renderer family, symbol summary and label state, plus a freshness receipt for a styling proposal.</td></tr>
+<tr><td>Processing</td><td><code>processing.search</code></td><td>Ranked, bounded search of the live Processing registry; runnable matches first.</td></tr>
+<tr><td></td><td><code>processing.describe</code></td><td>One algorithm's live typed signature: every parameter, its kind, bounds, live enum options, and how a proposal may bind it.</td></tr>
+<tr><td></td><td><code>processing.resolve</code></td><td>Search and describe in one call, returning the freshness receipt a run proposal needs.</td></tr>
+<tr><td></td><td><code>expression.search</code></td><td>Live QGIS built-in expression help for a named function.</td></tr>
+<tr><td>Workflow Studio</td><td><code>model.summary</code></td><td>The open graph's node list and edge count.</td></tr>
+<tr><td></td><td><code>model.describe</code></td><td>Node-and-edge topology of the open graph, with a receipt for a model patch.</td></tr>
+<tr><td></td><td><code>model.validate</code></td><td>Validation issues for the open graph.</td></tr>
+<tr><td>Plugins</td><td><code>plugin.list</code></td><td>Installed plugin package names.</td></tr>
+<tr><td></td><td><code>plugin.describe</code></td><td>One installed plugin's metadata.</td></tr>
+<tr><td></td><td><code>plugin.capabilities</code></td><td>What one installed plugin can actually be used for: its provider, runnable algorithms, and reviewed actions.</td></tr>
+<tr><td>Power Mode 🔒</td><td><code>database.list</code></td><td>Configured database connections, by opaque token. Power Mode only.</td></tr>
+<tr><td></td><td><code>database.describe</code></td><td>Schemas, tables and column metadata for one connection. Power Mode only.</td></tr>
+<tr><td></td><td><code>script.list</code></td><td>Imported trusted scripts and their pinned hashes. Power Mode only.</td></tr>
+<tr><td></td><td><code>script.describe</code></td><td>One trusted script's full source for review. Power Mode only.</td></tr>
+<tr><td>Workspace (Developer)</td><td><code>workspace.list</code></td><td>Plugin source files inside the bounded workspace root.</td></tr>
+<tr><td></td><td><code>workspace.read</code></td><td>One workspace file's contents.</td></tr>
+<tr><td></td><td><code>workspace.inspect</code></td><td>Workspace state for diagnostics.</td></tr>
+<tr><td></td><td><code>workspace.search</code></td><td>Search across workspace source.</td></tr>
+<tr><td></td><td><code>workspace.command</code></td><td>One reviewed, safe diagnostic command.</td></tr>
 </table>
 
 <h3 id="agent-modes">Plan Mode vs Act Mode</h3>
@@ -358,6 +373,97 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 
 <h3 id="agent-ledger">Action Ledger &amp; Undo</h3>
 <p>Every applied agent action is recorded in a bounded in-session <b>action ledger</b> (<code>core/agent/action_ledger.py</code>). The <b>Undo last agent action</b> command reverts the most recent model, style, or run change — but only while the live target still matches the action's recorded post-state, so it never overwrites a later user edit. The ledger is capped at 10 actions per session; old entries are pruned.</p>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<h2 id="usage">Using the Agent in Practice</h2>
+
+<p>Everything above describes how the plugin is built. This chapter is about getting good results out of it. It is written from real sessions, including the ones that went badly &mdash; most of the guidance below exists because something failed first.</p>
+
+<div class="card accent"><b>The single most useful habit:</b> one operation per message, naming the layer exactly as it appears in the Layers panel. Almost every long, frustrating session in testing came from a message that asked for three things at once, or that said &ldquo;this layer&rdquo; when four similar temporary layers were open.</div>
+
+<h3 id="usage-walkthrough">A worked session, start to finish</h3>
+
+<p>The task: download buildings for the current map view, measure them, keep the small ones, and classify them. This is the sequence that works, and the reason each step is phrased the way it is.</p>
+
+<p>Set <b>Mode: Act</b> and <b>Scope: Project</b> before starting. Act is what produces approval cards; Plan will only ever show you a preview.</p>
+
+<table>
+<tr><th>#</th><th>What you type</th><th>What happens, and why it is phrased this way</th></tr>
+<tr><td>1</td><td>download the buildings in the map extent with the zero2agent plugin</td><td>Naming the plugin removes a guess. The agent checks <code>plugin.capabilities</code>, resolves the download algorithm and proposes one run. You get point, line and polygon layers &mdash; two of them usually empty, which the chat now says out loud.</td></tr>
+<tr><td>2</td><td>reproject <i>Download curated OSM thematic preset - OUTPUT_POLYGONS</i> to the local metric CRS</td><td>OSM arrives in EPSG:3857. <b>Do this before measuring anything.</b> The agent calls <code>layer.suggest_crs</code> and picks a real UTM zone or national grid; you no longer have to know the code yourself.</td></tr>
+<tr><td>3</td><td>add an area column called alan_m2 to the reprojected layer</td><td>Giving the column a name means you can refer to it later without ambiguity. On a metric layer this is accepted; on the original 3857 layer it is refused with an explanation.</td></tr>
+<tr><td>4</td><td>what are the minimum and maximum of alan_m2?</td><td>Switch to <b>Ask</b> for this &mdash; it costs no action budget. This is the step that tells you whether your threshold is sensible <i>before</i> you filter with it.</td></tr>
+<tr><td>5</td><td>make a new layer with only the buildings where alan_m2 is 300 or less</td><td>&ldquo;New layer&rdquo; is the important part: it selects extraction rather than an in-place selection. A threshold phrased with the field name and a number is understood directly.</td></tr>
+<tr><td>6</td><td>classify that layer by alan_m2 with jenks into 5 classes</td><td>An Apply card, not a Run card &mdash; styling is applied, not executed. You may leave the colours to the plugin or say &ldquo;use a red to yellow ramp&rdquo;.</td></tr>
+<tr><td>7</td><td>apply a -2 metre buffer to it</td><td>Negative buffers shrink polygons and are supported. Say &ldquo;metre&rdquo; so the number is read as a distance.</td></tr>
+</table>
+
+<p>Steps 5&ndash;7 can be combined into one message if <b>Continue multi-step requests</b> is ticked; a single message carries at most four automatic steps. Each step still stops at its own approval card.</p>
+
+<h3 id="usage-prompting">Writing requests the agent can act on</h3>
+
+<p>The agent is not guessing at your intent from a blank slate &mdash; it inspects the live project first. What it cannot do is resolve an ambiguity that only you can settle. These are the patterns that consistently work.</p>
+
+<table>
+<tr><th>Instead of</th><th>Write</th><th>Why</th></tr>
+<tr><td>filter this layer</td><td>make a new layer from <i>Buildings UTM</i> where <code>alan_m2</code> is under 300</td><td>Names the layer, the field, the comparison and the output shape. &ldquo;This layer&rdquo; is ambiguous the moment a run has produced a second one.</td></tr>
+<tr><td>calculate the area</td><td>add a decimal column <code>alan_m2</code> with the area in square metres</td><td>Names the column and its type, so a later step can refer to it.</td></tr>
+<tr><td>reproject to a suitable CRS</td><td>reproject to the local metric CRS</td><td>Both work now, but the second phrasing routes straight to the CRS suggestion tool instead of inviting an invented code.</td></tr>
+<tr><td>style it nicely</td><td>classify by <code>alan_m2</code>, quantile, 5 classes, blue ramp</td><td>Method, field, class count and colour are four independent choices. Unstated ones are chosen for you, which may not be what you wanted.</td></tr>
+<tr><td>do the whole analysis</td><td>one step per message</td><td>A rejected proposal in the middle of a five-step request costs the whole request. One step at a time fails cheaply.</td></tr>
+</table>
+
+<h4>Steering the agent when it goes wrong</h4>
+<ul>
+<li><b>Correct the fact, not the behaviour.</b> &ldquo;The field is <code>alan_m2</code>, not <code>alanm2</code>&rdquo; works. &ldquo;Do it properly&rdquo; does not &mdash; the agent has no way to tell what changed.</li>
+<li><b>Paste the layer id when a layer cannot be found.</b> Click <b>Layers</b> in the quick-inspection row, copy the exact <code>layer_id</code>, and give it. This resolves any ambiguity in one turn.</li>
+<li><b>If a result looks wrong, ask about the data before asking for a redo.</b> &ldquo;What is the minimum of <code>alan_m2</code>?&rdquo; usually reveals the real problem &mdash; an empty result after a correct filter is a fact about your data, not a bug.</li>
+<li><b>Say what you already know.</b> &ldquo;The layer is already in UTM&rdquo; or &ldquo;the field is text, convert it first&rdquo; saves an inspection turn and often an entire failed proposal.</li>
+<li><b>Do not ask it to approve its own work.</b> &ldquo;Just do it, do not ask me&rdquo; cannot be honoured: Apply and Run belong to you by design, and no phrasing changes that.</li>
+<li><b>Start a new chat when you change task.</b> Session memory is what lets &ldquo;now style the result&rdquo; work; it also means a long unrelated history is still in play.</li>
+</ul>
+
+<h3 id="usage-patterns">Ways of working</h3>
+
+<table>
+<tr><th>Situation</th><th>Use</th></tr>
+<tr><td>You want to understand the project, a field's range, or what an algorithm does</td><td><b>Ask</b> mode. Costs no action budget and changes nothing.</td></tr>
+<tr><td>You want to see what would happen without any possibility of it happening</td><td><b>Plan</b> mode. Proposals render as review-only.</td></tr>
+<tr><td>You want the work done, one approved step at a time</td><td><b>Act</b> mode.</td></tr>
+<tr><td>The request concerns one layer you have selected</td><td>Scope <b>Active layer</b>. The agent stops asking which layer you mean.</td></tr>
+<tr><td>The request spans several layers</td><td>Scope <b>Project</b>.</td></tr>
+<tr><td>You want a reusable, inspectable pipeline rather than a one-off result</td><td><b>Workflow Studio</b>. Build it there, save as <code>.model3</code>, re-run it on new data.</td></tr>
+<tr><td>You need SQL, PyQGIS, or a trusted script</td><td><b>Power Mode</b>, which is off by default and adds its own confirmations.</td></tr>
+</table>
+
+<p><b>On the action budget.</b> A chat may complete ten actions, after which it asks whether to allow another ten &mdash; twice at most. This is deliberate: it is the point at which a person should look at what has accumulated. Say yes and the conversation, its layers and its notes are all preserved.</p>
+
+<p><b>On temporary layers.</b> Every run produces a temporary memory layer. They vanish when QGIS closes. When a result matters, right-click it and <b>Make permanent</b> before you move on.</p>
+
+<h3 id="usage-troubleshooting">What the messages mean, and what to do</h3>
+
+<p>These are the exact messages the plugin produces, why each one exists, and the action that resolves it. A refusal here is almost always the plugin stopping a run that would have <i>succeeded and given you a wrong answer</i>.</p>
+
+<table>
+<tr><th>Message</th><th>What actually happened</th><th>What to do</th></tr>
+<tr><td>A geometry measure ($area/$length) was requested on &hellip; whose CRS does not measure in true metres</td><td>The layer is in a geographic CRS (degrees) or Web Mercator, where area is inflated by 1/cos²(latitude) &mdash; 1.76&times; at 41° north. A genuinely 324&nbsp;m² building measures 569&nbsp;m² there.</td><td>Reproject first: &ldquo;reproject to the local metric CRS&rdquo;. This is the single most consequential refusal in the plugin.</td></tr>
+<tr><td>&hellip; is text, so QGIS would compare it letter by letter</td><td>An ordering comparison against a text field. QGIS runs this happily and returns nonsense: <code>'1097' &lt; '400'</code> is true, <code>'568' &lt; '400'</code> is false.</td><td>Ask for the value in a <b>new</b> numeric column, then filter on that.</td></tr>
+<tr><td>&hellip; already exists as 'String' &hellip; write to a NEW field name instead</td><td>Recalculating a field never changes its type. QGIS ignores the requested type, reports success, and changes nothing.</td><td>Choose a different column name for the converted values.</td></tr>
+<tr><td>WARNING: &hellip; contains no features. The operation ran; it matched nothing.</td><td>Not an error. The run worked and the result is empty.</td><td>Ask for the field's minimum and maximum. Either your threshold is outside the data, or something upstream measured the wrong quantity.</td></tr>
+<tr><td>No layer with that id or name. Call layer.list and copy an exact layer_id.</td><td>The name given matches nothing, or two layers share it.</td><td>Click <b>Layers</b>, copy the exact <code>layer_id</code>, and paste it. Rename duplicate temporary layers &mdash; several runs in a row produce very similar names.</td></tr>
+<tr><td>A choice label does not match any live option. Live options: &hellip;</td><td>An option was named that is not on this algorithm, or an abbreviation that matches two of them.</td><td>The message lists the live options; pick one verbatim.</td></tr>
+<tr><td>The renderer field 'x' is not on the target layer. Live fields: &hellip;</td><td>The styling field does not exist. A single-character miss is corrected automatically and flagged on the approval card; anything larger is refused.</td><td>Use a field from the list in the message.</td></tr>
+<tr><td>This chat has already completed its limit of 10 actions</td><td>The session budget is spent.</td><td>Answer <b>Yes</b> when asked to extend, or start a New chat. Two extensions are available per chat.</td></tr>
+<tr><td>Agent Workspace could not start the workflow request: &hellip;</td><td>Workflow Studio could not hand the request to the agent. The reason follows the colon.</td><td>Usually an Offline profile, a missing API key, or a run already in progress. Open <b>AI connections</b>, or wait for the current run.</td></tr>
+<tr><td>The AI response could not be understood: &hellip;</td><td>The provider returned a malformed envelope. The plugin repairs the first fault of each kind automatically; this appears when repair did not work.</td><td>Send the request again, more specifically. If it recurs on every message, the model is likely too small for structured output &mdash; see below.</td></tr>
+<tr><td>Agent Chat needs a configured AI connection (not Offline)</td><td>No language model is selected.</td><td><b>AI connections&hellip;</b> &rarr; choose a provider and paste a key. Quick inspections still work offline.</td></tr>
+</table>
+
+<h4>Choosing a model</h4>
+<p>The plugin is provider-neutral: safety, validation and approval behave identically on every backend. Reliability does not. The agent must return a strict JSON envelope on every turn, so a model with weak structured-output support will spend turns being repaired instead of working. Prefer a current mid-to-large instruction-tuned model with native JSON mode; very small local models are usable for inspection but frustrating for proposals.</p>
+
+<h4>When to suspect the plugin rather than the model</h4>
+<p>A refusal that names a specific fact &mdash; a CRS, a field type, an option list &mdash; is the plugin doing its job. Suspect a defect when the agent loops on the same inspection three times, when a message contradicts something you can see in the Layers panel, or when an operation you know QGIS supports cannot be expressed at all. Those are worth reporting on <a href="https://github.com/YusufEminoglu/planx-smartmodeler/issues">the issue tracker</a>, ideally with the chat transcript &mdash; several of the behaviours documented in this chapter were found exactly that way.</p>
 
 <!-- ══════════════════════════════════════════════════════════════ -->
 <h2 id="doc-state">Document System</h2>
@@ -812,26 +918,34 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <tr><td>ANY</td><td><code>any</code></td><td>Any type</td><td>Wildcard — used for generic pass-through</td></tr>
 </table>
 
-<h2 id="appendix-b">Appendix B — Agent Tool Catalog</h2>
+<h2 id="appendix-b">Appendix B &mdash; Agent Tool Catalog</h2>
+<p>The live registry, as built by <code>core/agent/runtime_tools.build_default_registry</code>. Every one is READ_ONLY: no project mutation, no feature edit, no Processing execution, no plugin method invocation, no network access. Changing anything requires a validated proposal and your explicit click.</p>
 <table><tr><th>Tool ID</th><th>Scope</th><th>Returns</th><th>Condition</th></tr>
-<tr><td><code>project_info</code></td><td>Project</td><td>title, crs, layer_count, home_path</td><td>Always available</td></tr>
-<tr><td><code>list_layers</code></td><td>Project</td><td>[{name, type, geom_type, feature_count, field_count}]</td><td>Always available</td></tr>
-<tr><td><code>layer_fields</code></td><td>One layer</td><td>[{name, type_name, length, precision}] — full schema, not truncated</td></tr>
-<tr><td><code>layer_extent</code></td><td>One layer</td><td>{xmin, ymin, xmax, ymax}</td></tr>
-<tr><td><code>layer_crs</code></td><td>One layer</td><td>{auth, code, description}</td></tr>
-<tr><td><code>layer_style</code></td><td>One vector/raster</td><td>{symbology_type, categorized_field, graduated_field, labels_enabled}</td></tr>
-<tr><td><code>list_algorithms</code></td><td>Processing</td><td>[{provider_id, algorithm_id, display_name}]</td><td>Only algorithms passing structural policy</td></tr>
-<tr><td><code>algorithm_help</code></td><td>One algorithm</td><td>Short help string (truncated to safe length)</td></tr>
-<tr><td><code>algorithm_params</code></td><td>One algorithm</td><td>[{name, type, default, required, ...}]</td></tr>
-<tr><td><code>current_model</code></td><td>Studio graph</td><td>{nodes: [{id, algorithm_id, ...}], edges: [{source_node, source_port, target_node, target_port}]}</td><td>Studio must be open</td></tr>
-<tr><td><code>model_node_params</code></td><td>One model node</td><td>[{name, value, type, ...}] for that node</td></tr>
-<tr><td><code>expression_help</code></td><td>QGIS expression</td><td>Function list or syntax check result for a given formula</td></tr>
-<tr><td><code>list_plugins</code></td><td>Plugins</td><td>[{package_name, display_name, has_processing_provider}]</td></tr>
-<tr><td><code>plugin_capabilities</code></td><td>One plugin</td><td>{provider_id, algorithms: [{id, runnable}], ui_only, mapping_proof}</td></tr>
-<tr><td><code>osm_query</code></td><td>Bounded extent</td><td>Roads, buildings, trees as temp layers. 02Agent preset: all three in one run.</td></tr>
-<tr><td><code>filter_layer</code></td><td>Active layer</td><td>Deterministic FID-based filter → reviewed temp-layer Processing run</td></tr>
-<tr><td><code>field_calculator</code></td><td>Active layer</td><td>Reviewed <code>native:fieldcalculator</code> run; <code>QgsExpression</code> parser validates syntax + field references</td></tr>
-<tr><td><code>random_extract</code></td><td>Any vector layer</td><td>Random subset → temp layer</td></tr>
+<tr><td><code>project.summary</code></td><td>Project</td><td>title, crs, layer_count</td><td>Always. The saved project path is never included.</td></tr>
+<tr><td><code>layer.list</code></td><td>Project</td><td>[{layer_id, name, kind, geometry_type, crs, visible, provider_key, active, area_safe_crs}]</td><td>Always</td></tr>
+<tr><td><code>layer.describe</code></td><td>One layer</td><td>{fields: [{name, field_type}], feature_count, resolved_by}</td><td>Exact id, or an exact unique name</td></tr>
+<tr><td><code>layer.field_values</code></td><td>One field of one layer</td><td>{numeric, minimum, maximum, mean, median, null_count, distinct_count, sample}</td><td>Ordering statistics only when every value is numeric</td></tr>
+<tr><td><code>layer.suggest_crs</code></td><td>One layer</td><td>{current_crs, current_crs_area_safe, suggestions: [{crs, description, reason}]}</td><td>Layer must have a locatable extent</td></tr>
+<tr><td><code>layer.style</code></td><td>One vector/raster</td><td>{renderer family, symbol summary, label state, context_token}</td><td>Always</td></tr>
+<tr><td><code>processing.search</code></td><td>Processing registry</td><td>[{algorithm_id, display_name, provider_id, agent_runnable}]</td><td>Bounded; runnable matches ranked first</td></tr>
+<tr><td><code>processing.describe</code></td><td>One algorithm</td><td>Live typed signature: params, kinds, bounds, enum options, proposal_binding, outputs, context_token</td><td>Always</td></tr>
+<tr><td><code>processing.resolve</code></td><td>One algorithm</td><td>Search + describe in one call, with the receipt a run proposal needs</td><td>Always</td></tr>
+<tr><td><code>expression.search</code></td><td>QGIS expressions</td><td>Live built-in help for a named function</td><td>Always</td></tr>
+<tr><td><code>model.summary</code></td><td>Studio graph</td><td>{nodes, edge_count, validation_issues}</td><td>Studio must be open</td></tr>
+<tr><td><code>model.describe</code></td><td>Studio graph</td><td>{nodes, edges, context_token}</td><td>Studio must be open</td></tr>
+<tr><td><code>model.validate</code></td><td>Studio graph</td><td>Validation issues</td><td>Studio must be open</td></tr>
+<tr><td><code>plugin.list</code></td><td>Plugins</td><td>Installed package names</td><td>Always</td></tr>
+<tr><td><code>plugin.describe</code></td><td>One plugin</td><td>Package metadata</td><td>Always</td></tr>
+<tr><td><code>plugin.capabilities</code></td><td>One plugin</td><td>{provider_id, algorithms: [{id, runnable}], reviewed actions}</td><td>Plugin must be installed and enabled</td></tr>
+<tr><td><code>database.list</code> 🔒</td><td>Connections</td><td>Connections by opaque token &mdash; never a URI or credential</td><td>Power Mode</td></tr>
+<tr><td><code>database.describe</code> 🔒</td><td>One connection</td><td>Schemas, tables, column metadata</td><td>Power Mode</td></tr>
+<tr><td><code>script.list</code> 🔒</td><td>Trusted scripts</td><td>[{script_id, name, script_hash}]</td><td>Power Mode</td></tr>
+<tr><td><code>script.describe</code> 🔒</td><td>One script</td><td>Full source for review</td><td>Power Mode</td></tr>
+<tr><td><code>workspace.list</code></td><td>Workspace root</td><td>Plugin source files</td><td>Workspace (Developer) scope</td></tr>
+<tr><td><code>workspace.read</code></td><td>One file</td><td>File contents</td><td>Workspace (Developer) scope</td></tr>
+<tr><td><code>workspace.inspect</code></td><td>Workspace</td><td>Diagnostic state</td><td>Workspace (Developer) scope</td></tr>
+<tr><td><code>workspace.search</code></td><td>Workspace</td><td>Source search results</td><td>Workspace (Developer) scope</td></tr>
+<tr><td><code>workspace.command</code></td><td>Workspace</td><td>One reviewed safe diagnostic command</td><td>Workspace (Developer) scope</td></tr>
 </table>
 
 <h2 id="appendix-c">Appendix C — Glossary</h2>
