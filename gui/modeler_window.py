@@ -46,6 +46,7 @@ from ..core.model3_serializer import Model3Serializer
 from ..core.prompt_context import PromptContextLoader
 from ..core.proposal_engine import ProposalRecommendation
 from .ai_prompt_widget import AiPromptWidget
+from .branding import build_brand_header
 from .canvas_scene import CanvasScene
 from .canvas_view import CanvasView
 from .connection_dialog import ConnectionDialog
@@ -132,6 +133,14 @@ class SmartModelerWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        self.brand_header = build_brand_header(
+            self,
+            "Workflow Studio",
+            "Compose, validate and run typed Processing graphs",
+            "QGIS 3.44 + 4",
+        )
+        layout.addWidget(self.brand_header)
+
         self.ai_prompt_bar = AiPromptWidget(self)
         layout.addWidget(self.ai_prompt_bar)
         self.proposal_bar = SmartProposalBar(self)
@@ -156,6 +165,7 @@ class SmartModelerWindow(QMainWindow):
 
         self._build_toolbar()
         self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("statusLabel")
         self.status_label.setAccessibleName("Workflow status")
         self.progress = QProgressBar()
         self.progress.setAccessibleName("Workflow progress")

@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.41] - 2026-08-10
+
+- Refresh SmartModeler branding and workflow studio UI
+
 ## [1.5.40] - 2026-08-10
 
 ### The agent can see a value, and can no longer produce a confident wrong answer

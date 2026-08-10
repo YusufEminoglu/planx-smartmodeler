@@ -60,6 +60,7 @@ from ..core.agent.runtime_tools import ModelProvider, build_default_registry
 from ..core.ai_client import AiNetworkClient, AiTokenUsage, StructuredResponseContract
 from ..core.ai_settings import AiSettingsStore, PROVIDERS
 from ..core.prompt_context import PromptContextLoader
+from .branding import build_brand_header
 from .theme import STUDIO_STYLE
 
 # Phase 06: a chat session may complete at most this many terminal actions
@@ -258,9 +259,14 @@ class AgentWorkspaceDock(QDockWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        title = QLabel("Agent Workspace")
-        title.setStyleSheet("font-weight: 600; font-size: 12pt;")
-        layout.addWidget(title)
+        layout.addWidget(
+            build_brand_header(
+                self,
+                "Agent Workspace",
+                "Inspect safely, review proposals, approve deliberately",
+                "REVIEW FIRST",
+            )
+        )
         subtitle = QLabel(
             "Inspections are read-only. A model, style, or run proposal takes "
             "effect only after you explicitly click Apply or Run on its approval "
@@ -484,7 +490,7 @@ class AgentWorkspaceDock(QDockWidget):
 
         status_row = QHBoxLayout()
         self.status_label = QLabel("Ready.")
-        self.status_label.setStyleSheet("color: #9AAAC2;")
+        self.status_label.setObjectName("statusLabel")
         status_row.addWidget(self.status_label, 1)
         self.token_usage_label = QLabel("Last - · Chat - · Cached -")
         self.token_usage_label.setAccessibleName("AI token usage")

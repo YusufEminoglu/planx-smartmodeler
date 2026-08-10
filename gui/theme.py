@@ -12,6 +12,42 @@ QToolBar {
     spacing: 5px;
     padding: 6px 10px;
 }
+QFrame#brandHeader {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #192941, stop:0.62 #172231, stop:1 #202A3D);
+    border: 1px solid #315176;
+    border-radius: 10px;
+}
+QLabel#brandIcon {
+    background: #0D1523;
+    border: 1px solid #3D638F;
+    border-radius: 11px;
+    padding: 2px;
+}
+QLabel#brandEyebrow {
+    color: #70D6D0;
+    font-size: 8pt;
+    font-weight: 750;
+    letter-spacing: 1px;
+}
+QLabel#brandTitle {
+    color: #F4F8FD;
+    font-size: 16pt;
+    font-weight: 700;
+}
+QLabel#brandSubtitle {
+    color: #A8BCD3;
+    font-size: 9pt;
+}
+QLabel#brandBadge {
+    color: #BCEDE3;
+    background: #1A4A53;
+    border: 1px solid #3E9A9A;
+    border-radius: 9px;
+    padding: 5px 9px;
+    font-size: 8pt;
+    font-weight: 700;
+}
 QToolButton {
     color: #DCE6F2;
     background: transparent;
@@ -89,6 +125,7 @@ QLabel#secretStorageStatus[mode="session"] { color: #F7B955; }
 QLabel#connectedValue { color: #57D3A0; }
 QFrame#aiPromptPanel { background: #151D29; border-bottom: 1px solid #29364A; }
 QFrame#proposalBar { background: #121A25; border-bottom: 1px solid #253247; }
+QLabel#statusLabel { color: #B5C6D9; }
 QStatusBar { background: #151D29; color: #9FB0C5; border-top: 1px solid #29364A; }
 QProgressBar { border: none; background: #202B3B; border-radius: 3px; max-height: 6px; }
 QProgressBar::chunk { background: #57D3A0; border-radius: 3px; }
