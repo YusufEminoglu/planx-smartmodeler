@@ -13,7 +13,7 @@ from __future__ import annotations
 import contextlib
 import html
 import re
-from typing import Any, Callable, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from qgis.core import (
     Qgis,
@@ -41,6 +41,9 @@ MAX_LIST_LIMIT = agent_context.MAX_LIST_ITEMS
 DEFAULT_PROCESSING_SEARCH_LIMIT = 8
 DEFAULT_PROCESSING_DESCRIBE_LIMIT = 40
 DEFAULT_PROCESSING_RESOLVE_LIMIT = 8
+# Package names are short strings, so far more of them fit than detailed rows.
+# Whether a plugin is installed must never depend on where its name sorts.
+MAX_PLUGIN_NAMES = 300
 
 _QUERY_MAX_LENGTH = 200
 _ID_MAX_LENGTH = 200
@@ -855,7 +858,22 @@ def _tool_plugin_list(call: AgentToolCall) -> Dict[str, Any]:
 
     summaries = _iter_plugin_summaries(qgis_utils, iter(package_names), active)
     bounded, truncated = agent_context.bound_list(summaries, limit)
-    return {"plugins": bounded, "count": len(bounded), "truncated": truncated}
+    # The detailed rows are bounded because each one reads metadata, but the
+    # *names* are short and must never be withheld. They used to be, and the
+    # list is alphabetical: on a QGIS with more plugins than the limit,
+    # everything from "z" onwards vanished -- including the OSM downloader this
+    # plugin's whole acquisition path depends on. The Agent then reported, from
+    # a list that looked complete, that an installed plugin was not installed.
+    return {
+        "plugins": bounded,
+        "count": len(bounded),
+        "truncated": truncated,
+        "installed_packages": [
+            agent_context.bound_text(name, 128)
+            for name in package_names[:MAX_PLUGIN_NAMES]
+        ],
+        "installed_count": len(package_names),
+    }
 
 
 # -- model.describe --------------------------------------------------------
@@ -1334,6 +1352,21 @@ def resolve_plugin_package(qgis_utils: Any, requested_name: str) -> str:
     requested_tokens = set(re.findall(r"[a-z0-9]+", folded))
     if len(normalized) < 5:
         return ""
+
+    # These plugins ship as package `zero2x` with the visible name `02x`, so a
+    # user quoting either spelling means the same plugin. Without this, asking
+    # for "zero2agentosm" matched nothing: the package normalizes to
+    # "zero2agentosmdownloader" and the visible name to "02agentosmdownloader",
+    # and neither contains the other.
+    def _prefix_variants(text: str) -> Tuple[str, ...]:
+        variants = {text}
+        if text.startswith("zero2"):
+            variants.add("02" + text[len("zero2"):])
+        elif text.startswith("02"):
+            variants.add("zero2" + text[len("02"):])
+        return tuple(variants)
+
+    normalized_forms = _prefix_variants(normalized)
     exact = []
     aliases = []
     for package in packages:
@@ -1342,9 +1375,13 @@ def resolve_plugin_package(qgis_utils: Any, requested_name: str) -> str:
             display = str(qgis_utils.pluginMetadata(package, "name") or "")
         display_norm = re.sub(r"[^a-z0-9]+", "", display.casefold())
         package_norm = re.sub(r"[^a-z0-9]+", "", package.casefold())
-        if normalized in (display_norm, package_norm):
+        candidates = set(normalized_forms)
+        if any(form in (display_norm, package_norm) for form in candidates):
             exact.append(package)
-        elif len(normalized) >= 6 and normalized in display_norm:
+        elif len(normalized) >= 6 and any(
+            form and (form in display_norm or form in package_norm)
+            for form in candidates
+        ):
             aliases.append(package)
         elif (
             len(normalized) >= 6
@@ -1966,7 +2003,11 @@ def build_default_registry(
             description=(
                 "Lists installed plugins (active or not) with package name, "
                 "display name, version, enabled state, and Processing-"
-                "provider flag."
+                "provider flag. The detailed rows are bounded and alphabetical; "
+                "`installed_packages` names every installed package. Decide "
+                "whether a plugin is installed from `installed_packages`, never "
+                "from the bounded rows, and use plugin.describe or "
+                "plugin.capabilities to confirm one by name."
             ),
             risk=AgentRisk.READ_ONLY,
             input_schema=_object_schema({"limit": _LIMIT_PROPERTY}),

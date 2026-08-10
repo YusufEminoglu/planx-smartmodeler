@@ -89,6 +89,30 @@ class PluginListEnumerationTests(unittest.TestCase):
         names = {item["package_name"] for item in result["plugins"]}
         self.assertIn("odd_install", names)
 
+    def test_a_late_alphabet_plugin_survives_truncation(self) -> None:
+        # The detailed rows are bounded, and the list is alphabetical. On a
+        # QGIS with more plugins than the limit, everything from "z" onwards
+        # disappeared -- including the OSM downloader -- and the Agent told a
+        # user with it installed that it was not installed. The names must
+        # always be complete even when the rows are cut.
+        many = [f"plugin_{index:03d}" for index in range(40)]
+        fake = FakeQgisUtils(
+            available=many + ["zero2agent_osm_downloader"],
+            active=["zero2agent_osm_downloader"],
+            plugins={},
+        )
+        _install_fake_utils(fake)
+        call = AgentToolCall(
+            call_id="c1", tool_name="plugin.list", arguments={"limit": 5}
+        )
+        result = runtime_tools._tool_plugin_list(call)
+
+        listed = {item["package_name"] for item in result["plugins"]}
+        self.assertTrue(result["truncated"])
+        self.assertNotIn("zero2agent_osm_downloader", listed)
+        self.assertIn("zero2agent_osm_downloader", result["installed_packages"])
+        self.assertEqual(result["installed_count"], 41)
+
     def test_never_invokes_or_instantiates_a_plugin(self) -> None:
         invoked = []
 
@@ -281,6 +305,31 @@ class PluginDescribeTests(unittest.TestCase):
         self.assertEqual(full["package_name"], "zero2viz")
         self.assertIsNotNone(short)
         self.assertEqual(short.package_name, "zero2viz")
+
+    def test_zero2_and_02_spellings_resolve_to_the_same_package(self) -> None:
+        # These plugins ship as package `zero2x` with visible name `02x`, so a
+        # user quoting either spelling means the same plugin. "zero2agentosm"
+        # used to match nothing, and the Agent told a user with the plugin
+        # installed that it was not installed.
+        fake = FakeQgisUtils(
+            available=["zero2agent_osm_downloader"],
+            active=["zero2agent_osm_downloader"],
+            plugins={},
+        )
+        fake.set_metadata(
+            "zero2agent_osm_downloader", "name", "02Agent OSM Downloader"
+        )
+        for spelling in (
+            "zero2agentosm",
+            "zero2agent_osm_downloader",
+            "02agent osm downloader",
+            "02agentosm",
+        ):
+            with self.subTest(spelling=spelling):
+                self.assertEqual(
+                    runtime_tools.resolve_plugin_package(fake, spelling),
+                    "zero2agent_osm_downloader",
+                )
 
     def test_ambiguous_visible_name_alias_fails_closed(self) -> None:
         fake = FakeQgisUtils(available=["one", "two"], active=[], plugins={})
