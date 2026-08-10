@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.5.47] - 2026-08-10
+
+### A capability listing the agent could never actually read
+
+An owner session asked for PlanX's Space Syntax tool, then its network
+centrality tool. Both failed the same way: the agent called
+`plugin.capabilities`, called it again, called it a third time, hit the
+no-progress intervention and told the user it could not confirm the algorithm —
+for a plugin that was installed, enabled and runnable throughout.
+
+The cause was a size cap, not the model. A single tool result was capped at
+**3,000 characters** and anything larger was replaced by an omission marker. A
+real PlanX listing is **~7,700 characters**, so *every* capability inspection of
+a substantial plugin returned nothing at all. Retrying with a smaller limit did
+not help: even `limit=20` measures 3,026 characters, and only `limit≤10` fits —
+which shows ten of sixty-nine algorithms, alphabetically, without the one being
+looked for.
+
+- **Oversized capability listings are now compacted, not dropped.** The
+  per-algorithm blurb is most of the weight and none of the answer; an id and a
+  title are what a follow-up `processing.resolve` needs. A 69-algorithm listing
+  now arrives complete at ~5,500 characters.
+- **The per-result budget is 8,000 characters**, up from 3,000. The whole prompt
+  budget is 30,000, so one result had been limited to 10% of it.
+- **An omission now says what to do about it** — narrow the call, do not repeat
+  it unchanged — because a bare "omitted" invites the identical call, which
+  produces the identical omission.
+
+### Result layers you can tell apart
+
+- **A run's empty outputs are dropped when a sibling output has data.** The
+  curated OSM downloader always declares point, line and polygon sinks, so
+  "download the roads" delivered the roads plus two empty layers to clear away
+  by hand. When *every* output is empty the layers are kept and reported — "the
+  filter matched nothing" is a real answer and must never be hidden.
+- **Processing results are named from the proposal's title**, so a roads
+  download produces `Download the road network - lines` instead of
+  `Download curated OSM thematic preset - OUTPUT_LINES`, and three runs of the
+  same algorithm no longer produce three identically named sets. Other run
+  kinds keep the algorithm name, because there it carries provenance a title
+  cannot replace: a layer produced by generated PyQGIS must still say so.
+
 ## [1.5.46] - 2026-08-10
 
 ### The Manual button now opens one page, not fifteen chapters

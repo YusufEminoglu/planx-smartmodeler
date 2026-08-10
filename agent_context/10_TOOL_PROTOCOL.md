@@ -87,6 +87,12 @@ meant a second time. A user-supplied comparison value is sufficient for
 }
 ```
 
+**`title` becomes the result layer's name**, so write it as the subject the
+user asked for: `"Download the road network"`, not `"Run algorithm"`. A run
+with several outputs appends `- points` / `- lines` / `- polygons`. Empty
+outputs of a run that produced data elsewhere are dropped automatically, so a
+roads download leaves one layer rather than three.
+
 Exact tagged forms:
 
 - `{"layer":"id"}`; `{"layers":["id", ...]}`

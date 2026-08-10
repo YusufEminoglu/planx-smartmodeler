@@ -440,12 +440,17 @@ class RunCoordinator(QObject):
         if project is None:
             self._fail(ticket, "The project is not available to receive the result.")
             return
+        owned = self._without_empty_siblings(owned)
         added_ids: List[str] = []
         added_names: List[str] = []
         try:
             for name, layer in owned:
                 with contextlib.suppress(Exception):
-                    layer.setName(f"{display_name} - {name}")
+                    layer.setName(
+                        self._result_layer_name(
+                            ticket.title, display_name, name, kind=kind
+                        )
+                    )
                 added_layer = project.addMapLayer(layer)
                 registered = project.mapLayer(layer.id()) is not None
                 if registered:
@@ -469,6 +474,75 @@ class RunCoordinator(QObject):
             )
             return
         self._finish_success(ticket, kind, display_name, added_ids, added_names)
+
+    @staticmethod
+    def _without_empty_siblings(
+        owned: List[Tuple[str, Any]]
+    ) -> List[Tuple[str, Any]]:
+        """Drop the empty outputs of a run that produced data somewhere else.
+
+        The curated OSM downloader always declares a point, a line and a polygon
+        sink, so "download the roads" delivered the roads plus two empty layers
+        the user never asked for and has to clear away by hand every time.
+
+        An empty result is only noise when a *sibling* output actually carries
+        something: that proves the run did its job and this geometry simply was
+        not part of it. When every output is empty the layers are kept and the
+        run reports it, because "the filter matched nothing" is a real answer
+        and hiding it would be the very failure the empty-result warning exists
+        to prevent.
+        """
+        if len(owned) < 2:
+            return owned
+        counts = []
+        for _name, layer in owned:
+            count = None
+            with contextlib.suppress(Exception):
+                count = layer.featureCount()
+            counts.append(count)
+        if not any(isinstance(count, int) and count > 0 for count in counts):
+            return owned
+        return [
+            item
+            for item, count in zip(owned, counts)
+            if not (isinstance(count, int) and count == 0)
+        ]
+
+    @staticmethod
+    def _result_layer_name(
+        title: str,
+        display_name: str,
+        output_key: str,
+        *,
+        kind: str = PROPOSAL_KIND_PROCESSING_RUN,
+    ) -> str:
+        """A result layer name a person can tell apart in the Layers panel.
+
+        For a Processing run ``display_name`` is the algorithm's own label, so
+        three runs of the OSM downloader produced three sets of layers all
+        called "Download curated OSM thematic preset - OUTPUT_POLYGONS". The
+        proposal's title says what *this* run was for ("Download the road
+        network"), which is the part worth carrying, and the raw sink key
+        becomes an ordinary word.
+
+        Every other kind keeps ``display_name``, because there it carries
+        provenance the title cannot replace: a layer produced by generated
+        PyQGIS must still say "Generated PyQGIS" in the Layers panel.
+        """
+        preferred = (
+            str(title or "").strip()
+            if kind == PROPOSAL_KIND_PROCESSING_RUN
+            else ""
+        )
+        base = preferred or str(display_name or "").strip() or "Result"
+        suffix = {
+            "OUTPUT_POINTS": "points",
+            "OUTPUT_LINES": "lines",
+            "OUTPUT_POLYGONS": "polygons",
+            "OUTPUT": "",
+        }.get(str(output_key).strip().upper(), str(output_key).strip())
+        name = f"{base} - {suffix}" if suffix else base
+        return agent_context.bound_text(name, agent_context.MAX_DISPLAY_NAME)
 
     def _finish_model(
         self, ticket: RunTicket, display_name: str, owned: List[Tuple[str, Any]]

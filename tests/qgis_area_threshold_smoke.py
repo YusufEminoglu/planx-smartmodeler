@@ -377,6 +377,63 @@ def main() -> int:
             "A UTM layer was reported as unsafe to measure in.",
         )
 
+        # -- 7. result layers a person can tell apart -----------------------
+        from planx_smartmodeler.core.agent.run_coordinator import RunCoordinator
+
+        name_of = RunCoordinator._result_layer_name
+        _require(
+            name_of("Download the road network", "Download curated OSM thematic "
+                    "preset", "OUTPUT_LINES") == "Download the road network - lines",
+            "A result layer was not named from the proposal's own title.",
+        )
+        _require(
+            name_of("", "Buffer", "OUTPUT") == "Buffer",
+            "A single output gained a meaningless suffix.",
+        )
+        _require(
+            name_of("", "Reproject layer", "OUTPUT_POLYGONS")
+            == "Reproject layer - polygons",
+            "A missing title did not fall back to the algorithm name.",
+        )
+        # Provenance beats the title for anything that is not a Processing run:
+        # a layer produced by generated PyQGIS must still say so.
+        _require(
+            name_of(
+                "Compute a walkability index",
+                "Generated PyQGIS",
+                "OUTPUT_1",
+                kind="python_run",
+            ).startswith("Generated PyQGIS"),
+            "A Power Mode result layer lost its provenance to the title.",
+        )
+
+        # The OSM downloader always declares point, line and polygon sinks, so
+        # "download the roads" used to deliver the roads plus two empty layers.
+        empty_points = _buildings("EPSG:32635")
+        empty_points.dataProvider().truncate()
+        siblings = [
+            ("OUTPUT_POINTS", empty_points),
+            ("OUTPUT_LINES", _buildings("EPSG:32635")),
+        ]
+        kept = RunCoordinator._without_empty_siblings(siblings)
+        _require(
+            [key for key, _layer in kept] == ["OUTPUT_LINES"],
+            f"An empty sibling output was still added: {[k for k, _ in kept]}",
+        )
+        # But an all-empty result is a real answer and must never be hidden.
+        all_empty = [
+            ("OUTPUT_POINTS", empty_points),
+            ("OUTPUT_LINES", empty_points),
+        ]
+        _require(
+            len(RunCoordinator._without_empty_siblings(all_empty)) == 2,
+            "An entirely empty result was hidden instead of reported.",
+        )
+        _require(
+            len(RunCoordinator._without_empty_siblings([("OUTPUT", empty_points)])) == 1,
+            "A single empty output was dropped; that is the filter answer.",
+        )
+
         print(
             "AREA THRESHOLD SMOKE OK - "
             f"metric kept {true_kept}/{len(TRUE_SIDES_M)}, "

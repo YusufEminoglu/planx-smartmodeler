@@ -19,7 +19,15 @@ from .contracts import AgentToolSpec, MAX_ALLOWED_PROMPT_CHARS
 MAX_USER_MESSAGE_CHARS = 4_000
 MAX_SESSION_EXCHANGES = 6
 MAX_SESSION_TEXT_CHARS = 6_000
-MAX_TOOL_RESULT_PROMPT_CHARS = 3_000
+# One tool result's share of the per-turn prompt. Raised from 3,000: the whole
+# prompt budget is 30,000, so 3,000 gave a single result 10% and silently
+# discarded anything larger. A real plugin.capabilities listing is ~7,700
+# characters, so *every* capability inspection of a substantial plugin was
+# replaced by an omission marker -- the model asked what PlanX could do, learned
+# nothing, retried smaller, learned nothing again, and concluded the tool did
+# not exist. 8,000 still leaves room for three large results in one turn, and
+# oversized Processing/capability results are now compacted rather than dropped.
+MAX_TOOL_RESULT_PROMPT_CHARS = 8_000
 MAX_WORKING_TRACE_CHARS = 2_500
 
 # Hard maxima: a malformed/adversarial PromptBudget can never exceed these.
@@ -341,18 +349,80 @@ def _omit_if_oversized(event: Dict[str, Any], max_chars: int) -> Dict[str, Any]:
     serialized = json.dumps(result, ensure_ascii=False, sort_keys=True)
     if len(serialized) <= max_chars:
         return event
-    if event.get("tool_name") in {"processing.resolve", "processing.describe"}:
+    tool_name = event.get("tool_name")
+    if tool_name in {"processing.resolve", "processing.describe"}:
         compacted = _compact_processing_tool_event(event, max_chars)
+        if compacted is not None:
+            return compacted
+    if tool_name == "plugin.capabilities":
+        compacted = _compact_capabilities_tool_event(event, max_chars)
         if compacted is not None:
             return compacted
     status = result.get("status") if isinstance(result, dict) else ""
     omitted = dict(event)
     omitted["result"] = {
         "status": status if isinstance(status, str) else "",
-        "reason": "tool result omitted: exceeded the prompt budget",
+        # Say what to do about it. A bare "omitted" invites the same call
+        # again, which produces the same omission, which is how a run burns
+        # its turns without ever learning anything.
+        "reason": (
+            "tool result omitted: it exceeded the per-result prompt budget. "
+            "Do not repeat this call unchanged -- narrow it instead (a smaller "
+            "limit, a more specific query, or one named target) or continue "
+            "from the evidence you already have."
+        ),
         "original_chars": len(serialized),
+        "budget_chars": max_chars,
     }
     return omitted
+
+
+def _compact_capabilities_tool_event(
+    event: Dict[str, Any], max_chars: int
+) -> Optional[Dict[str, Any]]:
+    """Keep a plugin's algorithm *ids* when the full listing does not fit.
+
+    An omitted capability listing is unrecoverable in a way an oversized one is
+    not: the model asked what a plugin can do, learned nothing, asked again with
+    a smaller limit, learned nothing again, and eventually told the user it
+    could not find a tool that was installed and runnable the whole time. A real
+    PlanX listing is ~7,700 characters against a 3,000 cap, so this happened on
+    every single call.
+
+    The per-algorithm ``group`` blurb is most of that weight and none of the
+    answer -- an id and a title are what a follow-up ``processing.resolve``
+    needs. Dropping the blurb, then trimming the list from the end with an
+    explicit truncation flag, keeps the result honest and usable.
+    """
+    result = event.get("result")
+    if not isinstance(result, dict) or not isinstance(result.get("data"), dict):
+        return None
+    data = dict(result["data"])
+    rows = data.get("algorithms")
+    if not isinstance(rows, list):
+        return None
+
+    def sized(payload: Dict[str, Any]) -> int:
+        return len(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+    slim = [
+        {key: row[key] for key in ("algorithm_id", "title") if key in row}
+        for row in rows
+        if isinstance(row, dict)
+    ]
+    for count in (len(slim), 40, 30, 20, 12, 6):
+        if count > len(slim):
+            continue
+        candidate = dict(data)
+        candidate["algorithms"] = slim[:count]
+        candidate["algorithms_truncated"] = count < len(rows)
+        if count < len(rows):
+            candidate["algorithms_total"] = len(rows)
+        compacted = dict(event)
+        compacted["result"] = {**result, "data": candidate}
+        if sized(compacted["result"]) <= max_chars:
+            return compacted
+    return None
 
 
 def _compact_processing_tool_event(

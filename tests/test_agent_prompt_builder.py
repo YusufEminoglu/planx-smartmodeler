@@ -378,6 +378,71 @@ class BudgetTests(unittest.TestCase):
         # (already guaranteed by json.loads succeeding above) and small.
         self.assertLess(len(json.dumps(omitted)), MAX_TOOL_RESULT_PROMPT_CHARS)
 
+    def test_an_oversized_capability_listing_keeps_its_algorithm_ids(self) -> None:
+        # The failure this prevents: a real PlanX listing is ~7,700 characters,
+        # so under the old 3,000-char cap *every* capability inspection of a
+        # substantial plugin was replaced by an omission marker. The model asked
+        # what PlanX could do, learned nothing, retried with a smaller limit,
+        # learned nothing again, and told the user the tool did not exist.
+        algorithms = [
+            {
+                "algorithm_id": f"planx:analysis_{index:02d}",
+                "title": f"Urban Analysis Metric {index:02d}",
+                "group": "Compute an urban metric for the study area" * 3,
+            }
+            for index in range(69)
+        ]
+        oversized = AgentToolResult(
+            "c1",
+            "plugin.capabilities",
+            AgentResultStatus.SUCCESS,
+            {
+                "available": True,
+                "package_name": "planx",
+                "status": "confirmed_provider",
+                "algorithms": algorithms,
+            },
+        ).to_dict()
+        event = {
+            "kind": "tool_result",
+            "tool_name": "plugin.capabilities",
+            "result": oversized,
+        }
+        result = build_prompt(**base_call(current_run_events=[event]))
+        payload = json.loads(result.user_prompt)
+        kept = payload["current_turn_events"][0]["result"]
+        self.assertNotIn("reason", kept, "the listing was dropped instead of compacted")
+        data = kept["data"]
+        self.assertTrue(data["algorithms"], "no algorithm survived compaction")
+        # An id is what a follow-up processing.resolve actually needs.
+        for row in data["algorithms"]:
+            self.assertIn("algorithm_id", row)
+            self.assertNotIn("group", row)
+        self.assertLessEqual(
+            len(json.dumps(kept, ensure_ascii=False, sort_keys=True)),
+            MAX_TOOL_RESULT_PROMPT_CHARS,
+        )
+
+    def test_a_capability_listing_too_large_even_compacted_says_what_to_do(self) -> None:
+        # A bare "omitted" invites the identical call again, which produces the
+        # identical omission. The record has to name the way out.
+        oversized = AgentToolResult(
+            "c1",
+            "plugin.capabilities",
+            AgentResultStatus.SUCCESS,
+            {"algorithms": [{"algorithm_id": "x" * 4000, "title": "y" * 4000}]},
+        ).to_dict()
+        event = {
+            "kind": "tool_result",
+            "tool_name": "plugin.capabilities",
+            "result": oversized,
+        }
+        result = build_prompt(**base_call(current_run_events=[event]))
+        omitted = json.loads(result.user_prompt)["current_turn_events"][0]["result"]
+        self.assertIn("reason", omitted)
+        self.assertIn("Do not repeat this call unchanged", omitted["reason"])
+        self.assertEqual(omitted["budget_chars"], MAX_TOOL_RESULT_PROMPT_CHARS)
+
     def test_oversized_processing_receipt_keeps_token_and_bindings(self) -> None:
         parameters = [
             {
