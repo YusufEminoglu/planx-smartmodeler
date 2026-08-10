@@ -176,6 +176,7 @@ class DefaultRegistryTests(unittest.TestCase):
             "layer.list",
             "layer.describe",
             "layer.field_values",
+            "layer.suggest_crs",
             "processing.search",
             "processing.describe",
             "processing.resolve",

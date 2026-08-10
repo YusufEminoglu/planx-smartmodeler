@@ -71,11 +71,18 @@ SINGLE_TURN_WARNING_TOKENS = 100_000
 MAX_NO_PROGRESS_INTERVENTIONS = 3
 
 # A provider can occasionally return a fenced/prose-wrapped or otherwise
-# incomplete envelope even when JSON mode is enabled. Give the same run one
-# bounded repair turn instead of terminating the user's operation immediately.
-# This is deliberately a run-wide cap: repeated malformed output must never
-# become an unbounded token sink.
-MAX_PROVIDER_RECOVERY_ATTEMPTS = 1
+# incomplete envelope even when JSON mode is enabled. Give the same run bounded
+# repair turns instead of terminating the user's operation immediately.
+#
+# The budget is spent per *distinct* fault, not per attempt. A run-wide cap of
+# one attempt looked safe and was not: an owner session spent it repairing a
+# malformed envelope, and the next, unrelated mechanical fault in the same
+# request -- a missing context_token -- had nothing left and killed the whole
+# operation. Two independent mistakes need two repairs. What must never happen
+# is retrying the *same* fault, which is the actual token sink, so a repair
+# signature is recorded and never retried, and the number of distinct faults is
+# still capped.
+MAX_PROVIDER_RECOVERY_ATTEMPTS = 3
 MAX_TRANSIENT_FAILURE_RETRIES = 1
 
 # Which application-owned scope each proposal kind is compatible with.
@@ -517,6 +524,10 @@ class AgentRunLoop:
         self._layer_extent_listing_attempted = False
         self._consecutive_fully_reused_turns = 0
         self._provider_recovery_attempts = 0
+        # Repair signatures already spent in this run. Keyed by fault, so the
+        # same mistake is never repaired twice while a different one still can
+        # be. See MAX_PROVIDER_RECOVERY_ATTEMPTS.
+        self._provider_recovery_faults: set = set()
         self._transient_failure_retries = 0
 
     def is_active(self) -> bool:
@@ -628,12 +639,21 @@ class AgentRunLoop:
         except ProtocolError as error:
             recovered, recovery_events = self._recover_provider_proposal(raw_text)
             if recovered is None:
-                if (
-                    self._is_mechanical_proposal_error(str(error))
-                    and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+                error_text = str(error).casefold()
+                if "layer extent id" in error_text:
+                    fault = "typed_proposal:layer_extent"
+                elif "input binding" in error_text:
+                    fault = "typed_proposal:input_binding"
+                elif "proposal_kind" in error_text:
+                    fault = "typed_proposal:proposal_kind"
+                elif "context_token" in error_text:
+                    fault = "typed_proposal:context_token"
+                else:
+                    fault = "typed_proposal:other"
+                if self._is_mechanical_proposal_error(str(error)) and self._may_recover(
+                    fault
                 ):
-                    self._provider_recovery_attempts += 1
-                    error_text = str(error).casefold()
+                    self._spend_recovery(fault)
                     if "layer extent id" in error_text:
                         repair_instruction = (
                             "The previous proposal omitted a valid project layer id "
@@ -681,11 +701,10 @@ class AgentRunLoop:
                     return self._advance_turn(
                         tool_events=(*recovery_events, recovery)
                     )
-                if (
-                    self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
-                    and not self._looks_like_terminal_proposal(raw_text)
+                if self._may_recover("response_envelope") and not (
+                    self._looks_like_terminal_proposal(raw_text)
                 ):
-                    self._provider_recovery_attempts += 1
+                    self._spend_recovery("response_envelope")
                     recovery = {
                         "kind": "provider_recovery",
                         "strategy": "repair_response",
@@ -709,9 +728,9 @@ class AgentRunLoop:
             if (
                 self._scope == AgentScope.ACTIVE_LAYER
                 and self._is_active_layer_blocker(turn.assistant_text)
-                and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+                and self._may_recover("active_layer_blocker")
             ):
-                self._provider_recovery_attempts += 1
+                self._spend_recovery("active_layer_blocker")
                 recovery = {
                     "kind": "provider_recovery",
                     "strategy": "continue_active_layer_proposal",
@@ -730,9 +749,9 @@ class AgentRunLoop:
             if (
                 self._mode in (AgentMode.ACT, AgentMode.PLAN)
                 and self._promises_an_unattached_proposal(turn.assistant_text)
-                and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+                and self._may_recover("unattached_proposal")
             ):
-                self._provider_recovery_attempts += 1
+                self._spend_recovery("unattached_proposal")
                 recovery = {
                     "kind": "provider_recovery",
                     "strategy": "attach_the_promised_proposal",
@@ -1076,6 +1095,24 @@ class AgentRunLoop:
         ) and not any(
             key[0] == "layer.list" for key in self._successful_tool_results
         )
+
+    def _may_recover(self, fault: str) -> bool:
+        """Whether one repair turn may be spent on ``fault``.
+
+        Refuses a fault already repaired in this run -- retrying an unchanged
+        mistake is the unbounded token sink the cap exists for -- and refuses
+        any fault once the run has repaired ``MAX_PROVIDER_RECOVERY_ATTEMPTS``
+        distinct ones. Two unrelated mechanical mistakes in one request are
+        ordinary and each deserves its own repair; the same mistake twice is
+        not.
+        """
+        if fault in self._provider_recovery_faults:
+            return False
+        return len(self._provider_recovery_faults) < MAX_PROVIDER_RECOVERY_ATTEMPTS
+
+    def _spend_recovery(self, fault: str) -> None:
+        self._provider_recovery_faults.add(fault)
+        self._provider_recovery_attempts = len(self._provider_recovery_faults)
 
     def _no_progress_intervention(self, level: int) -> Dict[str, Any]:
         """Return one trusted, mode-aware strategy instruction for the provider."""
@@ -1689,9 +1726,13 @@ class AgentRunLoop:
                     kind == PROPOSAL_KIND_PROCESSING_RUN
                     or not self._is_stale_processing_validation(validation.message)
                 )
-                and self._provider_recovery_attempts < MAX_PROVIDER_RECOVERY_ATTEMPTS
+                and self._may_recover(
+                    f"live_validated:{str(validation.reason_code or '')[:40]}"
+                )
             ):
-                self._provider_recovery_attempts += 1
+                self._spend_recovery(
+                    f"live_validated:{str(validation.reason_code or '')[:40]}"
+                )
                 recovery_events = tool_events
                 if (
                     kind == PROPOSAL_KIND_PROCESSING_RUN

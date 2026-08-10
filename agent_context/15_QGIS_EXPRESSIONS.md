@@ -39,9 +39,17 @@ and two families give a wrong number without any warning:
 
 `layer.list` and `layer.describe` report `area_safe_crs` for exactly this.
 When it is `false`, propose `native:reprojectlayer` to a local metric CRS
-(a UTM zone, or EPSG:5254 for Türkiye) **first**, then calculate on the result.
-A measure bound to a layer whose CRS is not area-safe is rejected by the run
-planner, so proposing one anyway costs the user a turn.
+**first**, then calculate on the result. A measure bound to a layer whose CRS
+is not area-safe is rejected by the run planner, so proposing one anyway costs
+the user a turn.
+
+**Never invent the target CRS.** Call `layer.suggest_crs` with the layer id:
+it returns live candidates whose area of use actually contains that layer —
+its UTM zone, the project CRS, CRSs already used elsewhere in the project, and
+recently used ones. Bind one of those authids exactly. This is also the answer
+whenever the user says "local CRS", "metric CRS" or "projected CRS" without
+naming one; guessing produces `A CRS must look like AUTHORITY:CODE` and wastes
+the turn.
 
 ## Recalculating a field never changes its type
 

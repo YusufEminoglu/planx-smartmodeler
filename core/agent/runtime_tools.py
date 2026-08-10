@@ -18,6 +18,8 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 from qgis.core import (
     Qgis,
     QgsApplication,
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
     QgsFeatureRequest,
     QgsProject,
     QgsRasterLayer,
@@ -314,6 +316,128 @@ def _tool_layer_describe(call: AgentToolCall) -> Dict[str, Any]:
         _layer_summary(layer), fields, limit, feature_count=feature_count
     )
     result["available"] = True
+    return result
+
+
+def _utm_authid(longitude: float, latitude: float) -> str:
+    """The WGS 84 / UTM authid covering a WGS 84 coordinate.
+
+    Arithmetic rather than a lookup, so it answers anywhere on Earth and never
+    goes stale. Scanning the CRS database for everything whose area of use
+    contains the point is the obvious alternative and is not viable: 13 790
+    definitions take ~41 s and return 348 hits, which is neither a tool call
+    nor an answer.
+    """
+    zone = int((longitude + 180.0) / 6.0) + 1
+    zone = max(1, min(60, zone))
+    return f"EPSG:{326 if latitude >= 0 else 327}{zone:02d}"
+
+
+def _crs_covers(crs: Any, longitude: float, latitude: float) -> bool:
+    """Whether ``crs``'s declared area of use contains the point."""
+    with contextlib.suppress(Exception):
+        bounds = crs.bounds()
+        return (
+            bounds.xMinimum() <= longitude <= bounds.xMaximum()
+            and bounds.yMinimum() <= latitude <= bounds.yMaximum()
+        )
+    return False
+
+
+def _crs_suggestion(crs: Any, reason: str) -> Optional[Dict[str, Any]]:
+    with contextlib.suppress(Exception):
+        if not crs.isValid() or not crs.authid():
+            return None
+        return {
+            "crs": agent_context.bound_text(crs.authid(), 32),
+            "description": agent_context.bound_text(crs.description(), 120),
+            "reason": reason,
+        }
+    return None
+
+
+def _tool_suggest_crs(call: AgentToolCall) -> Dict[str, Any]:
+    """Metric CRS candidates for a layer, so "the local CRS" is answerable.
+
+    Without this the agent had to invent an answer to "reproject to the local
+    CRS" and the proposal died on "A CRS must look like AUTHORITY:CODE" -- a
+    malformed-input error for a question it had no way to research. Every
+    candidate here is a live QGIS CRS whose area of use actually contains the
+    layer, so the authid is real by construction.
+    """
+    layer_id = call.arguments.get("layer_id")
+    if not isinstance(layer_id, str) or not layer_id.strip():
+        raise ToolExecutionError("layer_id must be a non-empty string.")
+    project = QgsProject.instance()
+    layer = project.mapLayer(layer_id) if project is not None else None
+    if layer is None:
+        return {
+            "available": False,
+            "layer_id": agent_context.bound_text(layer_id, 128),
+        }
+
+    source_crs = layer.crs()
+    result: Dict[str, Any] = {
+        "available": True,
+        "layer_id": agent_context.bound_text(layer_id, 128),
+        "current_crs": agent_context.bound_text(
+            source_crs.authid() if source_crs is not None else "", 32
+        ),
+        "current_crs_area_safe": crs_is_area_safe(source_crs),
+    }
+
+    wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+    longitude = latitude = None
+    with contextlib.suppress(Exception):
+        extent = layer.extent()
+        if not extent.isEmpty() and source_crs is not None and source_crs.isValid():
+            transform = QgsCoordinateTransform(source_crs, wgs84, project)
+            geographic = transform.transformBoundingBox(extent)
+            longitude = geographic.center().x()
+            latitude = geographic.center().y()
+    if longitude is None or latitude is None or not (
+        -180.0 <= longitude <= 180.0 and -90.0 <= latitude <= 90.0
+    ):
+        # No usable footprint: say so rather than suggest a zone for nowhere.
+        result["suggestions"] = []
+        result["locatable"] = False
+        return result
+
+    result["locatable"] = True
+    result["centre_lon"] = round(longitude, 3)
+    result["centre_lat"] = round(latitude, 3)
+
+    suggestions: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    def offer(crs: Any, reason: str) -> None:
+        item = _crs_suggestion(crs, reason)
+        if item is None or item["crs"] in seen:
+            return
+        if not crs_is_area_safe(crs) or not _crs_covers(crs, longitude, latitude):
+            return
+        seen.add(item["crs"])
+        suggestions.append(item)
+
+    # The universal answer first: the UTM zone the layer actually sits in.
+    offer(QgsCoordinateReferenceSystem(_utm_authid(longitude, latitude)), "utm_zone")
+
+    # Then what this user already works in. A national grid (TUREF/TM27 for
+    # western Türkiye, say) is a better local answer than UTM, and reading it
+    # off the project and the CRS history means never shipping a country table
+    # that can go stale or be wrong.
+    with contextlib.suppress(Exception):
+        offer(project.crs(), "project_crs")
+    with contextlib.suppress(Exception):
+        for other in project.mapLayers().values():
+            if other.id() != layer_id:
+                offer(other.crs(), "used_by_another_layer")
+    with contextlib.suppress(Exception):
+        registry = QgsApplication.coordinateReferenceSystemRegistry()
+        for crs in list(registry.recentCrs())[:20]:
+            offer(crs, "recently_used")
+
+    result["suggestions"] = suggestions[:6]
     return result
 
 
@@ -2000,6 +2124,34 @@ def build_default_registry(
             allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
         ),
         _tool_field_values,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="layer.suggest_crs",
+            title="Suggest a metric CRS",
+            description=(
+                "Metric CRS candidates whose area of use actually contains one "
+                "layer: its UTM zone, the project CRS, CRSs used by other "
+                "project layers, and recently used ones. Use this whenever the "
+                "user asks for a 'local', 'metric' or 'projected' CRS without "
+                "naming one, and before any $area/$length calculation on a "
+                "layer whose area_safe_crs is false. Never invent an "
+                "AUTHORITY:CODE; every candidate returned here is live."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "layer_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": _ID_MAX_LENGTH,
+                    }
+                },
+                required=["layer_id"],
+            ),
+            allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
+        ),
+        _tool_suggest_crs,
     )
     registry.register(
         AgentToolSpec(

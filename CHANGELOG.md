@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.5.42] - 2026-08-10
+
+### Four blockers from a twelve-step owner session
+
+The session worked: download, reproject, area column, threshold filter, graduated
+style, reproject again, dissolve, single parts, fix geometries, centroids,
+polygons-to-lines. Four things stopped it, and none of them was the model being
+wrong about GIS.
+
+- **A negative buffer was impossible to express.** "Apply a -2 m buffer" was
+  refused twice with "A distance value must not be negative" — a parse-time rule
+  that never consulted the algorithm. QGIS's own `DISTANCE` minimum is
+  -1.8e308 (probed on 3.44 LTR and 4.2) and a -2 m buffer correctly turns a
+  400 m² square into 256 m². The refusal bought no safety: a negative number
+  cannot reach a path, a URI, or a destination. Range is now decided by the live
+  parameter, which still rejects a negative `SEGMENTS` because its real minimum
+  is 1.
+- **"Reproject to the local CRS" was unanswerable.** Nothing could tell the
+  agent which CRS that is, so it invented one and the run died on "A CRS must
+  look like AUTHORITY:CODE" — a malformed-input error for a question it had no
+  way to research. **New tool `layer.suggest_crs`** returns live candidates
+  whose declared area of use actually contains the layer: its UTM zone
+  (arithmetic, correct anywhere — scanning all 13 790 CRS definitions takes 41 s
+  and returns 348 hits, so it is not an option), the project CRS, CRSs used by
+  other project layers, and recently used ones. No hardcoded country table: for
+  an İzmir layer TUREF/TM27 surfaces because it is already in the project, and
+  it does not leak into an Oslo layer's answer.
+- **One repair budget for a whole request.** A run could spend its single
+  recovery attempt on a malformed envelope and then had nothing left for an
+  unrelated missing `context_token`, ending a twelve-step request on a
+  mechanical error. The budget is now spent per *distinct* fault and capped at
+  three: two different mistakes each get a repair, the same mistake never gets a
+  second one, which was the actual unbounded-token risk.
+- **The ten-action cap could only be renewed by discarding the chat.** Every one
+  of those actions was individually approved by a human click; forcing New chat
+  to continue threw away the layers and notes the next step depended on. The
+  plugin now asks directly whether to allow another ten in the same
+  conversation, at most twice, and every action still needs its own Run or Apply.
+
 ## [1.5.41] - 2026-08-10
 
 - Refresh SmartModeler branding and workflow studio UI

@@ -26,6 +26,8 @@ MAX_SESSION_ACTIONS = 10
 # Mirrors gui/agent_dock.MAX_CHAIN_STEPS, asserted equal below for the same
 # reason.
 MAX_CHAIN_STEPS = 4
+# Mirrors gui/agent_dock.MAX_SESSION_ACTION_EXTENSIONS, asserted equal below.
+MAX_SESSION_ACTION_EXTENSIONS = 2
 
 
 class _ContinuationHarness:
@@ -35,6 +37,7 @@ class _ContinuationHarness:
         self.session_memory = memory
         self.provider_calls = 0
         self._session_action_count = 0
+        self._session_action_extensions = 0
         self.auto_continue = False
         self._chain_steps_left = 0
 
@@ -52,6 +55,16 @@ class _ContinuationHarness:
 
     def session_action_budget_left(self) -> bool:
         return self._session_action_count < MAX_SESSION_ACTIONS
+
+    def extend_session_actions(self, human_says_yes: bool) -> bool:
+        """The dock's extension bookkeeping, minus the Qt question box."""
+        if self._session_action_extensions >= MAX_SESSION_ACTION_EXTENSIONS:
+            return False
+        if not human_says_yes:
+            return False
+        self._session_action_extensions += 1
+        self._session_action_count = 0
+        return True
 
     def send_user_message(self) -> None:
         self._chain_steps_left = MAX_CHAIN_STEPS
@@ -237,6 +250,49 @@ class SessionActionCapTests(unittest.TestCase):
                           re.MULTILINE)
         self.assertIsNotNone(match, "agent_dock must define MAX_SESSION_ACTIONS")
         self.assertEqual(int(match.group(1)), MAX_SESSION_ACTIONS)
+        extensions = re.search(
+            r"^MAX_SESSION_ACTION_EXTENSIONS = (\d+)",
+            source.read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            extensions, "agent_dock must define MAX_SESSION_ACTION_EXTENSIONS"
+        )
+        self.assertEqual(int(extensions.group(1)), MAX_SESSION_ACTION_EXTENSIONS)
+
+    def test_an_explicit_yes_buys_another_block_without_losing_the_chat(self):
+        agent = harness()
+        for _ in range(MAX_SESSION_ACTIONS):
+            agent.record_action_outcome("processing_run", ActionStatus.COMPLETED, "T")
+        self.assertFalse(agent.session_action_budget_left())
+        # The conversation itself survives: this is the whole point of asking
+        # instead of forcing New chat, because the next step needs the layers
+        # and the notes the chat already holds.
+        notes_before = len(agent.session_memory.exchanges())
+        self.assertTrue(agent.extend_session_actions(True))
+        self.assertTrue(agent.session_action_budget_left())
+        self.assertEqual(len(agent.session_memory.exchanges()), notes_before)
+
+    def test_declining_leaves_the_chat_review_only(self):
+        agent = harness()
+        for _ in range(MAX_SESSION_ACTIONS):
+            agent.record_action_outcome("processing_run", ActionStatus.COMPLETED, "T")
+        self.assertFalse(agent.extend_session_actions(False))
+        self.assertFalse(agent.session_action_budget_left())
+
+    def test_extensions_are_finite(self):
+        agent = harness()
+        for _ in range(MAX_SESSION_ACTION_EXTENSIONS):
+            for _ in range(MAX_SESSION_ACTIONS):
+                agent.record_action_outcome(
+                    "processing_run", ActionStatus.COMPLETED, "T"
+                )
+            self.assertTrue(agent.extend_session_actions(True))
+        for _ in range(MAX_SESSION_ACTIONS):
+            agent.record_action_outcome("processing_run", ActionStatus.COMPLETED, "T")
+        # A third Yes is not offered at all, so a chat cannot run forever.
+        self.assertFalse(agent.extend_session_actions(True))
+        self.assertFalse(agent.session_action_budget_left())
 
     def test_budget_is_available_up_to_the_cap(self):
         agent = harness()

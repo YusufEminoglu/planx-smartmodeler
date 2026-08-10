@@ -148,6 +148,61 @@ class BasicLifecycleTests(unittest.TestCase):
         self.assertEqual(failed.kind, RunEventKind.FAILED)
         self.assertEqual(failed.reason_code, "malformed_provider_turn")
 
+    def test_a_second_distinct_fault_still_gets_its_own_repair(self) -> None:
+        # An owner session died here: the run spent its single repair on a
+        # malformed envelope, then hit an unrelated missing context_token and
+        # had nothing left, so a twelve-step request ended on a mechanical
+        # error the application could have asked one question about. Two
+        # different mistakes are ordinary; the same mistake twice is not.
+        loop, _, _, _ = build_loop()
+        first = loop.start("hi", AgentMode.ACT, AgentScope.PROJECT)
+        envelope_repair = loop.submit_provider_response(
+            first.request.request_token, "not json"
+        )
+        self.assertEqual(envelope_repair.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(
+            envelope_repair.tool_events[-1]["strategy"], "repair_response"
+        )
+
+        tokenless = proposal_turn_json(
+            "processing_run",
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "context_token": "",
+                    "algorithm_id": "native:buffer",
+                    "title": "Buffer",
+                    "summary": "Buffer the layer.",
+                    "inputs": {"INPUT": {"layer": "L1"}},
+                    "warnings": [],
+                }
+            ),
+        )
+        token_repair = loop.submit_provider_response(
+            envelope_repair.request.request_token, tokenless
+        )
+        self.assertEqual(token_repair.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(
+            token_repair.tool_events[-1]["strategy"], "repair_typed_proposal"
+        )
+
+        # The same fault a second time is refused, so this cannot loop.
+        failed = loop.submit_provider_response(
+            token_repair.request.request_token, tokenless
+        )
+        self.assertEqual(failed.kind, RunEventKind.FAILED)
+        self.assertEqual(failed.reason_code, "malformed_provider_turn")
+
+    def test_repeating_one_fault_never_earns_a_second_repair(self) -> None:
+        loop, _, _, _ = build_loop()
+        first = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)
+        repaired = loop.submit_provider_response(first.request.request_token, "not json")
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        failed = loop.submit_provider_response(
+            repaired.request.request_token, "still not json"
+        )
+        self.assertEqual(failed.kind, RunEventKind.FAILED)
+
     def test_transient_provider_failure_gets_one_bounded_retry(self) -> None:
         loop, _, _, _ = build_loop()
         first = loop.start("hi", AgentMode.ASK, AgentScope.PROJECT)

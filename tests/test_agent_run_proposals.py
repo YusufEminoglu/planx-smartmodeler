@@ -211,9 +211,19 @@ class ProcessingRunParseTests(unittest.TestCase):
         with self.assertRaises(ProposalError):
             parse_proposal(PROPOSAL_KIND_PROCESSING_RUN, raw)
 
-    def test_negative_distance_rejected(self) -> None:
+    def test_negative_distance_parses(self) -> None:
+        # A negative (inward) buffer is an ordinary QGIS operation and the live
+        # DISTANCE parameter accepts it. Parsing decides shape, not range: any
+        # real floor is enforced against the live parameter by the run planner,
+        # so a blanket refusal here only made "-2 m buffer" inexpressible.
         data = _valid_processing_run()
         data["inputs"]["DISTANCE"] = {"distance": -5}
+        proposal = _parse_pr(data)
+        self.assertEqual(dict(proposal.inputs)["DISTANCE"].value, -5)
+
+    def test_a_non_finite_distance_is_still_rejected(self) -> None:
+        data = _valid_processing_run()
+        data["inputs"]["DISTANCE"] = {"distance": float("nan")}
         with self.assertRaises(ProposalError):
             _parse_pr(data)
 

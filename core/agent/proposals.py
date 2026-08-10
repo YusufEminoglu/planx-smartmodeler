@@ -1131,7 +1131,19 @@ def _safe_id_text(value: Any, maximum: int, label: str) -> str:
     return value
 
 
-def _run_number(value: Any, *, allow_negative: bool) -> Any:
+def _run_number(value: Any) -> Any:
+    """Shape and magnitude only -- the *range* belongs to the live parameter.
+
+    This used to refuse a negative ``distance`` outright. That was wrong: a
+    negative buffer is an ordinary QGIS operation (shrink a polygon inward),
+    QGIS's own ``DISTANCE`` parameter accepts it, and refusing it here bought
+    no safety -- a negative number cannot reach a path, a URI, or a
+    destination. It only made "apply a -2 m buffer" impossible to express, and
+    the model could not repair it because nothing was actually malformed. Any
+    parameter that genuinely has a floor still gets one: ``_plan_number``
+    enforces the live ``minimum``/``maximum``, so the algorithm's own
+    definition decides, not a guess made at parse time.
+    """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ProposalError("A numeric value is required.", ProposalReason.MALFORMED)
     number = float(value)
@@ -1139,8 +1151,6 @@ def _run_number(value: Any, *, allow_negative: bool) -> Any:
         raise ProposalError("A numeric value must be finite.", ProposalReason.MALFORMED)
     if abs(number) > MAX_RUN_NUMBER_ABS:
         raise ProposalError("A numeric value is out of range.", ProposalReason.LIMIT_EXCEEDED)
-    if not allow_negative and number < 0:
-        raise ProposalError("A distance value must not be negative.", ProposalReason.MALFORMED)
     return value
 
 
@@ -1293,9 +1303,9 @@ def _parse_binding(item: Any) -> RunBinding:
     if tag == "layers":
         return RunBinding("layers", _layer_id_list(value))
     if tag == "number":
-        return RunBinding("number", _run_number(value, allow_negative=True))
+        return RunBinding("number", _run_number(value))
     if tag == "distance":
-        return RunBinding("distance", _run_number(value, allow_negative=False))
+        return RunBinding("distance", _run_number(value))
     if tag == "bool":
         if not isinstance(value, bool):
             raise ProposalError("A boolean value is required.", ProposalReason.MALFORMED)

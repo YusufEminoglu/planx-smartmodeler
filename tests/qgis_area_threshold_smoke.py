@@ -285,10 +285,64 @@ def main() -> int:
             "An absent field was not reported as absent.",
         )
 
+        # -- 6. "the local CRS" must be answerable, never invented ----------
+        suggest = registry.get_handler("layer.suggest_crs")
+        _require(suggest is not None, "layer.suggest_crs is not registered.")
+
+        def suggestions(layer, call_id):
+            return suggest(
+                AgentToolCall(
+                    call_id=call_id,
+                    tool_name="layer.suggest_crs",
+                    arguments={"layer_id": layer.id()},
+                )
+            )
+
+        merc_crs = suggestions(mercator, "crs_1")
+        _require(
+            merc_crs.get("current_crs_area_safe") is False,
+            "The Mercator source was not flagged when suggesting a CRS.",
+        )
+        offered = {item["crs"]: item for item in merc_crs.get("suggestions") or ()}
+        _require(bool(offered), "No metric CRS was offered for a Mercator layer.")
+        # The fixture sits at 29E / 41N, which is UTM zone 35N.
+        _require(
+            "EPSG:32635" in offered
+            and offered["EPSG:32635"]["reason"] == "utm_zone",
+            f"The layer's own UTM zone was not offered: {sorted(offered)}",
+        )
+        for authid, item in offered.items():
+            candidate = QgsCoordinateReferenceSystem(authid)
+            _require(
+                candidate.isValid(),
+                f"{authid} was offered but is not a live CRS.",
+            )
+            _require(
+                crs_is_area_safe(candidate),
+                f"{authid} was offered as a metric CRS but is not area-safe.",
+            )
+            bounds = candidate.bounds()
+            _require(
+                bounds.xMinimum() <= merc_crs["centre_lon"] <= bounds.xMaximum()
+                and bounds.yMinimum() <= merc_crs["centre_lat"] <= bounds.yMaximum(),
+                f"{authid} was offered but its area of use excludes the layer.",
+            )
+            _require(
+                bool(item.get("description")),
+                f"{authid} was offered without a description to choose by.",
+            )
+        # A layer already in a metric CRS says so instead of demanding a move.
+        metric_crs = suggestions(metric, "crs_2")
+        _require(
+            metric_crs.get("current_crs_area_safe") is True,
+            "A UTM layer was reported as unsafe to measure in.",
+        )
+
         print(
             "AREA THRESHOLD SMOKE OK - "
             f"metric kept {true_kept}/{len(TRUE_SIDES_M)}, "
-            f"Mercator kept {distorted_kept}, text compare kept {text_kept}"
+            f"Mercator kept {distorted_kept}, text compare kept {text_kept}, "
+            f"CRS offered {sorted(offered)}"
         )
         return 0
     finally:

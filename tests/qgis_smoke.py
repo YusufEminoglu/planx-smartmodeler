@@ -1281,6 +1281,7 @@ def run_checks() -> str:
             "layer.list",
             "layer.describe",
             "layer.field_values",
+            "layer.suggest_crs",
             "processing.search",
             "processing.describe",
             "processing.resolve",
@@ -2533,7 +2534,7 @@ def run_checks() -> str:
         # Workspace inspection tools.
         tool_names = {d["name"] for d in caps_dock.registry.public_tool_descriptions()}
         if (
-            len(tool_names) != 24
+            len(tool_names) != 25
             or "plugin.capabilities" not in tool_names
             or "expression.search" not in tool_names
         ):

@@ -64,10 +64,20 @@ from .branding import build_brand_header
 from .theme import STUDIO_STYLE
 
 # Phase 06: a chat session may complete at most this many terminal actions
-# (applied / completed / canceled / failed / undone). The cap bounds how far one
-# conversation can drive the project before the human must consciously start
-# over with New chat, which also rotates tokens and clears memory and the ledger.
+# (applied / completed / canceled / failed / undone) before the human must
+# consciously decide to keep going. The cap bounds how far one conversation can
+# drive the project without a deliberate human decision.
 MAX_SESSION_ACTIONS = 10
+# How many times that decision may be made in one chat. The cap used to be
+# renewable only by New chat, which also discards the conversation: an owner
+# session ran download -> reproject -> field -> filter -> style -> reproject ->
+# dissolve -> singleparts -> fix -> centroids -> lines and hit the wall with the
+# work still going, where the only way forward was to throw away the context the
+# next step depended on. Destroying the conversation was never the point --
+# making the human choose was -- so the choice is now asked directly, still
+# bounded, and still on top of the per-action Apply/Run click that already gates
+# every single one of these.
+MAX_SESSION_ACTION_EXTENSIONS = 2
 # How many automatic continuations one user message may trigger. A chained
 # request in practice is three or four steps ("download, add a field, filter,
 # classify"); beyond that the user should say what they want next.
@@ -225,6 +235,8 @@ class AgentWorkspaceDock(QDockWidget):
         self._running_action = None
         # How many terminal actions this chat session has completed.
         self._session_action_count = 0
+        # How many times the human has chosen to extend that budget.
+        self._session_action_extensions = 0
         # How many times the *current* user message may be continued
         # automatically. The session action cap still gates every approval;
         # this only stops a chain from asking the provider indefinitely.
@@ -1167,14 +1179,24 @@ class AgentWorkspaceDock(QDockWidget):
                 "[proposal] A run is in progress; this proposal is shown for review only."
             )
             return
-        if self.run_loop.mode == AgentMode.ACT and not self._session_action_budget_left():
+        if (
+            self.run_loop.mode == AgentMode.ACT
+            and not self._session_action_budget_left()
+            and not self._ask_to_extend_session_actions()
+        ):
             # The cap gates *acting*, not previewing: a Plan proposal is
             # unaffected and still renders normally below.
             self._clear_approval_card()
+            remaining = MAX_SESSION_ACTION_EXTENSIONS - self._session_action_extensions
             self._append_line(
                 f"[proposal] This chat has already completed its limit of "
                 f"{MAX_SESSION_ACTIONS} actions, so no new action can be approved. "
-                "The proposal above is review-only; start a New chat to continue."
+                + (
+                    "The proposal above is review-only; start a New chat to continue."
+                    if remaining <= 0
+                    else "The proposal above is review-only. Send the request again "
+                    "to be asked once more, or start a New chat."
+                )
             )
             return
         if self.run_loop.mode == AgentMode.ACT and isinstance(ingredients, dict):
@@ -1236,6 +1258,40 @@ class AgentWorkspaceDock(QDockWidget):
 
     def _session_action_budget_left(self) -> bool:
         return self._session_action_count < MAX_SESSION_ACTIONS
+
+    def _ask_to_extend_session_actions(self) -> bool:
+        """Ask the human whether this chat may complete another block of actions.
+
+        Returns True only on an explicit Yes. Nothing here weakens the approval
+        boundary: every action still needs its own Apply/Run click afterwards,
+        and the number of times this may be answered is capped, so a chat is
+        still finite without the conversation having to be discarded to get
+        there.
+        """
+        if self._session_action_extensions >= MAX_SESSION_ACTION_EXTENSIONS:
+            return False
+        answer = QMessageBox.question(
+            self,
+            "Continue this chat?",
+            f"This chat has completed {MAX_SESSION_ACTIONS} actions.\n\n"
+            f"Allow {MAX_SESSION_ACTIONS} more in the same conversation, keeping "
+            f"the layers and context of the work so far? Every action will still "
+            f"need its own Run or Apply approval.\n\n"
+            f"Choose No to keep the chat review-only; New chat always starts a "
+            f"fresh budget.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        self._session_action_extensions += 1
+        self._session_action_count = 0
+        self._append_line(
+            f"[session] Extended by {MAX_SESSION_ACTIONS} more actions "
+            f"({self._session_action_extensions} of "
+            f"{MAX_SESSION_ACTION_EXTENSIONS} allowed)."
+        )
+        return True
 
     def _maybe_continue_chain(self) -> None:
         """Ask for the next step of a multi-step request, if the user opted in.
@@ -1765,6 +1821,7 @@ class AgentWorkspaceDock(QDockWidget):
         self._running_action = None
         self._last_applied = None
         self._session_action_count = 0
+        self._session_action_extensions = 0
         self._chain_steps_left = 0
         self.action_ledger.clear()
         self._clear_approval_card()

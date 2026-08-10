@@ -252,6 +252,9 @@ def select_tools_for_request(
                 # A threshold filter or an area calculation is exactly where a
                 # value-blind agent invents "there simply are none".
                 "layer.field_values",
+                # "reproject to the local CRS" and "add an area column" both
+                # need a real authid; without this the model guesses one.
+                "layer.suggest_crs",
             )
         )
     # OSM requests name a *subject*, and the original three (roads, buildings,

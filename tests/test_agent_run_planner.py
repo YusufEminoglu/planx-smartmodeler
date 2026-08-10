@@ -255,6 +255,27 @@ class ProcessingRunPlannerTests(unittest.TestCase):
         self.assertEqual(plan.binding_for("DISTANCE").value, 25)
         self.assertIs(plan.binding_for("DISSOLVE").value, True)
 
+    def test_a_negative_buffer_distance_is_allowed(self):
+        # Shrinking a polygon inward is an ordinary QGIS operation and the live
+        # DISTANCE parameter's minimum really is -1.8e308, probed on 3.44 LTR
+        # and 4.2. Refusing it at parse time made "-2 m buffer" inexpressible.
+        plan = self.plan(
+            "native:buffer",
+            {"INPUT": {"layer": "L_vec"}, "DISTANCE": {"distance": -2}},
+            BUFFER_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("DISTANCE").value, -2)
+
+    def test_a_parameter_with_a_real_floor_still_enforces_it(self):
+        # SEGMENTS's live minimum is 1.0, so the live definition -- not a guess
+        # made at parse time -- is what rejects a negative here.
+        self.assert_rejects(
+            "native:buffer",
+            {"INPUT": {"layer": "L_vec"}, "SEGMENTS": {"number": -5}},
+            BUFFER_PARAMS,
+            ProposalReason.VALIDATION_FAILED,
+        )
+
     def test_plan_never_contains_a_destination_binding(self):
         plan = self.plan("native:buffer", {"INPUT": {"layer": "L_vec"}}, BUFFER_PARAMS)
         self.assertIsNone(plan.binding_for("OUTPUT"))

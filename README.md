@@ -165,7 +165,9 @@ without a network connection.
 - A chat session can carry a task across several steps: after an action finishes,
   a short sanitized note of what happened stays in the conversation so you can
   say "now style the result". The agent never continues on its own -- you ask
-  each time -- and a session is capped at ten actions. Same-run inspection
+  each time -- and a session is capped at ten actions, after which the plugin
+  asks whether to allow another ten in the same conversation (twice at most)
+  rather than making you discard the work to continue. Same-run inspection
   receipts are reused, explicit field clarifications are authoritative when the
   inspected schema contains that field, and identical successful inspections
   are not repeated. A mechanically missing proposal receipt can be restored

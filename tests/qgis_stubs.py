@@ -14,6 +14,8 @@ from collections.abc import Iterable
 CORE_SYMBOLS = (
     "Qgis",
     "QgsApplication",
+    "QgsCoordinateReferenceSystem",
+    "QgsCoordinateTransform",
     "QgsFeatureRequest",
     "QgsProcessingParameterBoolean",
     "QgsProcessingParameterCrs",
