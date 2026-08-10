@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.39] - 2026-08-10
+
+- Plugin visibility, capability routing, Jenks/quantile classification and opt-in chaining
+
 ## [1.5.38] - 2026-08-09
 
 - Toolbar icon, multi-run proposals, resolve token and multi-layer merge fixes
