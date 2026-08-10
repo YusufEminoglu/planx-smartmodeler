@@ -212,6 +212,16 @@ def select_tools_for_request(
             folded = "\n".join((folded, *recent))
     wanted = set()
     if scope in ("project", "active_layer"):
+        # Resolving an algorithm is this plugin's primary verb, so it is not
+        # something to route by keyword. The table missed "Spacematrix density
+        # işlemini istiyorum", "shape index işlemi" and "tamam yap" alike, and
+        # an agent without processing.resolve cannot resolve anything -- it
+        # spent a whole exchange asking permission to do what it had no tool
+        # for, then reported the capability as missing. Three small schemas is
+        # a far cheaper fixed cost than that failure.
+        wanted.update(
+            ("processing.search", "processing.resolve", "processing.describe")
+        )
         wanted.update(
             ("project.summary", "layer.list", "layer.describe", "layer.field_values")
         )

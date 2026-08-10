@@ -543,15 +543,16 @@ class SmartModelerWindow(QMainWindow):
             # it reached for model_run and died on "There is no current
             # workflow to run". Neither was a planning mistake; the request
             # never said which artefact to produce.
+            # Name the artefact, and nothing else. Describing the payload in
+            # prose here produced exactly the wrong keys -- "adds the nodes and
+            # the connections" invited a {nodes, connections} object when the
+            # schema is a single `operations` array. The schema itself belongs
+            # in the instruction pack (18_WORKFLOW_PATCH.md), which is loaded
+            # for this scope, and is quoted there rather than paraphrased.
             contract = (
-                "\n\nBuild this as a Workflow Studio graph. Return exactly one "
-                "model_patch proposal that adds the Processing nodes and the "
-                "connections between them. Do not return a processing_run or a "
-                "model_run: this scope accepts neither, and nothing is executed "
-                "here. Resolve each algorithm's live signature with "
-                "processing.resolve before adding its node. Do not bind input "
-                "layers -- a workflow names algorithms and parameters, and the "
-                "user chooses layers later in Run setup."
+                "\n\nBuild this as a Workflow Studio graph: return exactly one "
+                "model_patch proposal, following the payload documented for "
+                "this scope."
             )
             request = (
                 "Improve the currently open workflow according to this request. "

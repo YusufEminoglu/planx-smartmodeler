@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.5.50] - 2026-08-10
+
+### The Workflow Studio schema was never sent to the model
+
+Build workflow produced three different malformed proposals in a row —
+`{nodes, connections}` instead of `operations`, an `add_node` without a
+`title`, `parameters` as an object rather than an array. None was a guess the
+model should have got right: **the pack documenting the `model_patch` payload
+was never loaded.** Only `05_AGENT_CORE.md` and a few keyword-triggered packs
+are sent, and the core carries the `processing_run` and `layer_style` shapes
+only. The provider was being asked for a payload whose schema it had never seen.
+
+- New **`18_WORKFLOW_PATCH.md`**, loaded whenever the scope is Current model:
+  the exact envelope, a worked example, the requirement that every `add_node`
+  carries `node_id`, `algorithm_id`, `title` and an array `parameters`, the
+  full operation list, and the difference between replacing and improving a
+  workflow.
+- The Studio's own request now only *names* the artefact. Describing the
+  payload in prose there had caused the wrong keys: "adds the nodes and the
+  connections" invited a `{nodes, connections}` object.
+
+### An agent that could not resolve anything
+
+Asked for PlanX's Spacematrix density tool, the agent offered to inspect it,
+then asked again, then said its tools could not resolve algorithm parameters at
+all. They could not: `processing.resolve` was **not advertised on that turn**.
+The tool pack is chosen by matching keywords in the message, and none of
+"Spacematrix density işlemini istiyorum", "shape index işlemi", "tamam yap" or
+"onay verdim" contains a verb the table knows.
+
+Resolving an algorithm is this plugin's primary verb, so it is no longer routed
+by keyword: `processing.search`, `processing.resolve` and `processing.describe`
+are always advertised in the Project and Active layer scopes, as they now are in
+Current model. Three small schemas are a far cheaper fixed cost than an agent
+reporting its main capability as missing.
+
 ## [1.5.49] - 2026-08-10
 
 ### A plugin's algorithms were being cut off alphabetically

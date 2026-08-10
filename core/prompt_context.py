@@ -98,6 +98,15 @@ class PromptContextLoader:
             )
         ):
             names.append("17_STYLE.md")
+        # The Current model scope accepts only model_patch/model_run, and the
+        # compact core documents neither -- it carries the processing_run and
+        # layer_style shapes only. So Workflow Studio's Build workflow asked a
+        # provider for a payload whose schema it had never been shown, and got
+        # three different guesses in a row: {nodes, connections} instead of
+        # operations, add_node without a title, parameters as an object. The
+        # pack below is the schema, loaded exactly where it is the answer.
+        if str(scope) == "current_model":
+            names.append("18_WORKFLOW_PATCH.md")
         if power_enabled:
             names.append("25_POWER_MODE.md")
         if str(scope) == "workspace":

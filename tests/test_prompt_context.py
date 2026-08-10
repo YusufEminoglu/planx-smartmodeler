@@ -49,6 +49,16 @@ class PromptContextTests(unittest.TestCase):
         generic_power_on = loader.agent_context(
             "hazır", "project", power_enabled=True
         )
+        # The Current model scope accepts only model_patch/model_run, and the
+        # compact core documents neither. Without this pack Workflow Studio
+        # asked a provider for a payload whose schema it had never been shown,
+        # and got three different guesses in a row.
+        workflow = loader.agent_context("Build a slope workflow", "current_model")
+        self.assertIn("model_patch", workflow)
+        self.assertIn('"op":"add_node"', workflow)
+        self.assertIn("operations", workflow)
+        self.assertNotIn('"op":"add_node"', basic)
+
         self.assertIn("SmartModeler Agent core contract", basic)
         self.assertNotIn("# QGIS expressions", basic)
         self.assertIn("# QGIS expressions", expression)

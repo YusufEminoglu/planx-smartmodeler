@@ -60,6 +60,35 @@ class ScopeFilterTests(unittest.TestCase):
         selected = select_tools_for_scope([PROJECT_TOOL, MODEL_TOOL], AgentScope.PROJECT)
         self.assertEqual([spec.name for spec in selected], ["project.summary"])
 
+    def test_processing_lookups_are_not_routed_by_keyword(self) -> None:
+        # Real messages from an owner session. None of them contains a verb the
+        # keyword table knows, so none of them used to advertise
+        # processing.resolve -- and an agent without it cannot resolve an
+        # algorithm. It spent an entire exchange asking permission to do what
+        # it had no tool for, then reported the capability as missing.
+        tools = [
+            make_tool(name, [AgentScope.PROJECT])
+            for name in (
+                "project.summary", "layer.list", "layer.describe",
+                "processing.search", "processing.resolve", "processing.describe",
+            )
+        ]
+        for message in (
+            "Spacematrix density işlemini istiyorum",
+            "shape index işlemi",
+            "tamam yap",
+            "onay verdim",
+        ):
+            with self.subTest(message=message):
+                selected = {
+                    spec.name
+                    for spec in select_tools_for_request(
+                        tools, AgentScope.PROJECT, message, power_enabled=False
+                    )
+                }
+                self.assertIn("processing.resolve", selected)
+                self.assertIn("processing.describe", selected)
+
     def test_current_model_scope_always_carries_the_processing_lookups(self) -> None:
         # Building a graph means looking up algorithm signatures. These used to
         # arrive only when the request happened to contain a verb the keyword
