@@ -24,6 +24,33 @@ For a request to add a calculated column to one vector layer:
 4. Return the validated `processing_run` proposal. Never claim that Field
    Calculator is manual-only when its live description is runnable.
 
+## `$area` is only metres in a CRS that measures metres
+
+`$area`, `$length` and `$perimeter` are computed in the **layer's own CRS**,
+and two families give a wrong number without any warning:
+
+- a **geographic** CRS (EPSG:4326 and friends) measures degrees, so the result
+  is not an area at all;
+- a **Mercator** CRS — EPSG:3857, which is what every OSM/XYZ download hands
+  over — reports metres inflated by `1/cos²(latitude)`. That is **1.76× at 41°
+  north**: a real 324 m² building measures 569 m², so "smaller than 400 m²"
+  silently discards it, and in a district of ordinary 250–400 m² footprints the
+  filter returns *nothing at all*.
+
+`layer.list` and `layer.describe` report `area_safe_crs` for exactly this.
+When it is `false`, propose `native:reprojectlayer` to a local metric CRS
+(a UTM zone, or EPSG:5254 for Türkiye) **first**, then calculate on the result.
+A measure bound to a layer whose CRS is not area-safe is rejected by the run
+planner, so proposing one anyway costs the user a turn.
+
+## Recalculating a field never changes its type
+
+`native:fieldcalculator` keeps the **existing** type when `FIELD_NAME` already
+exists on the input: the `FIELD_TYPE` you bind is ignored, the run reports
+success, and the field is exactly what it was. Converting `alan_m2` from text
+to integer by recalculating `alan_m2` therefore does nothing at all, while
+looking like it worked. Always write a conversion to a **new** field name.
+
 Core syntax:
 
 - Numbers are unquoted: `15`, `3.5`.

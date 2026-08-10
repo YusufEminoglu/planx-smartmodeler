@@ -122,6 +122,12 @@ class LayerView:
     name: str
     kind: str
     field_names: FrozenSet[str] = frozenset()
+    # Field name -> QGIS type name ("Integer", "String", "Real", ...), lowered.
+    # A binding validator that knows only *whether* a field exists cannot see
+    # that "<" on a String field is a lexicographic comparison.
+    field_types: Mapping[str, str] = field(default_factory=dict)
+    # False for a geographic or Mercator CRS, where $area/$length is distorted.
+    area_safe_crs: bool = True
 
 
 @dataclass(frozen=True)
@@ -305,6 +311,157 @@ def _plan_field(
     return binding.value
 
 
+_ATTRIBUTE_FILTER_ID = "native:extractbyattribute"
+_FIELD_CALCULATOR_ID = "native:fieldcalculator"
+
+# Live QGIS option labels for an *ordering* comparison. On a text field QGIS
+# compares these lexicographically without warning, so "1097" < "400" is true
+# and "568" < "400" is false: the run succeeds and the answer is nonsense.
+_ORDERING_OPERATORS = frozenset({"<", "<=", ">", ">=", "≤", "≥"})
+
+# Geometry measures whose value depends entirely on the layer's CRS.
+_MEASURE_TOKENS = (
+    "$area",
+    "$length",
+    "$perimeter",
+    "area(",
+    "length(",
+    "perimeter(",
+)
+
+def _type_family(type_name: str) -> str:
+    """Collapse a QGIS type name onto the family a value comparison cares about."""
+    text = str(type_name or "").casefold()
+    if any(token in text for token in ("string", "text", "varchar", "char")):
+        return "text"
+    if "bool" in text:
+        return "boolean"
+    if "datetime" in text or "date & time" in text:
+        return "datetime"
+    if "date" in text:
+        return "date"
+    if "time" in text:
+        return "time"
+    if any(token in text for token in ("int", "integer")):
+        return "integer"
+    if any(
+        token in text for token in ("real", "double", "float", "decimal", "numeric")
+    ):
+        return "real"
+    return text
+
+
+def _looks_numeric(value: Any) -> bool:
+    try:
+        float(str(value).strip().replace(",", "."))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _bound_vector_views(
+    layers_by_param: Mapping[str, Tuple[LayerView, ...]]
+) -> Tuple[LayerView, ...]:
+    return tuple(
+        view
+        for views in layers_by_param.values()
+        for view in views
+        if view.kind == VECTOR
+    )
+
+
+def _check_semantic_traps(
+    algorithm_id: str,
+    resolved: Sequence[ResolvedBinding],
+    params_by_name: Mapping[str, ParamSpec],
+    layers_by_param: Mapping[str, Tuple[LayerView, ...]],
+) -> None:
+    """Refuse the runs QGIS executes happily and answers wrongly.
+
+    Everything above this point checks that a binding is *well formed*: the
+    parameter exists, the field exists, the enum index is in range. All three
+    traps below pass every one of those checks and still produce a confidently
+    wrong layer, which is worse than an error -- an owner session spent six
+    turns concluding "no building is under 400 m^2" when a third of them were.
+    """
+    values = {binding.param: binding.value for binding in resolved}
+
+    # Trap 1 -- an ordering comparison against a text field.
+    if algorithm_id == _ATTRIBUTE_FILTER_ID:
+        field_name = values.get("FIELD")
+        operator_spec = params_by_name.get("OPERATOR")
+        operator_index = values.get("OPERATOR")
+        options = tuple(getattr(operator_spec, "options", ()) or ())
+        label = ""
+        if isinstance(operator_index, int) and 0 <= operator_index < len(options):
+            label = str(options[operator_index]).strip()
+        views = layers_by_param.get("INPUT", ())
+        field_type = ""
+        if views and isinstance(field_name, str):
+            field_type = views[0].field_types.get(field_name, "")
+        if (
+            label in _ORDERING_OPERATORS
+            and _type_family(field_type) == "text"
+            and _looks_numeric(values.get("VALUE"))
+        ):
+            _reject(
+                f"Field {field_name!r} is text, so QGIS would compare it to "
+                f"{values.get('VALUE')!r} letter by letter, not as a number: "
+                f"'1097' would count as smaller than '400'. Calculate the "
+                f"value into a NEW numeric field first, then filter on that.",
+                ProposalReason.VALIDATION_FAILED,
+            )
+
+    # Trap 2 -- retyping a field by recalculating it under the same name.
+    if algorithm_id == _FIELD_CALCULATOR_ID:
+        new_name = values.get("FIELD_NAME")
+        type_spec = params_by_name.get("FIELD_TYPE")
+        type_index = values.get("FIELD_TYPE")
+        options = tuple(getattr(type_spec, "options", ()) or ())
+        views = layers_by_param.get("INPUT", ())
+        existing = ""
+        if views and isinstance(new_name, str):
+            existing = views[0].field_types.get(new_name, "")
+        if (
+            existing
+            and isinstance(type_index, int)
+            and 0 <= type_index < len(options)
+        ):
+            wanted = _type_family(str(options[type_index]))
+            if wanted != _type_family(existing):
+                _reject(
+                    f"Field {new_name!r} already exists as {existing!r} and "
+                    f"QGIS keeps that type when it recalculates a field: the "
+                    f"run would report success and change nothing. Write the "
+                    f"result to a NEW field name instead.",
+                    ProposalReason.VALIDATION_FAILED,
+                )
+
+    # Trap 3 -- a geometry measure on a CRS that does not measure in true metres.
+    measures = [
+        binding
+        for binding in resolved
+        if binding.tag == "expression"
+        and any(token in str(binding.value).casefold() for token in _MEASURE_TOKENS)
+    ]
+    if measures:
+        distorted = [
+            view for view in _bound_vector_views(layers_by_param) if not view.area_safe_crs
+        ]
+        if distorted:
+            names = ", ".join(_preview_value(view.name) for view in distorted[:3])
+            _reject(
+                f"A geometry measure ($area/$length) was requested on {names}, "
+                f"whose CRS does not measure in true metres -- a geographic CRS "
+                f"measures degrees, and Web Mercator (EPSG:3857, what every OSM "
+                f"download returns) inflates area by 1/cos^2(latitude): 1.76x at "
+                f"41 degrees north, so a real 324 m^2 building measures 569 m^2. "
+                f"Reproject the layer to a local metric CRS with "
+                f"native:reprojectlayer first, then measure on the result.",
+                ProposalReason.VALIDATION_FAILED,
+            )
+
+
 def plan_processing_run(
     proposal: Any,
     policy: SafeAlgorithmPolicy,
@@ -419,6 +576,10 @@ def plan_processing_run(
             value = str(binding.value)
         resolved.append(ResolvedBinding(param=param, kind=kind, tag=tag, value=value))
         preview.append(f"{param}: {_preview_value(value)}")
+
+    _check_semantic_traps(
+        proposal.algorithm_id, resolved, params_by_name, layers_by_param
+    )
 
     # Every reviewed required input must actually be bound.
     bound_names = {binding.param for binding in resolved}
@@ -596,6 +757,11 @@ class RunResultSummary:
     layer_names: Tuple[str, ...] = field(default_factory=tuple)
     layer_ids: Tuple[str, ...] = field(default_factory=tuple)
     lines: Tuple[str, ...] = field(default_factory=tuple)
+    # Names of result layers that came back holding nothing. A record count is
+    # an aggregate, not a feature value, and "it produced a layer" read as
+    # success for an empty one long enough for the agent to narrate a filter
+    # that had matched nothing as if it had worked.
+    empty_layer_names: Tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -605,5 +771,6 @@ class RunResultSummary:
             "layer_names": list(self.layer_names),
             "layer_ids": list(self.layer_ids),
             "layer_count": len(self.layer_ids),
+            "empty_layer_names": list(self.empty_layer_names),
             "lines": list(self.lines),
         }

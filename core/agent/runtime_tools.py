@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 from qgis.core import (
     Qgis,
     QgsApplication,
+    QgsFeatureRequest,
     QgsProject,
     QgsRasterLayer,
     QgsVectorLayer,
@@ -44,6 +45,11 @@ DEFAULT_PROCESSING_RESOLVE_LIMIT = 8
 # Package names are short strings, so far more of them fit than detailed rows.
 # Whether a plugin is installed must never depend on where its name sorts.
 MAX_PLUGIN_NAMES = 300
+
+# Mercator authids used only when a CRS exposes no PROJ string to inspect.
+_MERCATOR_AUTHIDS = frozenset(
+    {"EPSG:3857", "EPSG:900913", "EPSG:3785", "EPSG:102100", "ESRI:102100"}
+)
 
 _QUERY_MAX_LENGTH = 200
 _ID_MAX_LENGTH = 200
@@ -168,6 +174,48 @@ def _layer_is_visible(layer: Any) -> bool:
     return bool(node.itemVisibilityChecked()) if node is not None else True
 
 
+def crs_is_area_safe(crs: Any) -> bool:
+    """Whether ``$area``/``$length`` on a layer in ``crs`` returns true metres.
+
+    Two families are not safe and neither announces itself:
+
+    * a **geographic** CRS measures in degrees, so ``$area`` is a number with
+      no physical meaning at all;
+    * a **Mercator** CRS (EPSG:3857 and its aliases -- what every OSM/XYZ
+      download hands over) reports metres, but conformal ones inflated by
+      ``1/cos^2(latitude)``: 1.76x at 41 degrees north. A genuinely 324 m^2
+      building measures 569 m^2 there, so a "smaller than 400 m^2" filter
+      quietly discards it and reports success.
+
+    An unknown or invalid CRS is treated as unsafe: refusing a run the caller
+    can fix by reprojecting is cheaper than shipping a plausible wrong number.
+    """
+    if crs is None:
+        return False
+    try:
+        if not crs.isValid():
+            return False
+        if crs.isGeographic():
+            return False
+    except AttributeError:
+        return False
+    projection = ""
+    for accessor in ("toProj", "toProj4"):
+        method = getattr(crs, accessor, None)
+        if method is None:
+            continue
+        with contextlib.suppress(Exception):
+            projection = str(method() or "")
+        if projection:
+            break
+    if not projection:
+        # No PROJ string to inspect: fall back to the authids that matter.
+        with contextlib.suppress(Exception):
+            return crs.authid() not in _MERCATOR_AUTHIDS
+        return False
+    return "+proj=merc" not in projection.lower()
+
+
 def _layer_summary(
     layer: Any, active_layer_id: str = ""
 ) -> agent_context.LayerSummary:
@@ -189,6 +237,7 @@ def _layer_summary(
         visible=_layer_is_visible(layer),
         provider_key=provider_key,
         active=bool(active_layer_id and layer.id() == active_layer_id),
+        area_safe_crs=crs_is_area_safe(crs),
     )
 
 
@@ -265,6 +314,75 @@ def _tool_layer_describe(call: AgentToolCall) -> Dict[str, Any]:
         _layer_summary(layer), fields, limit, feature_count=feature_count
     )
     result["available"] = True
+    return result
+
+
+def _tool_field_values(call: AgentToolCall) -> Dict[str, Any]:
+    """Statistics and a bounded value sample for one named field.
+
+    The only tool that returns attribute values, and it returns them for one
+    explicitly named field of one explicitly named layer -- never a feature,
+    never a row, never a second field alongside. See ``build_field_values``
+    for why the exception exists.
+    """
+    layer_id = call.arguments.get("layer_id")
+    if not isinstance(layer_id, str) or not layer_id.strip():
+        raise ToolExecutionError("layer_id must be a non-empty string.")
+    field_name = call.arguments.get("field_name")
+    if not isinstance(field_name, str) or not field_name.strip():
+        raise ToolExecutionError("field_name must be a non-empty string.")
+    field_name = field_name.strip()
+    limit = call.arguments.get("limit")
+    limit = (
+        agent_context.DEFAULT_VALUE_SAMPLE
+        if not isinstance(limit, int) or isinstance(limit, bool)
+        else limit
+    )
+
+    project = QgsProject.instance()
+    layer = project.mapLayer(layer_id) if project is not None else None
+    if layer is None or not isinstance(layer, QgsVectorLayer):
+        return {
+            "available": False,
+            "layer_id": agent_context.bound_text(layer_id, 128),
+        }
+    index = layer.fields().lookupField(field_name)
+    if index < 0:
+        return {
+            "available": False,
+            "layer_id": agent_context.bound_text(layer_id, 128),
+            "field_name": agent_context.bound_text(field_name, 128),
+            "field_missing": True,
+        }
+    field_type = ""
+    with contextlib.suppress(Exception):
+        field_type = layer.fields().at(index).typeName()
+
+    feature_count = 0
+    with contextlib.suppress(Exception):
+        feature_count = layer.featureCount()
+    values: List[Any] = []
+    try:
+        request = QgsFeatureRequest()
+        request.setFlags(QgsFeatureRequest.NoGeometry)
+        request.setSubsetOfAttributes([index])
+        for feature in layer.getFeatures(request):
+            value = feature.attribute(index)
+            # QGIS hands a typed null back as QVariant/NULL rather than None.
+            values.append(None if value is None or str(value) == "NULL" else value)
+    except Exception as error:  # pragma: no cover - provider-specific failures
+        raise ToolExecutionError("The field values could not be read.") from error
+
+    result = agent_context.build_field_values(
+        field_name,
+        field_type,
+        values,
+        total_count=feature_count,
+        limit=limit,
+    )
+    result["available"] = True
+    result["layer_id"] = agent_context.bound_text(layer_id, 128)
+    result["area_safe_crs"] = crs_is_area_safe(layer.crs())
     return result
 
 
@@ -1843,6 +1961,45 @@ def build_default_registry(
             allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
         ),
         _tool_layer_describe,
+    )
+    registry.register(
+        AgentToolSpec(
+            name="layer.field_values",
+            title="Read field values",
+            description=(
+                "Statistics and a bounded value sample for ONE named field of "
+                "one layer: minimum, maximum, mean, median, null count, "
+                "distinct count, and up to 50 values. Ordering statistics "
+                "appear only when every value is numeric. Call this before "
+                "concluding that a filter legitimately matched nothing, and "
+                "after any run whose result looks empty or surprising -- a "
+                "count alone cannot tell a correct empty result from a wrong "
+                "one. Never returns a feature, a row, or a source URI."
+            ),
+            risk=AgentRisk.READ_ONLY,
+            input_schema=_object_schema(
+                {
+                    "layer_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": _ID_MAX_LENGTH,
+                    },
+                    "field_name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": agent_context.MAX_VALUE_SAMPLE,
+                    },
+                },
+                required=["layer_id", "field_name"],
+            ),
+            allowed_scopes=(AgentScope.PROJECT, AgentScope.ACTIVE_LAYER),
+        ),
+        _tool_field_values,
     )
     registry.register(
         AgentToolSpec(

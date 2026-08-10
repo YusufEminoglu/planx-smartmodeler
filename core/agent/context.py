@@ -1,13 +1,18 @@
-"""Bounded, metadata-only context builders for the Agent Workspace.
+"""Bounded context builders for the Agent Workspace.
 
 This module is pure Python with no QGIS imports, so it can be unit tested
 without a QGIS runtime. QGIS-specific data collection lives in
 ``runtime_tools.py``, which converts live QGIS objects into the plain
 dataclasses defined here before any bounding/formatting happens.
 
-Only metadata is ever accepted by the builders below: there is no parameter
-for a feature/attribute value, a source path, a URI, or a credential, so a
-caller cannot smuggle forbidden data into a tool result through this module.
+Source paths, URIs, connection strings, and credentials are still structurally
+impossible to return: no builder here accepts one. Attribute *values* are the
+single deliberate exception, and only through :func:`build_field_values` --
+every other builder remains metadata-only. That exception exists because an
+agent that cannot see a value cannot tell "the filter matched nothing" from
+"the filter was wrong", and it filled the gap by inventing an answer. Values
+arrive pre-bounded: one named field at a time, capped sample length, capped
+per-value text.
 """
 from __future__ import annotations
 
@@ -20,6 +25,12 @@ MAX_DISPLAY_NAME = 200
 MAX_SHORT_TEXT = 64
 DEFAULT_LIST_LIMIT = 25
 MAX_LIST_ITEMS = 100
+
+# Bounds for ``build_field_values``. One field, a short sample, short values:
+# enough to diagnose a filter that returned nothing, never a table export.
+DEFAULT_VALUE_SAMPLE = 20
+MAX_VALUE_SAMPLE = 50
+MAX_VALUE_TEXT = 120
 
 # Bounds for the richer Phase 03 read-only summaries.
 MAX_SYMBOL_LAYERS = 12
@@ -171,6 +182,11 @@ class LayerSummary:
     visible: bool = True
     provider_key: str = ""
     active: bool = False
+    # False when $area/$length on this layer would return distorted numbers --
+    # a geographic CRS (degrees) or a Mercator one (metres, but inflated by
+    # 1/cos^2(latitude)). Both report "metres" or look ordinary otherwise, so
+    # the CRS authid alone does not warn anybody.
+    area_safe_crs: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -182,6 +198,7 @@ class LayerSummary:
             "visible": bool(self.visible),
             "provider_key": bound_text(self.provider_key, MAX_SHORT_TEXT),
             "active": bool(self.active),
+            "area_safe_crs": bool(self.area_safe_crs),
         }
 
 
@@ -266,6 +283,81 @@ def build_layer_description(
     result["fields_truncated"] = truncated
     if feature_count is not None and feature_count >= 0:
         result["feature_count"] = int(feature_count)
+    return result
+
+
+def _finite_number(value: Any) -> Optional[float]:
+    """``value`` as a JSON-safe finite float, or ``None`` when it is neither."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or not -1e308 < number < 1e308:
+        return None
+    return round(number, 6)
+
+
+def build_field_values(
+    field_name: str,
+    field_type: str,
+    values: Iterable[Any],
+    *,
+    total_count: int,
+    limit: int = DEFAULT_VALUE_SAMPLE,
+) -> Dict[str, Any]:
+    """Aggregate statistics plus a bounded sample for one attribute field.
+
+    ``values`` is the full non-truncated value sequence for the field: the
+    statistics below are computed over all of it, while only the first
+    ``limit`` values (capped at :data:`MAX_VALUE_SAMPLE`) are echoed back. The
+    caller is responsible for passing values from exactly one field, which is
+    what keeps this bounded -- there is no shape here that can return a row.
+
+    ``minimum``/``maximum``/``mean``/``median`` are present only when every
+    non-null value is numeric, because an ordering statistic over mixed or
+    textual data is exactly the silent nonsense this tool exists to expose.
+    """
+    clamped = max(1, min(int(limit or DEFAULT_VALUE_SAMPLE), MAX_VALUE_SAMPLE))
+    materialized = list(values)
+    non_null = [item for item in materialized if item is not None]
+    numbers = [_finite_number(item) for item in non_null]
+    numeric = bool(non_null) and all(number is not None for number in numbers)
+
+    sample = [
+        None if item is None else bound_text(item, MAX_VALUE_TEXT)
+        for item in materialized[:clamped]
+    ]
+    distinct: set = set()
+    for item in non_null:
+        distinct.add(bound_text(item, MAX_VALUE_TEXT))
+        if len(distinct) > MAX_LIST_ITEMS:
+            break
+
+    result: Dict[str, Any] = {
+        "field_name": bound_text(field_name, 128),
+        "field_type": bound_text(field_type, MAX_SHORT_TEXT),
+        "numeric": numeric,
+        "feature_count": max(0, int(total_count)),
+        "null_count": len(materialized) - len(non_null),
+        "distinct_count": min(len(distinct), MAX_LIST_ITEMS),
+        "distinct_count_exact": len(distinct) <= MAX_LIST_ITEMS,
+        "sample": sample,
+        "sample_truncated": len(materialized) > len(sample),
+    }
+    if numeric:
+        ordered = sorted(number for number in numbers if number is not None)
+        middle = len(ordered) // 2
+        median = (
+            ordered[middle]
+            if len(ordered) % 2
+            else (ordered[middle - 1] + ordered[middle]) / 2.0
+        )
+        result["minimum"] = ordered[0]
+        result["maximum"] = ordered[-1]
+        result["mean"] = round(sum(ordered) / len(ordered), 6)
+        result["median"] = round(median, 6)
     return result
 
 

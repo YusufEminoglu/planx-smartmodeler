@@ -62,7 +62,12 @@ class PromptContextTests(unittest.TestCase):
         # request answered with prose instead of the first proposal -- are only
         # preventable from this always-loaded pack, and squeezing the wording
         # further was costing clarity rather than tokens.
-        self.assertLess(len(basic), 5_600)
+        # Raised again to 5 900 for the worst class yet: an owner session where
+        # a filter returned nothing and the agent explained the absence
+        # ("all buildings must be over 400 m2") instead of reading the field.
+        # A fabricated conclusion is not task-specific, so the rule against it
+        # cannot live in an on-demand pack.
+        self.assertLess(len(basic), 5_900)
 
 
 class FakeMarkdown:

@@ -1280,6 +1280,7 @@ def run_checks() -> str:
             "project.summary",
             "layer.list",
             "layer.describe",
+            "layer.field_values",
             "processing.search",
             "processing.describe",
             "processing.resolve",
@@ -1404,9 +1405,11 @@ def run_checks() -> str:
         if layer_describe_result.data.get("feature_count") != 1:
             raise RuntimeError("layer.describe did not report the layer's feature count.")
 
-        # Attribute values must never become provider-visible tool results.
-        # Keep a layer with sensitive-looking values in the project and prove
-        # that the registry exposes no value-inspection tool for it.
+        # Attribute values reach the provider through exactly one tool, and it
+        # answers about one *named* field of one *named* layer. Keep a layer
+        # with sensitive-looking values in the project and prove both halves:
+        # the tool reports that field honestly, and it still refuses to hand
+        # back a source URI or a geometry alongside it.
         tagged_layer = QgsVectorLayer("Point?crs=EPSG:3857", "smoke_highways", "memory")
         tagged_layer.dataProvider().addAttributes(
             [QgsField("highway", QMetaType.Type.QString)]
@@ -1421,8 +1424,76 @@ def run_checks() -> str:
         tagged_layer.dataProvider().addFeatures(tagged_features)
         tagged_layer.updateExtents()
         project.addMapLayer(tagged_layer)
-        if "layer.field_values" in registry_tool_names:
-            raise RuntimeError("Attribute-value inspection reached the provider tool registry.")
+        values_result = live_controller.execute(
+            AgentToolCall(
+                call_id="smoke_field_values",
+                tool_name="layer.field_values",
+                arguments={
+                    "layer_id": tagged_layer.id(),
+                    "field_name": "highway",
+                },
+            ),
+            AgentMode.ASK,
+            AgentScope.PROJECT,
+        )
+        if (
+            values_result.status != AgentResultStatus.SUCCESS
+            or values_result.data.get("available") is not True
+        ):
+            raise RuntimeError("layer.field_values failed against the smoke layer.")
+        values_data = values_result.data
+        if values_data.get("null_count") != 1:
+            raise RuntimeError("layer.field_values miscounted the NULL value.")
+        if values_data.get("distinct_count") != 2:
+            raise RuntimeError("layer.field_values miscounted the distinct values.")
+        if values_data.get("numeric") is not False:
+            raise RuntimeError("A text field was reported as numeric.")
+        for statistic in ("minimum", "maximum", "mean", "median"):
+            if statistic in values_data:
+                raise RuntimeError(
+                    f"A text field reported {statistic}, which is the same "
+                    "lexicographic nonsense the run planner refuses."
+                )
+        if values_data.get("area_safe_crs") is not False:
+            raise RuntimeError(
+                "A Web Mercator layer was not flagged as unsafe to measure in."
+            )
+        values_text = str(values_data)
+        if "memory?" in values_text or "POINT(" in values_text.upper():
+            raise RuntimeError(
+                "layer.field_values leaked a source URI or a geometry."
+            )
+        # The answer is about the one named field, not the layer's schema: a
+        # tool that also returned the field list would be a table export in
+        # disguise. (layer_id legitimately contains the layer name.)
+        if values_data.get("field_name") != "highway" or "fields" in values_data:
+            raise RuntimeError("layer.field_values returned unrequested data.")
+        missing_field_result = live_controller.execute(
+            AgentToolCall(
+                call_id="smoke_field_values_missing",
+                tool_name="layer.field_values",
+                arguments={
+                    "layer_id": tagged_layer.id(),
+                    "field_name": "yok_boyle_bir_alan",
+                },
+            ),
+            AgentMode.ASK,
+            AgentScope.PROJECT,
+        )
+        if (
+            missing_field_result.status != AgentResultStatus.SUCCESS
+            or missing_field_result.data.get("available") is not False
+            or missing_field_result.data.get("field_missing") is not True
+        ):
+            raise RuntimeError("An absent field was not reported as absent.")
+        # Every *other* tool stays metadata-only: only this one name may read values.
+        value_tools = {
+            name for name in registry_tool_names if name.endswith(".field_values")
+        }
+        if value_tools != {"layer.field_values"}:
+            raise RuntimeError(
+                f"Unexpected value-inspection tools in the registry: {sorted(value_tools)}"
+            )
 
         missing_layer_id_result = live_controller.execute(
             AgentToolCall(call_id="smoke_layer_describe_missing", tool_name="layer.describe"),
@@ -2462,7 +2533,7 @@ def run_checks() -> str:
         # Workspace inspection tools.
         tool_names = {d["name"] for d in caps_dock.registry.public_tool_descriptions()}
         if (
-            len(tool_names) != 23
+            len(tool_names) != 24
             or "plugin.capabilities" not in tool_names
             or "expression.search" not in tool_names
         ):

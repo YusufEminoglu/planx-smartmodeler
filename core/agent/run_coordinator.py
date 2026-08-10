@@ -482,6 +482,36 @@ class RunCoordinator(QObject):
             ticket, PROPOSAL_KIND_MODEL_RUN, display_name, added_ids, added_names
         )
 
+    @staticmethod
+    def _empty_result_layers(
+        layer_ids: Sequence[str], layer_names: Sequence[str]
+    ) -> List[str]:
+        """Names of the result layers that came back with zero features.
+
+        Only vector results can be empty in a way that matters here; a raster
+        result and any layer whose count cannot be read are left out rather
+        than guessed at.
+        """
+        project = QgsProject.instance()
+        if project is None:
+            return []
+        empty: List[str] = []
+        for index, layer_id in enumerate(layer_ids):
+            layer = project.mapLayer(layer_id)
+            count = None
+            with contextlib.suppress(Exception):
+                count = layer.featureCount()
+            if count == 0:
+                name = (
+                    layer_names[index]
+                    if index < len(layer_names)
+                    else str(layer_id)
+                )
+                empty.append(
+                    agent_context.bound_text(name, agent_context.MAX_DISPLAY_NAME)
+                )
+        return empty
+
     def _finish_success(
         self,
         ticket: RunTicket,
@@ -490,7 +520,13 @@ class RunCoordinator(QObject):
         layer_ids: List[str],
         layer_names: List[str],
     ) -> None:
+        empty_names = self._empty_result_layers(layer_ids, layer_names)
         lines = [f"Added {len(layer_ids)} temporary result layer(s)."]
+        if empty_names:
+            lines.append(
+                f"{len(empty_names)} of them hold no features. The run "
+                f"succeeded; the result is empty."
+            )
         summary = RunResultSummary(
             kind=kind,
             title=ticket.title,
@@ -498,6 +534,7 @@ class RunCoordinator(QObject):
             layer_names=tuple(layer_names),
             layer_ids=tuple(layer_ids),
             lines=tuple(lines),
+            empty_layer_names=tuple(empty_names),
         )
         if not self._state.accepts(ticket):
             remaining = self._remove_layers(layer_ids)

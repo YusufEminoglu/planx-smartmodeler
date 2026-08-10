@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.5.40] - 2026-08-10
+
+### The agent can see a value, and can no longer produce a confident wrong answer
+
+An owner session asked for OSM buildings, an area column, and a filter for
+everything under 400 m². The filter returned an empty layer six times, and the
+agent finally explained it: "the source layer had 101 buildings; presumably all
+of them are over 400 m²." That was false, and every individual step had
+reported success. Three separate QGIS behaviours produced it, each reproduced
+here on QGIS 3.44.12 LTR and 4.2.0 before anything was changed:
+
+- **`$area` is measured in the layer's own CRS.** OSM downloads arrive in
+  EPSG:3857, which reports metres inflated by `1/cos²(latitude)` — 1.76× at
+  41° north. A genuinely 324 m² building measures 569 m² and drops out of a
+  "under 400 m²" filter; in a district of ordinary 250–400 m² footprints,
+  *every* building crosses the threshold and the filter returns nothing. A
+  geometry measure bound to a layer whose CRS is geographic or Mercator is now
+  **rejected by the run planner**, naming `native:reprojectlayer` as the fix,
+  and `layer.list`/`layer.describe` report a new `area_safe_crs` flag. Two
+  existing acceptance fixtures turned out to encode this exact mistake —
+  a stage literally named "reproject to metres" targeting EPSG:3857 — and now
+  reproject to UTM 35N.
+- **`<` on a text field is a lexicographic comparison.** QGIS runs it without
+  a warning, so `'1097' < '400'` is true while `'568' < '400'` is false: five
+  of six test buildings "matched" a numeric threshold, wrongly. An ordering
+  operator bound to a text field with a numeric value is now rejected.
+- **Recalculating a field never changes its type.** `native:fieldcalculator`
+  keeps the existing type when `FIELD_NAME` already exists; the bound
+  `FIELD_TYPE` is ignored, the run reports success, and nothing changes. The
+  agent believed it had converted a text column to integer. Rejected now, with
+  the instruction to write conversions to a new field name.
+
+- **New tool: `layer.field_values`.** The deeper cause was that the agent had
+  no way to look. The tool set was metadata-only, so after an empty result it
+  could not distinguish "nothing matched" from "I measured the wrong thing" —
+  and it filled the gap by inventing a conclusion. One tool now returns
+  minimum, maximum, mean, median, null count, distinct count and a capped
+  sample for **one explicitly named field** of one named layer, never a
+  feature and never a row. Ordering statistics appear only when every value is
+  numeric, so the tool cannot launder the same lexicographic nonsense. The
+  published guarantee changes from "no feature values" to "no feature values
+  except through this one field-scoped tool"; README and the reference manual
+  say so plainly.
+- **An empty result is reported as an empty result.** A run that adds a layer
+  holding zero features now says so in the chat, and the next turn's session
+  memory carries an explicit `EMPTY RESULT` note telling the agent to check the
+  field before explaining the absence. Producing a layer is no longer the same
+  thing as succeeding.
+- The always-loaded core pack gains one rule — never state a conclusion you
+  have not read — which raised its size budget from 5 600 to 5 900 characters.
+  A fabricated conclusion is not task-specific, so the rule cannot live in an
+  on-demand pack.
+
 ## [1.5.39] - 2026-08-10
 
 - Plugin visibility, capability routing, Jenks/quantile classification and opt-in chaining

@@ -204,7 +204,9 @@ def select_tools_for_request(
             folded = "\n".join((folded, *recent))
     wanted = set()
     if scope in ("project", "active_layer"):
-        wanted.update(("project.summary", "layer.list", "layer.describe"))
+        wanted.update(
+            ("project.summary", "layer.list", "layer.describe", "layer.field_values")
+        )
     if scope == "current_model":
         wanted.update(("model.summary", "model.describe", "model.validate"))
     if scope == "plugins":
@@ -247,6 +249,9 @@ def select_tools_for_request(
                 "expression.search",
                 "layer.list",
                 "layer.describe",
+                # A threshold filter or an area calculation is exactly where a
+                # value-blind agent invents "there simply are none".
+                "layer.field_values",
             )
         )
     # OSM requests name a *subject*, and the original three (roads, buildings,
@@ -291,7 +296,11 @@ def select_tools_for_request(
             "categor", "kategori", "renklendir", "colour", "color",
         )
     ):
-        wanted.update(("layer.list", "layer.describe", "layer.style"))
+        # A graduated/Jenks renderer needs the field's real numeric range, not
+        # just its type, so the class breaks can be sanity-checked.
+        wanted.update(
+            ("layer.list", "layer.describe", "layer.style", "layer.field_values")
+        )
     if power_enabled and any(
         term in folded
         for term in (

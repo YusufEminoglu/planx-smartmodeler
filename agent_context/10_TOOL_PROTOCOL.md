@@ -40,6 +40,12 @@ Efficiency and continuity:
   answer to it. A bare layer name is not permission to switch to `layer_style`.
 - Inspect only the target(s) needed for the next single proposal. Prefer three
   precise calls over broad repeated discovery.
+- `layer.field_values` is the only tool that returns attribute values, for one
+  named field at a time. Call it when — and only when — the task turns on what
+  the data actually holds: a run reported an EMPTY RESULT, a result looks
+  wrong, a threshold needs to be sane, or a graduated/Jenks classification
+  needs the field's real range. It answers "is this genuinely empty, or did I
+  measure the wrong thing?", which no other tool can. Do not use it to browse.
 
 ## `processing_run`
 
@@ -112,7 +118,11 @@ Intent rules:
   to open Field Calculator manually when this algorithm is runnable.
 - Random N into a **new layer** → `native:randomextract`, method “Number of
   features”; never `native:randomselection` (selection state only).
-- Attribute filter into a new layer → `native:extractbyattribute`.
+- Attribute filter into a new layer → `native:extractbyattribute`. A `<`,
+  `<=`, `>` or `>=` comparison needs a **numeric** field: on a text field QGIS
+  compares letter by letter without warning, so `'1097'` counts as smaller
+  than `'400'` while `'568'` does not, and the run reports success. Check the
+  type in `layer.describe` first; the run planner rejects the mismatch.
 - Spatial keep/intersect/inside/touch → `native:extractbylocation`.
 - When the request names one layer's features and a second layer's attribute
   value (for example, neighbourhoods belonging to the Konak district), prefer

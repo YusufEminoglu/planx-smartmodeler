@@ -171,7 +171,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
   <li><b>Fail-closed security.</b> All provider output is untrusted — even when the provider claims strict structured-output adherence. Every tool call is locally re-validated against a narrow contract. Unknown fields, ambiguous aliases, and malformed shapes are rejected.</li>
   <li><b>Deterministic offline workflows remain available without a network connection.</b> The Studio works fully offline; the Agent Workspace is an optional enhancement, not a requirement.</li>
   <li><b>Provider neutrality.</b> The Agent Workspace works with any configured AI connection — OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible, Azure OpenAI — through a single structured protocol.</li>
-  <li><b>No silent data mutation.</b> Database writes, DDL, and live in-process Python require explicit second confirmation. Generated Python defaults to process isolation. Connection URIs, credentials, source paths, and feature values are never sent as tool metadata.</li>
+  <li><b>No silent data mutation.</b> Database writes, DDL, and live in-process Python require explicit second confirmation. Generated Python defaults to process isolation. Connection URIs, credentials, and source paths are never sent as tool metadata; attribute values only ever leave through <code>layer.field_values</code>, one named field at a time.</li>
   <li><b>Typed, validated graphs.</b> Every node port is typed; every connection is validated against socket compatibility; every execution snapshot is immutable.</li>
 </ol>
 
@@ -314,7 +314,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 <p>The <b>local parser</b> accepts a narrow set of authority-neutral tool-call field aliases used by real providers, normalizes them to the canonical contract, then performs the same local tool/argument validation. Ambiguous aliases, unknown fields, malformed shapes, prose, or JSON substrings extracted from prose are <b>rejected</b>. A <code>fence: true</code> response is a valid empty turn — the provider declined to answer.</p>
 
 <h3 id="agent-tools">18 Read-Only Inspection Tools</h3>
-<p>The agent's tool set is <b>metadata-only</b>: no feature values, source URIs, style/label expressions, baseline model parameter values, or credentials are ever sent. Each tool reads one aspect of the QGIS environment:</p>
+<p>No source URI, style/label expression, baseline model parameter value, or credential is ever sent. Attribute values reach the model through <b>one</b> tool, <code>layer.field_values</code>, and only for a single explicitly named field: aggregate statistics plus a capped value sample, never a feature and never a row. That single exception exists because an agent that cannot see a value cannot distinguish a filter that correctly matched nothing from one that measured the wrong quantity &mdash; and it filled the gap by inventing an answer. Every other tool below remains metadata-only. Each tool reads one aspect of the QGIS environment:</p>
 <table><tr><th>#</th><th>Tool</th><th>What It Reads</th></tr>
 <tr><td>1</td><td><code>project_info</code></td><td>Project title, CRS, layer count, home path</td></tr>
 <tr><td>2</td><td><code>list_layers</code></td><td>Layer names, types, feature counts, geometry types, field counts</td></tr>
@@ -836,7 +836,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 3em 0; }
 
 <h2 id="appendix-c">Appendix C — Glossary</h2>
 <table>
-<tr><td><b>Agent Workspace</b></td><td>The dockable AI chat panel with 18 metadata-only inspection tools and validated proposal system.</td></tr>
+<tr><td><b>Agent Workspace</b></td><td>The dockable AI chat panel with read-only inspection tools and a validated proposal system.</td></tr>
 <tr><td><b>DAG</b></td><td>Directed Acyclic Graph — the underlying data structure of a SmartModeler workflow. Cycles are rejected at edge-creation time.</td></tr>
 <tr><td><b>Fail-closed</b></td><td>A security principle: when validation cannot confirm correctness, the operation is rejected rather than proceeding with potentially dangerous state.</td></tr>
 <tr><td><b>Fence response</b></td><td>A valid empty provider turn where the AI declined to answer (<code>fence: true</code>). Not an error — the agent is choosing not to engage.</td></tr>

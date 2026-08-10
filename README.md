@@ -83,9 +83,13 @@ without a network connection.
   AI connection (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, OpenAI-compatible,
   Azure OpenAI). Every provider turn is a strict, locally re-validated
   structured envelope; mode, scope, and every tool call's execution stay under
-  application control, never provider control, and the tool set is
-  metadata-only (no feature values, source URIs, style/label expressions,
-  baseline model parameter values, or credentials). Quick inspections keep
+  application control, never provider control, and the tool set sends no
+  source URIs, style/label expressions, baseline model parameter values, or
+  credentials. Attribute values are readable through exactly one tool,
+  `layer.field_values`, for one explicitly named field at a time — statistics
+  and a capped sample, never a feature or a row — so the agent can tell a
+  filter that legitimately matched nothing from one that measured the wrong
+  thing instead of guessing. Quick inspections keep
   working with the `offline` profile, which is not treated as a language model.
 - Uses a dedicated node-and-spark Agent Workspace toolbar icon that remains
   distinct from the main Workflow Studio action at small QGIS toolbar sizes.
@@ -228,7 +232,7 @@ The profile-based AI settings screen supports:
 Models, timeouts, endpoints where appropriate, project context, and algorithm-catalog limits are configurable per profile. API keys are never written to plugin JSON or ordinary `QgsSettings`. Session-only memory storage works without a password; optionally, the QGIS Authentication Database can encrypt the key across restarts. Its master password is a QGIS password—not the provider API key—and SmartModeler opens it only after the explicit **Unlock vault** action. Legacy plaintext settings are migrated and removed.
 
 AI is a planner, not an execution authority. The provider receives compact
-Markdown instructions plus metadata-only project layers and an on-demand,
+Markdown instructions plus bounded project-layer metadata and an on-demand,
 bounded search of the live Processing registry. Runnable matches are ranked
 first; only the chosen algorithm's typed signature is described. Workflow
 Studio can plan with safe native/QGIS and PlanX algorithms, while Agent Chat

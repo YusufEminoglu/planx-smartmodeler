@@ -31,6 +31,8 @@ from qgis.core import (
 )
 
 POINT, LINE, POLYGON = 0, 1, 2
+# The seeded district is in Izmir, so UTM zone 35N is the local metric CRS.
+METRIC_CRS = "EPSG:32635"
 
 
 @dataclass
@@ -308,19 +310,22 @@ def _scenarios() -> Tuple[Scenario, ...]:
         exact_features=3,
         required_fields=("name",),
     )
+    # "to metres" has to mean *true* metres: EPSG:3857 reports metres inflated
+    # by 1/cos^2(latitude), so measuring $area in it is the exact mistake the
+    # run planner now refuses. UTM 35N covers the seeded Izmir district.
     reproject = Stage(
         name="reproject to metres",
         algorithm_id="native:reprojectlayer",
         inputs=lambda l: {
             "INPUT": {"layer": l["neighborhoods"].id()},
-            "TARGET_CRS": {"crs": "EPSG:3857"},
+            "TARGET_CRS": {"crs": METRIC_CRS},
         },
         active="neighborhoods",
         produces="projected",
         geometry=POLYGON,
         exact_features=3,
         required_fields=("name",),
-        crs="EPSG:3857",
+        crs=METRIC_CRS,
     )
     measure = Stage(
         name="calculate area",
@@ -337,7 +342,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
         exact_features=3,
         required_fields=("name", "area_m2"),
         populated_fields=("area_m2",),
-        crs="EPSG:3857",
+        crs=METRIC_CRS,
     )
 
     return (
@@ -363,7 +368,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     exact_features=3,
                     required_fields=("name", "area_m2"),
                     populated_fields=("area_m2",),
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
                 Stage(
                     name="centroids of buffers",
@@ -405,7 +410,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     produces="rings",
                     geometry=POLYGON,
                     exact_features=3,
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
                 # The secondary input is deliberately NOT the active layer:
                 # ACTIVE_LAYER scope pins the primary only, and a chain is
@@ -422,7 +427,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     produces="ring_only",
                     geometry=POLYGON,
                     exact_features=3,
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
                 Stage(
                     name="fix ring geometries",
@@ -432,7 +437,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     produces="fixed_rings",
                     geometry=POLYGON,
                     min_features=1,
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
             ),
         ),
@@ -463,7 +468,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     produces="cells",
                     geometry=POLYGON,
                     exact_features=3,
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
                 # FIELD names a *new* field, so this also covers the
                 # new_field_params normalization on a second algorithm.
@@ -481,7 +486,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     exact_features=3,
                     required_fields=("point_count",),
                     populated_fields=("point_count",),
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
                 Stage(
                     name="density from counted field",
@@ -498,7 +503,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     exact_features=3,
                     required_fields=("point_count", "density"),
                     populated_fields=("density",),
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
             ),
         ),
@@ -521,7 +526,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     produces="alsancak",
                     geometry=POLYGON,
                     exact_features=1,
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
                 Stage(
                     name="extract Goztepe",
@@ -536,7 +541,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     produces="goztepe",
                     geometry=POLYGON,
                     exact_features=1,
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
                 # A multi-layer primary under ACTIVE_LAYER scope. Pinning it to
                 # the single active layer silently produced a one-layer merge,
@@ -578,7 +583,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     geometry=POLYGON,
                     exact_features=1,
                     required_fields=("name", "area_m2"),
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
                 Stage(
                     name="locate measured within the extracted one",
@@ -593,7 +598,7 @@ def _scenarios() -> Tuple[Scenario, ...]:
                     geometry=POLYGON,
                     exact_features=1,
                     required_fields=("name", "area_m2"),
-                    crs="EPSG:3857",
+                    crs=METRIC_CRS,
                 ),
             ),
         ),

@@ -172,7 +172,31 @@ VEC = LayerView("L_vec", "Roads", VECTOR, frozenset({"name", "class"}))
 VEC2 = LayerView("L_vec2", "Districts", VECTOR, frozenset({"code"}))
 RAS = LayerView("L_ras", "Elevation", RASTER)
 RAS2 = LayerView("L_ras2", "Slope", RASTER)
-_LAYERS = {view.layer_id: view for view in (VEC, VEC2, RAS, RAS2)}
+# The owner's failing session in miniature: OSM buildings still in Web
+# Mercator, carrying an "alan_m2" that Field Calculator wrote as text.
+MERCATOR = LayerView(
+    "L_merc",
+    "Buildings",
+    VECTOR,
+    frozenset({"alan_m2", "area_num", "name"}),
+    field_types={
+        "alan_m2": "string",
+        "area_num": "integer",
+        "name": "string",
+    },
+    area_safe_crs=False,
+)
+METRIC = LayerView(
+    "L_utm",
+    "Buildings UTM",
+    VECTOR,
+    frozenset({"alan_m2", "area_num"}),
+    field_types={"alan_m2": "string", "area_num": "integer"},
+    area_safe_crs=True,
+)
+_LAYERS = {
+    view.layer_id: view for view in (VEC, VEC2, RAS, RAS2, MERCATOR, METRIC)
+}
 
 
 def lookup(layer_id):
@@ -751,6 +775,206 @@ def smart_node(node_id, algorithm_id="smart:input_layer", parameters=None):
     node.add_output("OUTPUT", "OUTPUT", SocketType.VECTOR)
     node.parameters.update(parameters or {"LAYER": "L_vec"})
     return node
+
+
+FILTER_PARAMS = [
+    spec("INPUT", SOURCE),
+    spec("FIELD", FIELD_PARAM),
+    spec(
+        "OPERATOR",
+        ENUM_PARAM,
+        default=True,
+        options=("=", "≠", ">", ">=", "<", "<=", "begins with", "contains"),
+    ),
+    spec("VALUE", STRING_PARAM, optional=True),
+    spec("OUTPUT", SINK, destination=True),
+]
+
+LESS_THAN = 4
+
+
+class SemanticTrapTests(unittest.TestCase):
+    """The runs QGIS executes happily and answers wrongly.
+
+    Each case below passes every structural check -- the parameter exists, the
+    field exists, the enum index is in range -- and still produces a confidently
+    wrong layer. All three were reproduced against QGIS 3.44 LTR and 4.2 before
+    these tests were written; see CHANGELOG 1.5.40 and the end-to-end
+    ``qgis_area_threshold_smoke``.
+    """
+
+    def plan(self, algorithm_id, inputs, params, **kwargs):
+        return plan_processing_run(
+            proposal(algorithm_id, inputs),
+            default_policy(),
+            record(algorithm_id),
+            params,
+            lookup,
+            **kwargs,
+        )
+
+    def assert_rejects(self, algorithm_id, inputs, params, reason=None):
+        with self.assertRaises(ProposalError) as caught:
+            self.plan(algorithm_id, inputs, params)
+        self.assertEqual(
+            caught.exception.reason_code,
+            reason or ProposalReason.VALIDATION_FAILED,
+        )
+        return caught.exception
+
+    # -- trap 1: lexicographic comparison on a text field -------------------
+
+    def test_a_numeric_less_than_on_a_text_field_is_rejected(self):
+        # QGIS compares '1097' < '400' as text and returns True, so the filter
+        # keeps the largest buildings and drops the mid-sized ones.
+        error = self.assert_rejects(
+            "native:extractbyattribute",
+            {
+                "INPUT": {"layer": "L_merc"},
+                "FIELD": {"field": "alan_m2", "layer_param": "INPUT"},
+                "OPERATOR": {"enum": LESS_THAN},
+                "VALUE": {"string": "400"},
+            },
+            FILTER_PARAMS,
+        )
+        self.assertIn("letter by letter", str(error))
+
+    def test_the_same_comparison_on_a_numeric_field_is_allowed(self):
+        plan = self.plan(
+            "native:extractbyattribute",
+            {
+                "INPUT": {"layer": "L_merc"},
+                "FIELD": {"field": "area_num", "layer_param": "INPUT"},
+                "OPERATOR": {"enum": LESS_THAN},
+                "VALUE": {"string": "400"},
+            },
+            FILTER_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("VALUE").value, "400")
+
+    def test_an_equality_test_on_a_text_field_stays_allowed(self):
+        # '=' on text is exactly right; only ordering is the trap.
+        plan = self.plan(
+            "native:extractbyattribute",
+            {
+                "INPUT": {"layer": "L_merc"},
+                "FIELD": {"field": "name", "layer_param": "INPUT"},
+                "OPERATOR": {"enum": 0},
+                "VALUE": {"string": "400"},
+            },
+            FILTER_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("OPERATOR").value, 0)
+
+    def test_a_text_comparison_against_a_word_stays_allowed(self):
+        plan = self.plan(
+            "native:extractbyattribute",
+            {
+                "INPUT": {"layer": "L_merc"},
+                "FIELD": {"field": "name", "layer_param": "INPUT"},
+                "OPERATOR": {"enum": LESS_THAN},
+                "VALUE": {"string": "Mecidiye"},
+            },
+            FILTER_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("VALUE").value, "Mecidiye")
+
+    # -- trap 2: retyping a field by recalculating it ------------------------
+
+    def test_recalculating_an_existing_field_with_a_new_type_is_rejected(self):
+        error = self.assert_rejects(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_utm"},
+                "FIELD_NAME": {"string": "alan_m2"},
+                "FIELD_TYPE": {"enum": 1},  # Integer, over an existing String
+                "FORMULA": {"expression": '"alan_m2"'},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        self.assertIn("NEW field name", str(error))
+
+    def test_writing_the_conversion_to_a_new_field_is_allowed(self):
+        plan = self.plan(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_utm"},
+                "FIELD_NAME": {"string": "alan_int"},
+                "FIELD_TYPE": {"enum": 1},
+                "FORMULA": {"expression": '"alan_m2"'},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("FIELD_NAME").value, "alan_int")
+
+    def test_recalculating_an_existing_field_with_its_own_type_is_allowed(self):
+        plan = self.plan(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_utm"},
+                "FIELD_NAME": {"string": "area_num"},
+                "FIELD_TYPE": {"enum": 1},  # Integer over an existing Integer
+                "FORMULA": {"expression": '"area_num" * 2'},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("FIELD_NAME").value, "area_num")
+
+    # -- trap 3: a geometry measure on a distorting CRS ---------------------
+
+    def test_area_on_a_mercator_layer_is_rejected(self):
+        error = self.assert_rejects(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_merc"},
+                "FIELD_NAME": {"string": "alan_yeni"},
+                "FIELD_TYPE": {"enum": 0},
+                "FORMULA": {"expression": "$area"},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        self.assertIn("native:reprojectlayer", str(error))
+
+    def test_area_on_a_metric_layer_is_allowed(self):
+        plan = self.plan(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_utm"},
+                "FIELD_NAME": {"string": "alan_yeni"},
+                "FIELD_TYPE": {"enum": 0},
+                "FORMULA": {"expression": "$area"},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("FORMULA").value, "$area")
+
+    def test_a_non_geometric_formula_on_a_mercator_layer_is_allowed(self):
+        # Only measures depend on the CRS; an ordinary field expression does not.
+        plan = self.plan(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_merc"},
+                "FIELD_NAME": {"string": "etiket"},
+                "FIELD_TYPE": {"enum": 2},
+                "FORMULA": {"expression": 'upper("name")'},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
+        self.assertEqual(plan.binding_for("FORMULA").value, 'upper("name")')
+
+    def test_the_ellipsoidal_area_function_is_caught_too(self):
+        # area($geometry) is ellipsoidal only when a project ellipsoid is set;
+        # by default QGIS measures it in the layer CRS just like $area.
+        self.assert_rejects(
+            "native:fieldcalculator",
+            {
+                "INPUT": {"layer": "L_merc"},
+                "FIELD_NAME": {"string": "alan_yeni"},
+                "FIELD_TYPE": {"enum": 0},
+                "FORMULA": {"expression": "area($geometry)"},
+            },
+            FIELD_CALCULATOR_PARAMS,
+        )
 
 
 class ModelRunPlannerTests(unittest.TestCase):

@@ -7,10 +7,13 @@ from planx_smartmodeler.core.agent.context import (
     FieldSummary,
     LayerSummary,
     MAX_LIST_ITEMS,
+    MAX_VALUE_SAMPLE,
+    MAX_VALUE_TEXT,
     ModelNodeSummary,
     PluginSummary,
     bound_list,
     bound_text,
+    build_field_values,
     build_layer_description,
     build_layer_list,
     build_model_summary,
@@ -210,6 +213,101 @@ class LayerDescriptionFeatureCountTests(unittest.TestCase):
         self.assertNotIn(
             "feature_count", build_layer_description(layer, (), feature_count=-1)
         )
+
+
+class FieldValuesTests(unittest.TestCase):
+    """The one builder that returns attribute values, so its bounds matter."""
+
+    def test_numeric_statistics_answer_the_question_a_count_cannot(self) -> None:
+        # The owner's case: a filter for "< 400" returned nothing, and only a
+        # minimum can say whether that is the truth or a measuring error.
+        result = build_field_values(
+            "alan_m2", "Integer", [569, 1097, 1580, 430], total_count=4
+        )
+        self.assertTrue(result["numeric"])
+        self.assertEqual(result["minimum"], 430)
+        self.assertEqual(result["maximum"], 1580)
+        self.assertEqual(result["median"], 833.0)
+        self.assertEqual(result["null_count"], 0)
+
+    def test_ordering_statistics_are_omitted_for_text(self) -> None:
+        # A minimum over text is the same lexicographic nonsense the run
+        # planner now refuses; reporting one would launder it as a fact.
+        result = build_field_values(
+            "alan_m2", "String", ["569.2", "1097.3", "yok"], total_count=3
+        )
+        self.assertFalse(result["numeric"])
+        for key in ("minimum", "maximum", "mean", "median"):
+            self.assertNotIn(key, result)
+
+    def test_numeric_text_is_still_reported_as_numeric(self) -> None:
+        # A String field holding only numbers is exactly the trap case, and the
+        # statistics are what reveal it -- the field_type stays honest.
+        result = build_field_values(
+            "alan_m2", "String", ["569.2", "1097.3"], total_count=2
+        )
+        self.assertTrue(result["numeric"])
+        self.assertEqual(result["field_type"], "String")
+        self.assertEqual(result["minimum"], 569.2)
+
+    def test_nulls_are_counted_and_excluded_from_statistics(self) -> None:
+        result = build_field_values(
+            "alan_m2", "Integer", [None, None, 12], total_count=3
+        )
+        self.assertEqual(result["null_count"], 2)
+        self.assertEqual(result["minimum"], 12)
+        self.assertIsNone(result["sample"][0])
+
+    def test_an_all_null_field_reports_no_statistics(self) -> None:
+        result = build_field_values(
+            "alan_m2", "Integer", [None, None], total_count=2
+        )
+        self.assertEqual(result["null_count"], 2)
+        self.assertFalse(result["numeric"])
+        self.assertNotIn("minimum", result)
+
+    def test_the_sample_is_capped_and_says_so(self) -> None:
+        result = build_field_values(
+            "id", "Integer", list(range(500)), total_count=500, limit=10_000
+        )
+        self.assertEqual(len(result["sample"]), MAX_VALUE_SAMPLE)
+        self.assertTrue(result["sample_truncated"])
+        # The statistics still cover every value, not just the sample.
+        self.assertEqual(result["maximum"], 499)
+
+    def test_a_single_value_is_bounded_in_length(self) -> None:
+        result = build_field_values("note", "String", ["x" * 5000], total_count=1)
+        self.assertEqual(len(result["sample"][0]), MAX_VALUE_TEXT)
+
+    def test_distinct_count_is_flagged_when_it_hits_the_cap(self) -> None:
+        exact = build_field_values("id", "Integer", [1, 1, 2], total_count=3)
+        self.assertEqual(exact["distinct_count"], 2)
+        self.assertTrue(exact["distinct_count_exact"])
+        capped = build_field_values(
+            "id", "Integer", list(range(500)), total_count=500
+        )
+        self.assertEqual(capped["distinct_count"], MAX_LIST_ITEMS)
+        self.assertFalse(capped["distinct_count_exact"])
+
+    def test_non_finite_numbers_do_not_produce_unserializable_output(self) -> None:
+        import json
+
+        result = build_field_values(
+            "ratio", "Real", [float("nan"), 1.0], total_count=2
+        )
+        self.assertFalse(result["numeric"])
+        json.dumps(result)  # must not raise
+
+
+class AreaSafeCrsFlagTests(unittest.TestCase):
+    def test_a_layer_summary_reports_whether_area_can_be_measured(self) -> None:
+        mercator = LayerSummary(
+            "id", "Buildings", "vector", "Polygon", "EPSG:3857", True, "memory",
+            False, False,
+        )
+        self.assertFalse(mercator.to_dict()["area_safe_crs"])
+        metric = LayerSummary("id", "Buildings", "vector", "Polygon", "EPSG:32635")
+        self.assertTrue(metric.to_dict()["area_safe_crs"])
 
 
 if __name__ == "__main__":

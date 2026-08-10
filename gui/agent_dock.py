@@ -1191,6 +1191,7 @@ class AgentWorkspaceDock(QDockWidget):
         status: str,
         target: str,
         layer_ids: Sequence[str] = (),
+        empty_layer_names: Sequence[str] = (),
     ) -> None:
         """Count one terminal action and put a sanitized line into session memory.
 
@@ -1214,6 +1215,16 @@ class AgentWorkspaceDock(QDockWidget):
         produced = [str(layer_id)[:120] for layer_id in layer_ids if layer_id][:5]
         if produced:
             note = f"{note} (produced layer ids: {', '.join(produced)})"
+        # A count of zero has to survive into the next turn. Without it the run
+        # reads as a plain success and the agent explains the missing features
+        # instead of checking them.
+        empty = [str(name)[:120] for name in empty_layer_names if name][:5]
+        if empty:
+            note = (
+                f"{note} (EMPTY RESULT - no features in: {', '.join(empty)}. "
+                f"Check the filtered field with layer.field_values before "
+                f"telling the user that nothing matched.)"
+            )
         with contextlib.suppress(Exception):
             self.run_loop.session_memory.append("(agent action outcome)", note)
 
@@ -1591,14 +1602,23 @@ class AgentWorkspaceDock(QDockWidget):
         )
         if pending is not None:
             self._record_ledger(pending, ActionStatus.COMPLETED)
+        empty_names = [
+            str(name)[:120] for name in (summary.get("empty_layer_names") or [])
+        ][:20]
         self._record_action_outcome(
             str(summary.get("kind", "")),
             ActionStatus.COMPLETED,
             str(summary.get("target", "")),
             [str(layer_id) for layer_id in (summary.get("layer_ids") or [])],
+            empty_names,
         )
         added = ", ".join(names) if names else "no layer"
         self._append_line(f"[run] Finished. Added as temporary layer(s): {added}.")
+        if empty_names:
+            self._append_line(
+                f"[run] WARNING: {', '.join(empty_names)} contains no features. "
+                f"The operation ran; it matched nothing."
+            )
         self.status_label.setText("Run complete.")
         self._clear_approval_card()
         self._refresh_undo_button()

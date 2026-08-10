@@ -40,7 +40,8 @@ For a spatial request that uses a named district/area from a second layer,
 inspect the layers once, resolve
 `smartmodeler:extractbyreferenceattribute`, and prepare its one
 `processing_run` proposal. The user-supplied district name is sufficient; do
-not inspect private feature values. Never loop through `overlay_intersects`,
+not go looking through the reference layer's values for it. Never loop through
+`overlay_intersects`,
 `native:extractbyexpression`, or repeated expression help searches for this
 case.
 

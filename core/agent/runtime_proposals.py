@@ -79,6 +79,7 @@ from .runtime_tools import (
     algorithm_signature_state,
     build_output_specs,
     build_param_specs,
+    crs_is_area_safe,
     extract_layer_style_state,
 )
 from .workspace import WorkspaceError, WorkspaceManager
@@ -607,18 +608,30 @@ class RuntimeProposalValidator:
         if isinstance(layer, QgsVectorLayer):
             kind = VECTOR
             fields = frozenset()
+            field_types: Dict[str, str] = {}
             with _suppress():
                 fields = frozenset(field.name() for field in layer.fields())
+            with _suppress():
+                field_types = {
+                    field.name(): str(field.typeName() or "").casefold()
+                    for field in layer.fields()
+                }
         elif isinstance(layer, QgsRasterLayer):
             kind = RASTER
             fields = frozenset()
+            field_types = {}
         else:
             return None
+        area_safe = True
+        with _suppress():
+            area_safe = crs_is_area_safe(layer.crs())
         return LayerView(
             layer_id=agent_context.bound_text(layer.id(), 200),
             name=agent_context.bound_text(layer.name(), agent_context.MAX_DISPLAY_NAME),
             kind=kind,
             field_names=fields,
+            field_types=field_types,
+            area_safe_crs=area_safe,
         )
 
     def _materialize(self, plan: Any) -> Dict[str, Any]:

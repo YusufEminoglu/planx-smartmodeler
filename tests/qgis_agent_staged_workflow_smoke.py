@@ -35,6 +35,8 @@ from qgis.core import (
 )
 
 AREA_FIELD = "area_m2"
+# The seeded district is in Izmir, so UTM zone 35N is the local metric CRS.
+METRIC_CRS = "EPSG:32635"
 
 
 def _extent_layer() -> QgsVectorLayer:
@@ -254,17 +256,20 @@ def run_workflow() -> str:
             f"Expected the three seeded neighborhoods, got {neighborhoods.featureCount()}"
         )
 
+    # UTM 35N, not Web Mercator. This stage exists so $area below is measured
+    # in true metres: EPSG:3857 also reports "metres", but inflated by
+    # 1/cos^2(latitude), and the run planner refuses to measure in it.
     projected = _run_stage(
         neighborhoods,
         "native:reprojectlayer",
         {
             "INPUT": {"layer": neighborhoods.id()},
-            "TARGET_CRS": {"crs": "EPSG:3857"},
+            "TARGET_CRS": {"crs": METRIC_CRS},
         },
         "polygon",
         min_features=3,
     )
-    if projected.crs().authid() != "EPSG:3857":
+    if projected.crs().authid() != METRIC_CRS:
         raise RuntimeError(f"Reprojection produced {projected.crs().authid()}")
 
     measured = _run_stage(
@@ -306,7 +311,7 @@ def run_workflow() -> str:
     mean = sum(areas) / len(areas)
     return (
         f"AGENT STAGED WORKFLOW SMOKE PASS: 3 neighborhoods downloaded offline, "
-        f"reprojected to EPSG:3857, {AREA_FIELD} populated "
+        f"reprojected to {METRIC_CRS}, {AREA_FIELD} populated "
         f"(mean {mean:.2f} m2), centroids carried the field."
     )
 
