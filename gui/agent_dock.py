@@ -321,6 +321,11 @@ class AgentWorkspaceDock(QDockWidget):
         # Act reaches a pending action that still needs a separate, explicit
         # human Apply click; the internal enum value stays AgentMode.ACT.
         self.mode_combo.addItem("Act (approve to apply)", AgentMode.ACT)
+        # Act by default. It is what people open the dock to do, and it grants
+        # nothing on its own: a proposal still renders as an approval card that
+        # does nothing until an explicit Run or Apply click. Starting in Ask
+        # only meant the first real request produced a refusal to act.
+        self.mode_combo.setCurrentIndex(self.mode_combo.findData(AgentMode.ACT))
         selectors.addWidget(self.mode_combo, 1)
         layout.addLayout(selectors)
 
@@ -341,7 +346,11 @@ class AgentWorkspaceDock(QDockWidget):
         # still stops at its own approval card. It only saves the user from
         # typing "continue" between the steps of a request they already stated.
         self.auto_continue_check = QCheckBox("Continue multi-step requests")
-        self.auto_continue_check.setChecked(False)
+        # On by default: a request phrased as several steps is the ordinary
+        # case, and this only saves typing "continue" between them. It is still
+        # bounded to MAX_CHAIN_STEPS per message and every step still stops at
+        # its own approval card, so it grants no authority.
+        self.auto_continue_check.setChecked(True)
         self.auto_continue_check.setToolTip(
             "After an approved step finishes, ask for the next step of the same "
             "request automatically. Every step still needs your approval."
@@ -402,6 +411,12 @@ class AgentWorkspaceDock(QDockWidget):
         layout.addWidget(self.transcript, 1)
 
         self.proposal_group = QGroupBox("Proposal preview - review only")
+        # Collapsed by default. The dock stacks five regions in a narrow panel,
+        # and the preview and the ledger are reference material -- useful when
+        # something looks wrong, in the way of the conversation the rest of the
+        # time. The approval card is deliberately NOT collapsible: it is the one
+        # region that must never be hidden when it has something to say.
+        self._make_collapsible(self.proposal_group, expanded=False)
         proposal_layout = QVBoxLayout(self.proposal_group)
         proposal_layout.setContentsMargins(8, 8, 8, 8)
         proposal_layout.setSpacing(4)
@@ -479,6 +494,7 @@ class AgentWorkspaceDock(QDockWidget):
 
         # Bounded, read-only action ledger plus a single-level Undo control.
         self.ledger_group = QGroupBox("Action ledger")
+        self._make_collapsible(self.ledger_group, expanded=False)
         ledger_layout = QVBoxLayout(self.ledger_group)
         ledger_layout.setContentsMargins(8, 8, 8, 8)
         ledger_layout.setSpacing(4)
@@ -521,13 +537,31 @@ class AgentWorkspaceDock(QDockWidget):
         status_row.addWidget(self.token_usage_label)
         layout.addLayout(status_row)
 
+        # The message box is what the panel is for, so it reads as the primary
+        # surface: a labelled row, a taller box, and an accent border. It used
+        # to be two lines tall and visually identical to the read-only views
+        # above it, which is a poor signal for the one control the user types in.
+        self.prompt_label = QLabel("Your message")
+        self.prompt_label.setObjectName("promptLabel")
+        self.prompt_label.setStyleSheet("font-weight: 600;")
+        layout.addWidget(self.prompt_label)
+
         self.prompt_input = QPlainTextEdit()
+        self.prompt_input.setObjectName("promptInput")
         self.prompt_input.setPlaceholderText(
-            "Ask a question about your project, layers, Processing, the "
-            "current model, installed plugins, or enabled Power Mode. Ctrl+Enter sends."
+            "Describe one operation, naming the layer exactly - for example "
+            "\"reproject Buildings to the local metric CRS\". Ctrl+Enter sends."
         )
-        self.prompt_input.setMinimumHeight(self._text_height(2))
-        self.prompt_input.setMaximumHeight(self._text_height(5))
+        self.prompt_input.setMinimumHeight(self._text_height(4))
+        self.prompt_input.setMaximumHeight(self._text_height(8))
+        self.prompt_input.setStyleSheet(
+            "#promptInput {"
+            " border: 1px solid #4C7DBF;"
+            " border-radius: 4px;"
+            " padding: 4px;"
+            "}"
+            "#promptInput:focus { border: 1px solid #7FB3E8; }"
+        )
         # Ctrl+Enter sends. Deliberately the *only* keyboard accelerator in this
         # panel: no shortcut reaches Apply, Run or Undo, so an approval always
         # costs a deliberate click or an explicit focus-then-Space.
@@ -571,6 +605,7 @@ class AgentWorkspaceDock(QDockWidget):
         # Applied *after* the final reparent into the scroll area: setting a tab
         # order before a reparent is not guaranteed to survive it.
         self._apply_accessibility()
+        self._collapse_default_sections()
         # Read the hint from the live selector rather than assuming the default
         # index, so the sentence can never disagree with the combo.
         self._refresh_mode_hint()
@@ -640,6 +675,39 @@ class AgentWorkspaceDock(QDockWidget):
             )
         except (OSError, UnicodeError, ValueError, SyntaxError):
             self._append_line("[power] The script could not be imported or compiled.")
+
+    @staticmethod
+    def _make_collapsible(group: QGroupBox, *, expanded: bool) -> None:
+        """Turn a group box's title into a collapse toggle.
+
+        Qt's checkable group box disables its contents rather than hiding them,
+        which saves no space at all -- the whole point here. Hiding the child
+        widgets on toggle is the standard way to get a real collapse, and the
+        group keeps its title visible so a collapsed region still announces
+        what it is and can be reopened.
+        """
+        group.setCheckable(True)
+        group.setChecked(expanded)
+        group.setFlat(not expanded)
+
+        def _toggle(checked: bool) -> None:
+            for child in group.findChildren(QWidget):
+                child.setVisible(checked)
+            group.setFlat(not checked)
+            # A collapsed group must not keep reserving its expanded height.
+            group.setMaximumHeight(16_777_215 if checked else group.sizeHint().height())
+
+        group.toggled.connect(_toggle)
+        # Applied after construction by _collapse_default_sections(), because
+        # the children do not exist yet at this point.
+
+    def _collapse_default_sections(self) -> None:
+        """Apply the initial collapsed state once every child widget exists."""
+        for group in (self.proposal_group, self.ledger_group):
+            if not group.isChecked():
+                for child in group.findChildren(QWidget):
+                    child.setVisible(False)
+                group.setMaximumHeight(group.sizeHint().height())
 
     def _apply_accessibility(self) -> None:
         """Give every interactive control a name and a deliberate tab order.

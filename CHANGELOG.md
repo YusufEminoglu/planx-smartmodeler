@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.5.48] - 2026-08-10
+
+### A dock that opens ready to work
+
+The panel stacks five regions in a narrow dock, and two of them are reference
+material: useful when something looks wrong, in the way of the conversation the
+rest of the time.
+
+- **Proposal preview and Action ledger are collapsible and open collapsed.**
+  Their titles stay visible so a collapsed region still says what it is and one
+  click reopens it. The **approval card is deliberately not collapsible** — it
+  is the one region that must never be hidden when it has an action to show.
+- **The message box is the primary surface again**: its own "Your message"
+  label, twice the height, an accent border that brightens on focus, and a
+  placeholder that demonstrates a good request rather than listing topics. It
+  had been two lines tall and visually identical to the read-only views above.
+- **Act mode by default.** It is what people open the dock to do and it grants
+  nothing on its own: a proposal still renders as an approval card that does
+  nothing until an explicit Run or Apply click. Opening in Ask only meant the
+  first real request produced a refusal to act.
+- **Continue multi-step requests on by default.** Still bounded to four
+  automatic steps per message, and every step still stops at its own approval.
+
+**Power Mode remains off by default and is unchanged.** It already remembers
+its state per profile, so enabling it once keeps it on; defaulting it on would
+arm SQL and PyQGIS capability for every fresh install of a published plugin and
+would contradict what the metadata, README and manual all state.
+
 ## [1.5.47] - 2026-08-10
 
 ### A capability listing the agent could never actually read

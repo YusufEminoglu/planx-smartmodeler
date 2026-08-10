@@ -1315,6 +1315,47 @@ def run_checks() -> str:
             2
         ) != "Act (approve to apply)":
             raise RuntimeError("The Act option is not presented honestly (approve to apply).")
+
+        # Opening defaults. Act and chaining are conveniences that grant no
+        # authority -- every step still stops at its own approval card -- while
+        # Power Mode must stay off until a human turns it on, because it is the
+        # one switch that adds SQL and Python capability.
+        if empty_dock.mode_combo.currentData() != AgentMode.ACT:
+            raise RuntimeError("The dock did not open in Act mode.")
+        if not empty_dock.auto_continue_check.isChecked():
+            raise RuntimeError("Multi-step continuation did not default to on.")
+        if empty_dock.power_mode_check.isChecked():
+            raise RuntimeError(
+                "Power Mode defaulted to enabled; it must stay opt-in for a "
+                "fresh profile no matter how convenient that would be."
+            )
+
+        # The preview and the ledger are reference material and open collapsed;
+        # the approval card is the one region that must never be collapsible.
+        for group, label in (
+            (empty_dock.proposal_group, "proposal preview"),
+            (empty_dock.ledger_group, "action ledger"),
+        ):
+            if not group.isCheckable() or group.isChecked():
+                raise RuntimeError(f"The {label} did not open collapsed.")
+        # isHidden(), not isVisible(): this dock is never shown in the smoke, so
+        # every descendant is "not visible" regardless of the collapse state.
+        if not (
+            empty_dock.proposal_view.isHidden() and empty_dock.ledger_view.isHidden()
+        ):
+            raise RuntimeError("A collapsed section still showed its contents.")
+        empty_dock.proposal_group.setChecked(True)
+        if empty_dock.proposal_view.isHidden():
+            raise RuntimeError("A collapsed section could not be reopened.")
+        empty_dock.proposal_group.setChecked(False)
+        if not empty_dock.proposal_view.isHidden():
+            raise RuntimeError("A reopened section could not be collapsed again.")
+        if empty_dock.approval_group.isCheckable():
+            raise RuntimeError(
+                "The approval card is collapsible; it must always be visible "
+                "when it has an action to show."
+            )
+
         from qgis.PyQt.QtWidgets import QPushButton
 
         # Phase 04 adds exactly one explicit-approval Apply plus Reject and a
