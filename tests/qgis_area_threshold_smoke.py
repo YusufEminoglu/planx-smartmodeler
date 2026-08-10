@@ -285,6 +285,45 @@ def main() -> int:
             "An absent field was not reported as absent.",
         )
 
+        # -- 5b. a layer named instead of identified must not dead-end -------
+        # An owner session lost eight turns here: the model passed the layer's
+        # *name* as layer_id, got available:false four times for a layer that
+        # was right there and active, and finally told the user to select a
+        # layer that was already selected.
+        by_name = field_values(
+            AgentToolCall(
+                call_id="values_by_name",
+                tool_name="layer.field_values",
+                arguments={
+                    "layer_id": distorted.name(),
+                    "field_name": "alan_m2",
+                },
+            )
+        )
+        _require(
+            bool(by_name.get("available")),
+            "A layer named exactly, instead of identified, still dead-ended.",
+        )
+        _require(
+            by_name.get("resolved_by") == "name",
+            "A name-resolved layer did not say how it was resolved.",
+        )
+        _require(
+            by_name.get("layer_id") == distorted.id(),
+            "A name-resolved result did not report the real layer id.",
+        )
+        nowhere = field_values(
+            AgentToolCall(
+                call_id="values_nowhere",
+                tool_name="layer.field_values",
+                arguments={"layer_id": "no such layer", "field_name": "alan_m2"},
+            )
+        )
+        _require(
+            nowhere.get("available") is False and bool(nowhere.get("hint")),
+            "An unresolvable layer was refused without saying what to do next.",
+        )
+
         # -- 6. "the local CRS" must be answerable, never invented ----------
         suggest = registry.get_handler("layer.suggest_crs")
         _require(suggest is not None, "layer.suggest_crs is not registered.")

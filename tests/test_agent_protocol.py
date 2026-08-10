@@ -305,10 +305,25 @@ class MalformedTurnRejectionTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
-    def test_final_with_calls_is_rejected(self) -> None:
+    def test_final_with_calls_keeps_the_answer_and_drops_the_calls(self) -> None:
+        # A provider that answers and also repeats the calls it just made is
+        # the same shape the proposal branch already tolerates. Dropping the
+        # calls is authority-reducing -- they are never parsed or executed --
+        # while failing threw away a complete answer that was already written.
         raw = _turn_json(
             ACTION_FINAL,
-            "hi",
+            "The minimum is 61 and the maximum is 1580.",
+            [{"call_id": "c1", "tool_name": "project.summary", "arguments_json": "{}"}],
+        )
+        turn = parse_agent_turn(raw, 4)
+        self.assertTrue(turn.is_final)
+        self.assertEqual(turn.tool_calls, ())
+        self.assertIn("minimum is 61", turn.assistant_text)
+
+    def test_final_with_calls_and_no_answer_is_still_rejected(self) -> None:
+        raw = _turn_json(
+            ACTION_FINAL,
+            "   ",
             [{"call_id": "c1", "tool_name": "project.summary", "arguments_json": "{}"}],
         )
         with self.assertRaises(ProtocolError):

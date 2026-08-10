@@ -39,6 +39,7 @@ from .proposals import (
     ProposalError,
     ProposalReason,
     ProposalValidation,
+    _within_one_edit,
     parse_proposal,
 )
 from .proposal_recovery import InspectionRequest, recover_agent_turn
@@ -270,34 +271,6 @@ def _parse_numeric_comparison(
             operator_index, label = symbol_operators[match.group("operator")]
         return value, operator_index, label
     return None
-
-
-def _within_one_edit(left: str, right: str) -> bool:
-    """Return whether two bounded names differ by at most one edit."""
-
-    left = str(left).casefold()
-    right = str(right).casefold()
-    if left == right:
-        return True
-    if abs(len(left) - len(right)) > 1:
-        return False
-    if len(left) == len(right):
-        return sum(a != b for a, b in zip(left, right)) <= 1
-    if len(left) > len(right):
-        left, right = right, left
-    short_index = 0
-    long_index = 0
-    edits = 0
-    while short_index < len(left) and long_index < len(right):
-        if left[short_index] == right[long_index]:
-            short_index += 1
-            long_index += 1
-            continue
-        edits += 1
-        if edits > 1:
-            return False
-        long_index += 1
-    return True
 
 
 def _parse_direct_attribute_filter(text: str) -> Optional[_AttributeFilterIntent]:

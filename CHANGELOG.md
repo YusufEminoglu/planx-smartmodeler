@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.5.43] - 2026-08-10
+
+### Five dead ends from an owner session, none of them a GIS mistake
+
+Every failure below came from a request that was correct. The agent knew what
+to do; the application would not let it say so.
+
+- **A layer named instead of identified was a dead end.** The model passed
+  `"Extract by attribute - OUTPUT"` — the layer's name, listed by `layer.list`
+  and marked `active:true` — as a `layer_id`. `layer.describe` and
+  `layer.style` answered `available:false` four times running, the model
+  looped until the no-progress intervention fired, and it finally asked the
+  user to select a layer that was already selected. **Eight turns, and the
+  application knew the id the whole time.** Read-only inspection now resolves
+  an exact, unique layer *name* as well, reporting `resolved_by`, and an
+  unresolvable id comes back with a hint instead of a bare false. Two layers
+  sharing a name still resolve to neither, and a proposal still binds an exact
+  live id — reading is not acting.
+- **"Agent Workspace could not start the workflow request"** was one sentence
+  for eight distinct causes — an active run, an Offline profile, an invalid
+  key, a closed dock — because the bridge returned a bare boolean and threw
+  the reason away. Workflow Studio now shows what actually happened.
+- **The styling vocabulary was too narrow to use.** `jenks` was rejected
+  although it *is* natural breaks — it is what users type, what QGIS shows,
+  and what this plugin's own prompt router keys on. A named `color_ramp` was
+  rejected as an unexpected field. A one-character field-name miss
+  (`alanm2` for a live `alan_m2`) failed outright. All three cost a turn each,
+  in one session. Jenks and the other spoken names now map to their live
+  methods; `palette` is optional and a ramp is sampled to the class count when
+  none is given; a unique one-edit field correction is applied and surfaced as
+  a warning on the approval card, the same rule the attribute filter uses.
+- **Choice labels had to be byte-exact.** "Decimal (double)" and
+  "Quantile (Equal Count)" carry qualifiers a model rarely reproduces, so
+  correct choices died on "A choice label does not match any live option".
+  Matching now falls back to a punctuation-free and prefix comparison, and
+  only ever accepts a candidate when exactly one live option matches — an
+  ambiguous abbreviation still fails closed, which is the entire point of
+  binding by label.
+- **A complete answer was thrown away** when a provider returned it beside the
+  calls it had just made. The proposal branch already tolerated that shape for
+  the same reason — the calls are never parsed or executed — so a plain
+  question ("what is the min and max of this field?") no longer dies on
+  "A final turn must not include tool calls" with the answer already written.
+
 ## [1.5.42] - 2026-08-10
 
 ### Four blockers from a twelve-step owner session

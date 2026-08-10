@@ -459,10 +459,20 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
         action = ACTION_PROPOSAL
 
     if action == ACTION_FINAL:
-        _require_no_tool_calls(tool_calls_data, "A final turn must not include tool calls.")
         _require_no_proposal(proposal_kind, proposal_json, "A final turn must not carry proposal data.")
         if not assistant_text.strip():
+            # Nothing terminal was actually said, so the calls are the only
+            # content and the envelope is genuinely inconsistent.
+            _require_no_tool_calls(
+                tool_calls_data, "A final turn must not include tool calls."
+            )
             raise ProtocolError("A final turn must include a non-empty assistant_text.")
+        # A provider that answers *and* repeats the calls it just made is the
+        # same shape the proposal branch below already tolerates, and dropping
+        # the calls is authority-reducing for exactly the same reason: they are
+        # never parsed or executed. Failing instead threw away a complete answer
+        # -- an owner's "what is the min and max of this field?" died here with
+        # the answer already written in assistant_text.
         return AgentTurn(action=ACTION_FINAL, assistant_text=assistant_text, tool_calls=())
 
     if action == ACTION_PROPOSAL:

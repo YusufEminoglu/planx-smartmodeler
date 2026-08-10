@@ -176,6 +176,76 @@ def _layer_is_visible(layer: Any) -> bool:
     return bool(node.itemVisibilityChecked()) if node is not None else True
 
 
+def resolve_project_layer(layer_id: str) -> Tuple[Any, str]:
+    """Return ``(layer, resolved_by)`` for a read-only inspection.
+
+    An exact project id wins. Failing that, an exact and *unique* layer **name**
+    resolves too, reported as ``resolved_by="name"``.
+
+    The name fallback exists because the id-only version produced a dead end
+    rather than an error anyone could act on. In an owner session the model
+    passed ``"Extract by attribute - OUTPUT"`` -- the layer's name, right there
+    in ``layer.list``, marked ``active:true`` -- got ``available:false`` four
+    times running, looped until the no-progress intervention fired, and finally
+    told the user to "select the layer and try again" about a layer that was
+    already selected. Eight turns, and the id was known to the application the
+    whole time.
+
+    Reading is not acting: this widens *inspection* only. A proposal still binds
+    an exact live id, so nothing here lets a run touch a layer the provider
+    merely named. Ambiguity fails closed -- two layers sharing a name resolve to
+    neither.
+    """
+    project = QgsProject.instance()
+    if project is None:
+        return None, ""
+    layer = project.mapLayer(layer_id)
+    if layer is not None:
+        return layer, "id"
+    wanted = str(layer_id).strip().casefold()
+    if not wanted:
+        return None, ""
+    matches = []
+    with contextlib.suppress(Exception):
+        for candidate in project.mapLayers().values():
+            if str(candidate.name()).strip().casefold() == wanted:
+                matches.append(candidate)
+    if len(matches) == 1:
+        return matches[0], "name"
+    return None, ""
+
+
+def _unresolved_layer(layer_id: str) -> Dict[str, Any]:
+    """The ``available:false`` payload, plus how to get it right next time."""
+    result: Dict[str, Any] = {
+        "available": False,
+        "layer_id": agent_context.bound_text(layer_id, 128),
+    }
+    project = QgsProject.instance()
+    wanted = str(layer_id).strip().casefold()
+    duplicates = []
+    with contextlib.suppress(Exception):
+        if project is not None and wanted:
+            duplicates = [
+                agent_context.bound_text(candidate.id(), 128)
+                for candidate in project.mapLayers().values()
+                if str(candidate.name()).strip().casefold() == wanted
+            ]
+    if len(duplicates) > 1:
+        # Never guess between them, but never leave the caller guessing either.
+        result["ambiguous_name_matches"] = duplicates[:10]
+        result["hint"] = (
+            "Several layers share that name; call layer.list and use one exact "
+            "layer_id."
+        )
+    else:
+        result["hint"] = (
+            "No layer with that id or name. Call layer.list and copy an exact "
+            "layer_id."
+        )
+    return result
+
+
 def crs_is_area_safe(crs: Any) -> bool:
     """Whether ``$area``/``$length`` on a layer in ``crs`` returns true metres.
 
@@ -294,10 +364,9 @@ def _tool_layer_describe(call: AgentToolCall) -> Dict[str, Any]:
     if not isinstance(layer_id, str) or not layer_id.strip():
         raise ToolExecutionError("layer_id must be a non-empty string.")
     limit = _clamp_limit(call.arguments.get("limit"))
-    project = QgsProject.instance()
-    layer = project.mapLayer(layer_id) if project is not None else None
+    layer, resolved_by = resolve_project_layer(layer_id)
     if layer is None:
-        return {"available": False, "layer_id": agent_context.bound_text(layer_id, 128)}
+        return _unresolved_layer(layer_id)
     fields: Iterator[agent_context.FieldSummary] = iter(())
     feature_count = None
     if isinstance(layer, QgsVectorLayer):
@@ -316,6 +385,7 @@ def _tool_layer_describe(call: AgentToolCall) -> Dict[str, Any]:
         _layer_summary(layer), fields, limit, feature_count=feature_count
     )
     result["available"] = True
+    result["resolved_by"] = resolved_by
     return result
 
 
@@ -369,17 +439,15 @@ def _tool_suggest_crs(call: AgentToolCall) -> Dict[str, Any]:
     if not isinstance(layer_id, str) or not layer_id.strip():
         raise ToolExecutionError("layer_id must be a non-empty string.")
     project = QgsProject.instance()
-    layer = project.mapLayer(layer_id) if project is not None else None
+    layer, resolved_by = resolve_project_layer(layer_id)
     if layer is None:
-        return {
-            "available": False,
-            "layer_id": agent_context.bound_text(layer_id, 128),
-        }
+        return _unresolved_layer(layer_id)
 
     source_crs = layer.crs()
     result: Dict[str, Any] = {
         "available": True,
-        "layer_id": agent_context.bound_text(layer_id, 128),
+        "resolved_by": resolved_by,
+        "layer_id": agent_context.bound_text(layer.id(), 128),
         "current_crs": agent_context.bound_text(
             source_crs.authid() if source_crs is not None else "", 32
         ),
@@ -463,19 +531,19 @@ def _tool_field_values(call: AgentToolCall) -> Dict[str, Any]:
         else limit
     )
 
-    project = QgsProject.instance()
-    layer = project.mapLayer(layer_id) if project is not None else None
+    layer, resolved_by = resolve_project_layer(layer_id)
     if layer is None or not isinstance(layer, QgsVectorLayer):
-        return {
-            "available": False,
-            "layer_id": agent_context.bound_text(layer_id, 128),
-        }
+        return _unresolved_layer(layer_id)
     index = layer.fields().lookupField(field_name)
     if index < 0:
         return {
             "available": False,
-            "layer_id": agent_context.bound_text(layer_id, 128),
+            "layer_id": agent_context.bound_text(layer.id(), 128),
             "field_name": agent_context.bound_text(field_name, 128),
+            "known_fields": [
+                agent_context.bound_text(item.name(), 128)
+                for item in list(layer.fields())[:50]
+            ],
             "field_missing": True,
         }
     field_type = ""
@@ -505,7 +573,8 @@ def _tool_field_values(call: AgentToolCall) -> Dict[str, Any]:
         limit=limit,
     )
     result["available"] = True
-    result["layer_id"] = agent_context.bound_text(layer_id, 128)
+    result["resolved_by"] = resolved_by
+    result["layer_id"] = agent_context.bound_text(layer.id(), 128)
     result["area_safe_crs"] = crs_is_area_safe(layer.crs())
     return result
 
@@ -1395,11 +1464,11 @@ def _tool_layer_style_factory(
         if not isinstance(layer_id, str) or not layer_id.strip():
             raise ToolExecutionError("layer_id must be a non-empty string.")
         limit = _clamp_limit(call.arguments.get("limit"))
-        project = QgsProject.instance()
-        layer = project.mapLayer(layer_id) if project is not None else None
+        layer, resolved_by = resolve_project_layer(layer_id)
         if layer is None:
-            return {"available": False, "layer_id": agent_context.bound_text(layer_id, 128)}
+            return _unresolved_layer(layer_id)
         state = extract_layer_style_state(layer, limit)
+        state["resolved_by"] = resolved_by
         state["context_token"] = token_service.issue(
             STYLE_PROPOSAL_KIND, layer.id(), extract_layer_style_state(layer, STYLE_STATE_LIMIT)
         )

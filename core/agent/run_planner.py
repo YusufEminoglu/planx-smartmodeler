@@ -280,12 +280,57 @@ def _plan_enum(spec: ParamSpec, tag: str, value: Any) -> int:
         "equal to": "=",
         "not equals": "≠",
         "not equal": "≠",
+        "!=": "≠",
+        "<>": "≠",
         "does not equal": "≠",
+        "≤": "<=",
+        "≥": ">=",
+        "less than": "<",
+        "greater than": ">",
     }.get(wanted, wanted)
-    for index, option in enumerate(options):
-        if str(option).strip().casefold() == wanted:
+    labels = [str(option).strip() for option in options]
+
+    # Exact first. A label binding exists precisely so a *wrong* choice fails
+    # loudly instead of silently selecting a different option, so every step
+    # below stays unambiguous: a candidate is used only when exactly one live
+    # option matches it.
+    for index, label in enumerate(labels):
+        if label.casefold() == wanted:
             return index
-    _reject("A choice label does not match any live option.", ProposalReason.VALIDATION_FAILED)
+
+    def _unique(predicate) -> Optional[int]:
+        hits = [index for index, label in enumerate(labels) if predicate(label)]
+        return hits[0] if len(hits) == 1 else None
+
+    # QGIS labels carry qualifiers the model rarely reproduces verbatim:
+    # "Decimal (double)", "Quantile (Equal Count)", "Number of features".
+    # Comparing on the label's leading words, and on a punctuation-free form,
+    # matches those without ever accepting an ambiguous abbreviation.
+    def _simplify(text: str) -> str:
+        return "".join(
+            character
+            for character in text.casefold()
+            if character.isalnum()
+        )
+
+    simplified = _simplify(wanted)
+    if simplified:
+        index = _unique(lambda label: _simplify(label) == simplified)
+        if index is not None:
+            return index
+        index = _unique(lambda label: _simplify(label).startswith(simplified))
+        if index is not None:
+            return index
+        index = _unique(lambda label: simplified in _simplify(label))
+        if index is not None:
+            return index
+
+    _reject(
+        "A choice label does not match any live option. Live options: "
+        + ", ".join(_preview_value(label) for label in labels[:12])
+        + ".",
+        ProposalReason.VALIDATION_FAILED,
+    )
     return 0  # pragma: no cover - _reject always raises
 
 

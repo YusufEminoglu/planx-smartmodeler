@@ -14,6 +14,7 @@ a raw traceback, raw provider JSON, QGIS object repr, or a source path.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable, Dict, List, Optional
 
 from qgis.core import (
@@ -54,6 +55,7 @@ from .proposals import (
     ProposalError,
     ProposalReason,
     ProposalValidation,
+    _within_one_edit,
     build_model_patch_preview,
 )
 from .plugin_actions import (
@@ -544,10 +546,30 @@ class RuntimeProposalValidator:
                 field_names = {field.name() for field in layer.fields()}
         renderer = proposal.renderer
         if renderer.field and renderer.field not in field_names:
-            return ProposalValidation.failure(
-                ProposalReason.VALIDATION_FAILED,
-                "The renderer field does not match a field on the target layer.",
-            )
+            # One-edit correction, the same rule the attribute filter already
+            # uses: "alanm2" for a live "alan_m2" is a typo, not a different
+            # request, and failing it cost a turn every time. Ambiguity still
+            # fails closed, and the correction is surfaced as a warning so the
+            # human sees it on the approval card before clicking Apply.
+            near = [name for name in field_names if _within_one_edit(renderer.field, name)]
+            if len(near) == 1:
+                proposal = replace(
+                    proposal,
+                    renderer=replace(renderer, field=near[0]),
+                    warnings=tuple(proposal.warnings)
+                    + (
+                        f"Interpreted renderer field {renderer.field!r} as "
+                        f"{near[0]!r}; review this correction before Apply.",
+                    ),
+                )
+                renderer = proposal.renderer
+            else:
+                return ProposalValidation.failure(
+                    ProposalReason.VALIDATION_FAILED,
+                    f"The renderer field {renderer.field!r} is not on the target "
+                    f"layer. Live fields: "
+                    f"{', '.join(sorted(field_names)[:20]) or '(none)'}.",
+                )
         if proposal.labels.enabled:
             if not is_vector:
                 return ProposalValidation.failure(

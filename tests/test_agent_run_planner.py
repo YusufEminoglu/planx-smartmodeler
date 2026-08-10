@@ -276,6 +276,56 @@ class ProcessingRunPlannerTests(unittest.TestCase):
             ProposalReason.VALIDATION_FAILED,
         )
 
+    def test_a_choice_label_matches_past_qgis_qualifiers(self):
+        # Live QGIS labels carry qualifiers a model rarely reproduces exactly:
+        # "Decimal (double)", "Quantile (Equal Count)". Requiring a byte-exact
+        # match rejected correct choices ("A choice label does not match any
+        # live option") on requests that were not wrong in any way.
+        params = [
+            spec("INPUT", SOURCE),
+            spec(
+                "METHOD",
+                ENUM_PARAM,
+                default=True,
+                options=("Decimal (double)", "Integer (32 bit)", "Text (string)"),
+            ),
+            spec("OUTPUT", SINK, destination=True),
+        ]
+        for spoken, expected in (
+            ("Decimal (double)", 0),
+            ("decimal", 0),
+            ("Decimal(double)", 0),
+            ("text", 2),
+            ("Text (string)", 2),
+        ):
+            with self.subTest(label=spoken):
+                plan = self.plan(
+                    "native:fixgeometries",
+                    {"INPUT": {"layer": "L_vec"}, "METHOD": {"enum_string": spoken}},
+                    params,
+                )
+                self.assertEqual(plan.binding_for("METHOD").value, expected)
+
+    def test_an_ambiguous_choice_label_still_fails_closed(self):
+        # "integer" prefixes two live options, so guessing would silently pick
+        # a different one -- exactly what a label binding exists to prevent.
+        params = [
+            spec("INPUT", SOURCE),
+            spec(
+                "METHOD",
+                ENUM_PARAM,
+                default=True,
+                options=("Integer (32 bit)", "Integer (64 bit)", "Text (string)"),
+            ),
+            spec("OUTPUT", SINK, destination=True),
+        ]
+        self.assert_rejects(
+            "native:fixgeometries",
+            {"INPUT": {"layer": "L_vec"}, "METHOD": {"enum_string": "integer"}},
+            params,
+            ProposalReason.VALIDATION_FAILED,
+        )
+
     def test_plan_never_contains_a_destination_binding(self):
         plan = self.plan("native:buffer", {"INPUT": {"layer": "L_vec"}}, BUFFER_PARAMS)
         self.assertIsNone(plan.binding_for("OUTPUT"))

@@ -197,6 +197,9 @@ class SmartModelerPlugin:
                 self.iface.mainWindow(),
                 external_run_active=self._agent_run_active,
                 agent_request=self._start_model_agent_request,
+                agent_request_error=lambda: getattr(
+                    self, "last_agent_request_error", ""
+                ),
             )
         self.window.show()
         self.window.raise_()
@@ -212,13 +215,23 @@ class SmartModelerPlugin:
 
     def _start_model_agent_request(self, request: str) -> bool:
         """Route Workflow Studio AI through the shared agentic run loop."""
+        self.last_agent_request_error = ""
         if self.agent_dock is None or not self.open_agent_workspace():
+            self.last_agent_request_error = (
+                "Agent Workspace is not open. Open it from the SmartModeler "
+                "toolbar, then try again."
+            )
             return False
-        return self.agent_dock.start_request(
+        started = self.agent_dock.start_request(
             request,
             AgentMode.ACT,
             AgentScope.CURRENT_MODEL,
         )
+        if not started:
+            self.last_agent_request_error = getattr(
+                self.agent_dock, "last_request_error", ""
+            )
+        return started
 
     def open_ai_connections(self) -> bool:
         """Open the shared AI profile editor for trusted companion plugins."""

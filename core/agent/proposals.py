@@ -188,6 +188,34 @@ def _strict_object(text: str) -> Dict[str, Any]:
     return data
 
 
+def _within_one_edit(left: str, right: str) -> bool:
+    """Return whether two bounded names differ by at most one edit."""
+
+    left = str(left).casefold()
+    right = str(right).casefold()
+    if left == right:
+        return True
+    if abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        return sum(a != b for a, b in zip(left, right)) <= 1
+    if len(left) > len(right):
+        left, right = right, left
+    short_index = 0
+    long_index = 0
+    edits = 0
+    while short_index < len(left) and long_index < len(right):
+        if left[short_index] == right[long_index]:
+            short_index += 1
+            long_index += 1
+            continue
+        edits += 1
+        if edits > 1:
+            return False
+        long_index += 1
+    return True
+
+
 def _require_exact_keys(
     value: Dict[str, Any], expected: set, label: str, optional: set = frozenset()
 ) -> None:
@@ -960,12 +988,86 @@ _LAYER_STYLE_KEYS = {
     "labels",
     "warnings",
 }
-_RENDERER_KEYS = {"family", "field", "class_count", "palette", "opacity"}
-_RENDERER_OPTIONAL_KEYS = frozenset({"method"})
+_RENDERER_KEYS = {"family", "field", "class_count", "opacity"}
+# ``palette`` is optional: a classification whose colours were not chosen still
+# has an obvious right answer, and demanding N invented hex strings turned
+# "classify this with Jenks into 5 classes" into a rejected proposal.
+_RENDERER_OPTIONAL_KEYS = frozenset({"method", "palette", "color_ramp"})
 # Every method here is a live QGIS classification the apply step can build.
 _ALLOWED_CLASSIFICATION_METHODS = frozenset(
     {"equal_interval", "quantile", "natural_breaks"}
 )
+# What people and models actually call these. "Jenks" is the ordinary name for
+# natural breaks -- it is what the user types, what QGIS shows, and what this
+# plugin's own prompt router keys on -- and rejecting it cost a whole turn.
+_CLASSIFICATION_METHOD_ALIASES = {
+    "jenks": "natural_breaks",
+    "jenks natural breaks": "natural_breaks",
+    "natural breaks": "natural_breaks",
+    "naturalbreaks": "natural_breaks",
+    "doğal kırılma": "natural_breaks",
+    "dogal kirilma": "natural_breaks",
+    "equal interval": "equal_interval",
+    "equalinterval": "equal_interval",
+    "equal": "equal_interval",
+    "eşit aralık": "equal_interval",
+    "esit aralik": "equal_interval",
+    "quantiles": "quantile",
+    "quantile (equal count)": "quantile",
+    "kantil": "quantile",
+}
+
+# Built-in ramps, sampled to the class count when a proposal names a ramp or
+# omits the palette entirely. Colour-blind-safe sequential and diverging sets;
+# the explicit `palette` always wins when one is supplied.
+_NAMED_RAMPS = {
+    "viridis": ("#440154", "#3B528B", "#21918C", "#5EC962", "#FDE725"),
+    "magma": ("#000004", "#51127C", "#B63679", "#FB8861", "#FCFDBF"),
+    "blues": ("#F7FBFF", "#C6DBEF", "#6BAED6", "#2171B5", "#08306B"),
+    "greens": ("#F7FCF5", "#C7E9C0", "#74C476", "#238B45", "#00441B"),
+    "reds": ("#FFF5F0", "#FCBBA1", "#FB6A4A", "#CB181D", "#67000D"),
+    "oranges": ("#FFF5EB", "#FDD0A2", "#FD8D3C", "#D94801", "#7F2704"),
+    "purples": ("#FCFBFD", "#DADAEB", "#9E9AC8", "#6A51A3", "#3F007D"),
+    "greys": ("#FFFFFF", "#D9D9D9", "#969696", "#525252", "#000000"),
+    "ylorrd": ("#FFFFCC", "#FED976", "#FD8D3C", "#E31A1C", "#800026"),
+    "spectral": ("#D7191C", "#FDAE61", "#FFFFBF", "#ABDDA4", "#2B83BA"),
+    "rdylgn": ("#D73027", "#FC8D59", "#FFFFBF", "#91CF60", "#1A9850"),
+}
+_DEFAULT_RAMP = "viridis"
+
+_RAMP_ALIASES = {
+    "grays": "greys",
+    "gray": "greys",
+    "grey": "greys",
+    "ylorrd": "ylorrd",
+    "yellow-orange-red": "ylorrd",
+    "yellowtored": "ylorrd",
+    "rdylgn": "rdylgn",
+    "red-yellow-green": "rdylgn",
+    "blue": "blues",
+    "green": "greens",
+    "red": "reds",
+    "orange": "oranges",
+    "purple": "purples",
+    "mavi": "blues",
+    "yeşil": "greens",
+    "yesil": "greens",
+    "kırmızı": "reds",
+    "kirmizi": "reds",
+}
+
+
+def _sample_ramp(name: str, count: int) -> Tuple[str, ...]:
+    """``count`` colours sampled evenly from a built-in ramp."""
+    key = str(name or "").strip().casefold().replace("_", "").replace(" ", "")
+    key = _RAMP_ALIASES.get(key, key)
+    stops = _NAMED_RAMPS.get(key) or _NAMED_RAMPS[_DEFAULT_RAMP]
+    if count <= 0:
+        return ()
+    if count == 1:
+        return (stops[len(stops) // 2],)
+    step = (len(stops) - 1) / float(count - 1)
+    return tuple(stops[int(round(index * step))] for index in range(count))
 _LABELS_KEYS = {"enabled", "field"}
 
 
@@ -1020,16 +1122,35 @@ def _parse_renderer(data: Any) -> RendererIntent:
     if family not in _ALLOWED_RENDERER_FAMILIES:
         raise ProposalError(f"Unknown renderer family: {family!r}.", ProposalReason.MALFORMED)
     method = data.get("method", "equal_interval")
+    if isinstance(method, str):
+        method = _CLASSIFICATION_METHOD_ALIASES.get(
+            method.strip().casefold().replace("_", " ").replace("  ", " "),
+            _CLASSIFICATION_METHOD_ALIASES.get(
+                method.strip().casefold(), method.strip().casefold()
+            ),
+        )
     if not isinstance(method, str) or method not in _ALLOWED_CLASSIFICATION_METHODS:
         raise ProposalError(
-            "renderer method must be equal_interval, quantile, or natural_breaks.",
+            "renderer method must be equal_interval, quantile, or natural_breaks "
+            "(jenks and natural breaks both mean natural_breaks).",
             ProposalReason.MALFORMED,
+        )
+    class_count = _class_count(data["class_count"])
+    if "palette" in data and data["palette"] is not None:
+        palette = _palette(data["palette"])
+    else:
+        # No palette, or a named ramp instead of one: pick the colours rather
+        # than reject the classification. Nothing about a colour is unsafe, and
+        # the alternative was a model inventing five hex strings or failing.
+        palette = _sample_ramp(
+            data.get("color_ramp") if isinstance(data.get("color_ramp"), str) else "",
+            1 if family == "single_symbol" else class_count,
         )
     renderer = RendererIntent(
         family=family,
         field=_field_name(data["field"], "renderer field"),
-        class_count=_class_count(data["class_count"]),
-        palette=_palette(data["palette"]),
+        class_count=class_count,
+        palette=palette,
         opacity=_opacity(data["opacity"]),
         method=method,
     )

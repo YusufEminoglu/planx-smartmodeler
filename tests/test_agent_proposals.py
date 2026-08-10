@@ -347,7 +347,7 @@ class LayerStyleParsingTests(unittest.TestCase):
     def test_an_unknown_classification_method_is_rejected(self) -> None:
         # Fail closed: an unrecognized method must not silently fall back to
         # equal interval and quietly classify the layer the wrong way.
-        for method in ("jenks", "stddev", "", 5, None):
+        for method in ("stddev", "pretty_breaks", "", 5, None):
             with self.subTest(method=method):
                 renderer = renderer_dict(
                     "graduated",
@@ -358,6 +358,56 @@ class LayerStyleParsingTests(unittest.TestCase):
                 renderer["method"] = method
                 with self.assertRaises(ProposalError):
                     parse_proposal("layer_style", style_json(renderer, labels_dict()))
+
+    def test_the_names_people_use_for_a_method_are_accepted(self) -> None:
+        # "Jenks" is the ordinary name for natural breaks -- it is what the user
+        # types, what QGIS shows, and what this plugin's own prompt router keys
+        # on. Rejecting it cost an owner a whole turn on a correct request.
+        for spoken, expected in (
+            ("jenks", "natural_breaks"),
+            ("Natural Breaks", "natural_breaks"),
+            ("doğal kırılma", "natural_breaks"),
+            ("quantiles", "quantile"),
+            ("equal interval", "equal_interval"),
+        ):
+            with self.subTest(method=spoken):
+                renderer = renderer_dict(
+                    "graduated",
+                    field="pop",
+                    class_count=3,
+                    palette=["#000000", "#777777", "#ffffff"],
+                )
+                renderer["method"] = spoken
+                proposal = parse_proposal(
+                    "layer_style", style_json(renderer, labels_dict())
+                )
+                self.assertEqual(proposal.renderer.method, expected)
+
+    def test_a_classification_without_a_palette_picks_its_own_colours(self) -> None:
+        # Demanding N invented hex strings turned "classify this with Jenks into
+        # 5 classes" into a rejected proposal. Nothing about a colour is unsafe.
+        renderer = renderer_dict("graduated", field="pop", class_count=5)
+        renderer.pop("palette", None)
+        renderer["method"] = "jenks"
+        proposal = parse_proposal("layer_style", style_json(renderer, labels_dict()))
+        self.assertEqual(len(proposal.renderer.palette), 5)
+        for colour in proposal.renderer.palette:
+            self.assertRegex(colour, r"^#[0-9A-F]{6}$")
+
+    def test_a_named_colour_ramp_is_sampled_to_the_class_count(self) -> None:
+        renderer = renderer_dict("graduated", field="pop", class_count=4)
+        renderer.pop("palette", None)
+        renderer["color_ramp"] = "YlOrRd"
+        proposal = parse_proposal("layer_style", style_json(renderer, labels_dict()))
+        self.assertEqual(len(proposal.renderer.palette), 4)
+
+    def test_an_explicit_palette_still_wins(self) -> None:
+        renderer = renderer_dict(
+            "graduated", field="pop", class_count=2, palette=["#010203", "#040506"]
+        )
+        renderer["color_ramp"] = "viridis"
+        proposal = parse_proposal("layer_style", style_json(renderer, labels_dict()))
+        self.assertEqual(proposal.renderer.palette, ("#010203", "#040506"))
 
     def test_raster_pseudocolor_family(self) -> None:
         parse_proposal(

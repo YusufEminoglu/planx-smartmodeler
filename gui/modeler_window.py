@@ -71,11 +71,13 @@ class SmartModelerWindow(QMainWindow):
         parent=None,
         external_run_active=None,
         agent_request=None,
+        agent_request_error=None,
     ) -> None:
         super().__init__(parent)
         self.iface = iface
         self._external_run_active = external_run_active or (lambda: False)
         self._agent_request = agent_request
+        self._agent_request_error = agent_request_error or (lambda: "")
         self.settings = QgsSettings()
         self.setWindowTitle("SmartModeler GIS - QGIS 4 Workflow Studio")
         self.setAccessibleName("SmartModeler GIS Workflow Studio")
@@ -550,9 +552,24 @@ class SmartModelerWindow(QMainWindow):
                     "validated model proposal there"
                 )
             else:
+                # A bare "could not start" told the user nothing: eight
+                # different causes -- an active run, an Offline profile, an
+                # invalid key, a closed dock -- rendered as one sentence with
+                # no next step. Show what actually happened.
+                reason = ""
+                try:
+                    reason = str(self._agent_request_error() or "").strip()
+                except Exception:  # noqa: BLE001 - a status line is never fatal
+                    reason = ""
                 self.status_label.setText(
-                    "Agent Workspace could not start the workflow request"
+                    f"Agent Workspace could not start the workflow request: {reason}"
+                    if reason
+                    else "Agent Workspace could not start the workflow request"
                 )
+                if reason:
+                    QMessageBox.warning(
+                        self, "Agent Workspace could not start", reason
+                    )
             return
         self._ai_canvas_snapshot = Model3Serializer.export_to_json(self.graph)
         self._ai_request_mode = mode

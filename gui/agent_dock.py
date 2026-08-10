@@ -233,6 +233,9 @@ class AgentWorkspaceDock(QDockWidget):
         self._last_applied = None
         # The one approved action currently executing, if any.
         self._running_action = None
+        # Why the most recent start_request/_on_send_clicked refused, for a
+        # caller that has no transcript of its own to read (Workflow Studio).
+        self.last_request_error = ""
         # How many terminal actions this chat session has completed.
         self._session_action_count = 0
         # How many times the human has chosen to extend that budget.
@@ -776,41 +779,67 @@ class AgentWorkspaceDock(QDockWidget):
         the same multi-turn orchestration, tool registry, strategy recovery,
         proposal validation, and explicit-approval boundary as Agent Workspace.
         """
-        if (
-            not isinstance(text, str)
-            or not text.strip()
-            or mode not in AgentMode.ALL
-            or scope not in AgentScope.ALL
-        ):
+        self.last_request_error = ""
+        if not isinstance(text, str) or not text.strip():
+            self.last_request_error = "The workflow request was empty."
+            return False
+        if mode not in AgentMode.ALL or scope not in AgentScope.ALL:
+            self.last_request_error = "The requested agent mode or scope is not valid."
             return False
         if self.run_loop.is_active():
-            self._append_line(
+            self.last_request_error = (
                 "An Agent Workspace request is already active. Finish or stop "
                 "it before starting another workflow request."
             )
+            self._append_line(self.last_request_error)
             return False
         mode_index = self.mode_combo.findData(mode)
         scope_index = self.scope_combo.findData(scope)
         if mode_index < 0 or scope_index < 0:
+            self.last_request_error = (
+                "Agent Workspace does not offer the mode or scope this request "
+                "needs."
+            )
             return False
         self.mode_combo.setCurrentIndex(mode_index)
         self.scope_combo.setCurrentIndex(scope_index)
         self.prompt_input.setPlainText(text.strip())
-        return self._on_send_clicked()
+        started = self._on_send_clicked()
+        if not started and not self.last_request_error:
+            self.last_request_error = (
+                "Agent Workspace declined the request; see the Agent Workspace "
+                "transcript for the reason."
+            )
+        return started
 
     def _on_send_clicked(self) -> bool:
+        # Every refusal below records last_request_error as well as printing to
+        # the transcript. Workflow Studio calls this through start_request and
+        # used to receive a bare False, which it could only render as "Agent
+        # Workspace could not start the workflow request" -- one sentence for
+        # eight distinct causes, none of them diagnosable by the person reading it.
+        self.last_request_error = ""
         if self.run_loop.is_active():
+            self.last_request_error = "An Agent Workspace run is already active."
             return False
         if self.run_coordinator.is_running() or self._external_run_active():
-            self._append_line("A run is in progress. Wait for it to finish or cancel it.")
+            self.last_request_error = (
+                "A run is in progress. Wait for it to finish or cancel it."
+            )
+            self._append_line(self.last_request_error)
             return False
         text = self.prompt_input.toPlainText().strip()
         if not text:
+            self.last_request_error = "There is no message to send."
             return False
 
         store = AiSettingsStore()
         profile = store.active_profile()
         if profile.provider_id == "offline":
+            self.last_request_error = (
+                "Agent Chat needs a configured AI connection; the active "
+                "profile is Offline."
+            )
             self._append_line(
                 "Agent Chat needs a configured AI connection (not Offline). "
                 "Open AI connections to set one up. Quick actions above "
@@ -820,6 +849,7 @@ class AgentWorkspaceDock(QDockWidget):
         api_key = store.secret(profile.profile_id)
         errors = profile.validate(api_key)
         if errors:
+            self.last_request_error = "AI connection is not ready: " + "; ".join(errors)
             self._append_line(
                 "AI connection is not ready:\n" + "\n".join(errors)
                 + "\n\nOpen AI connections to fix this profile."
@@ -830,6 +860,7 @@ class AgentWorkspaceDock(QDockWidget):
         scope = self.scope_combo.currentData() or AgentScope.PROJECT
         bound = self.run_loop.prompt_budget.max_user_message_chars
         if len(text) > bound:
+            self.last_request_error = f"The request exceeds the {bound}-character limit."
             self._append_line(
                 f"Your message exceeds the {bound}-character limit; shorten it and try again."
             )
@@ -848,6 +879,7 @@ class AgentWorkspaceDock(QDockWidget):
         try:
             event = self.run_loop.start(text, mode, scope)
         except RunLoopError as error:
+            self.last_request_error = str(error)
             self._append_line(f"[error] {error}")
             return False
         self._set_controls_active(True)
