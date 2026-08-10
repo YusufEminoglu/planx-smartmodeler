@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.5.46] - 2026-08-10
+
+### The Manual button now opens one page, not fifteen chapters
+
+Sending a first-time user straight to the full reference was the wrong first
+click: it is the right size for looking something up and the wrong size for
+somebody who has just opened the dock. `Manual` now opens a single in-app page
+— instant, offline, no browser — carrying only what decides whether the first
+session goes well:
+
+- **Your first request** in three steps, ending at the approval click.
+- **Five rules that make it work**: one operation per message; name the layer
+  exactly as the Layers panel shows it; reproject before measuring, because
+  downloaded data arrives in Web Mercator where areas are inflated by about
+  1.76× at Turkish latitudes; questions in Ask mode are free and cost nothing
+  from the action budget; results are temporary layers until you make them
+  permanent.
+- **Six prompts to copy**, the same sequence as the manual's worked session.
+- **What to do when something is refused** — correct the fact, not the
+  behaviour — and how to paste an exact layer id.
+
+An **Open the full manual** button hands off to the online reference for the
+worked walkthrough, the phrasing table and the complete error index. The
+Workflow Studio help dialog is unchanged; this is a separate page for the
+agent, which it never covered.
+
 ## [1.5.45] - 2026-08-10
 
 ### Fixed

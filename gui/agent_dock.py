@@ -16,8 +16,7 @@ import time
 import uuid
 from typing import Any, Optional, Sequence
 
-from qgis.PyQt.QtCore import QEvent, Qt, QTimer, QUrl
-from qgis.PyQt.QtGui import QDesktopServices
+from qgis.PyQt.QtCore import QEvent, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -62,17 +61,13 @@ from ..core.ai_client import AiNetworkClient, AiTokenUsage, StructuredResponseCo
 from ..core.ai_settings import AiSettingsStore, PROVIDERS
 from ..core.prompt_context import PromptContextLoader
 from .branding import build_brand_header
+from .help_dialog import AgentQuickStartDialog
 from .theme import STUDIO_STYLE
 
 # Phase 06: a chat session may complete at most this many terminal actions
 # (applied / completed / canceled / failed / undone) before the human must
 # consciously decide to keep going. The cap bounds how far one conversation can
 # drive the project without a deliberate human decision.
-REFERENCE_MANUAL_URL = (
-    "https://yusufeminoglu.github.io/planx-smartmodeler/"
-    "SMARTMODELER_REFERENCE_MANUAL.html"
-)
-
 MAX_SESSION_ACTIONS = 10
 # How many times that decision may be made in one chat. The cap used to be
 # renewable only by New chat, which also discards the conversation: an owner
@@ -242,6 +237,9 @@ class AgentWorkspaceDock(QDockWidget):
         # Why the most recent start_request/_on_send_clicked refused, for a
         # caller that has no transcript of its own to read (Workflow Studio).
         self.last_request_error = ""
+        # Built on first use and kept, so reopening it is instant and it
+        # remembers where the reader scrolled to.
+        self._quick_start_dialog = None
         # How many terminal actions this chat session has completed.
         self._session_action_count = 0
         # How many times the human has chosen to extend that budget.
@@ -554,8 +552,8 @@ class AgentWorkspaceDock(QDockWidget):
         # manual one click from where the questions actually occur.
         self.manual_button = QPushButton("Manual")
         self.manual_button.setToolTip(
-            "Open the online reference manual: worked examples, how to phrase "
-            "requests, and what each error message means."
+            "How to use the agent in one page, with a link on to the full "
+            "reference manual."
         )
         self.manual_button.clicked.connect(self._on_manual_clicked)
         button_row.addWidget(self.manual_button)
@@ -925,8 +923,19 @@ class AgentWorkspaceDock(QDockWidget):
         self.status_label.setText("Ready.")
 
     def _on_manual_clicked(self) -> None:
-        """Open the online reference manual in the user's browser."""
-        QDesktopServices.openUrl(QUrl(REFERENCE_MANUAL_URL))
+        """Show the one-page quick start, which links on to the full manual.
+
+        Opening the fifteen-chapter reference straight from this button was the
+        wrong first click: it is the right size for looking something up and the
+        wrong size for someone who has just opened the dock. The quick start
+        works offline, opens instantly, and carries the five rules that decide
+        whether the first session goes well.
+        """
+        if self._quick_start_dialog is None:
+            self._quick_start_dialog = AgentQuickStartDialog(self)
+        self._quick_start_dialog.show()
+        self._quick_start_dialog.raise_()
+        self._quick_start_dialog.activateWindow()
 
     def _on_new_chat_clicked(self) -> None:
         if self.run_loop.is_active():
