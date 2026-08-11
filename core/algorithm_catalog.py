@@ -58,7 +58,13 @@ class AlgorithmCatalog:
             "native:randomextract",
         }
     )
-    AI_WORKFLOW_TRUSTED_PREFIXES = ("native:", "qgis:", "planx:", "planx_")
+    # GDAL is part of that drafting surface. Excluding it made whole classes of
+    # analysis impossible to draft: raster distance (`gdal:proximity`) has no
+    # native equivalent at all, so "distance to roads" in a raster suitability
+    # study could not be expressed. Its algorithms run through the same
+    # Processing framework, destinations and approval click as the native ones;
+    # the id terms and the id list below still refuse the side-effecting few.
+    AI_WORKFLOW_TRUSTED_PREFIXES = ("native:", "qgis:", "gdal:", "planx:", "planx_")
     AI_BLOCKED_ID_TERMS = (
         "command",
         "download",
@@ -80,6 +86,15 @@ class AlgorithmCatalog:
             "native:setprojectvariable",
             "qgis:setstyleforrasterlayer",
             "qgis:setstyleforvectorlayer",
+            # The GDAL algorithms that edit their *input* instead of producing
+            # an output. Everything else in the provider writes to a
+            # destination the user chooses when they run the workflow; these
+            # four change a file that is already on disk, which no drafted
+            # graph should be able to do on the user's behalf.
+            "gdal:assignprojection",
+            "gdal:overviews",
+            "gdal:rasterize_over",
+            "gdal:rasterize_over_fixed_value",
         }
     )
 

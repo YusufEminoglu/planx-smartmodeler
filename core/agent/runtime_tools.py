@@ -44,6 +44,9 @@ MAX_LIST_LIMIT = agent_context.MAX_LIST_ITEMS
 DEFAULT_PROCESSING_SEARCH_LIMIT = 8
 DEFAULT_PROCESSING_DESCRIBE_LIMIT = 40
 DEFAULT_PROCESSING_RESOLVE_LIMIT = 8
+# How deep `processing.resolve` looks for the row a query names exactly. Only
+# the bounded top rows are ever returned; this is the scan, not the payload.
+EXACT_MATCH_SCAN_LIMIT = 15
 # Package names are short strings, so far more of them fit than detailed rows.
 # Whether a plugin is installed must never depend on where its name sorts.
 MAX_PLUGIN_NAMES = 300
@@ -1026,6 +1029,65 @@ def _resolved_identity(described: Any) -> Dict[str, Any]:
     return identity
 
 
+def _search_like_algorithm_id(algorithm_id: str, limit: int) -> list:
+    """Return the real algorithms whose id or name looks like ``algorithm_id``.
+
+    The provider prefix is dropped because it is the part most often wrong:
+    the operation ("rastercalculator") is usually right while the provider
+    ("native:") is a guess. Falls back to the whole id when there is no prefix.
+    """
+    local = algorithm_id.rsplit(":", 1)[-1].strip() or algorithm_id.strip()
+    if not local:
+        return []
+    search = _tool_processing_search(
+        AgentToolCall(
+            call_id="resolve_fallback",
+            tool_name="processing.search",
+            arguments={"query": local, "limit": min(limit, 5)},
+        )
+    )
+    algorithms = search.get("algorithms", [])
+    return algorithms if isinstance(algorithms, list) else []
+
+
+def _exactly_named_algorithm(algorithms: Any, query: str) -> str:
+    """Return the one algorithm a query names *exactly*, or "".
+
+    ``resolve`` only filled ``resolved`` when a query matched a single row, so
+    "buffer" (which also matches multi-ring, single-sided and GDAL buffers) came
+    back resolved-null with a candidate list. A live workflow read that as "not
+    resolved", asked for the same three queries four turns running, and then
+    told the user it could not continue -- with `native:buffer` sitting in the
+    list it had already been given.
+
+    An exact match on the display title or on the id's own name is not a guess
+    between candidates: it is the row the query literally named. Ambiguity
+    (none, or more than one exact match) still returns the candidate list only.
+    """
+    wanted = str(query or "").strip().casefold()
+    if not wanted or not isinstance(algorithms, list):
+        return ""
+    matches = []
+    for row in algorithms:
+        if not isinstance(row, dict):
+            continue
+        algorithm_id = str(row.get("algorithm_id", "") or "")
+        if not algorithm_id:
+            continue
+        title = str(row.get("title", "") or "").strip().casefold()
+        local = algorithm_id.rsplit(":", 1)[-1].strip().casefold()
+        if wanted in (title, local) or wanted.replace(" ", "") == local:
+            matches.append(algorithm_id)
+    if len(matches) == 1:
+        return matches[0]
+    # "dissolve", "slope" and "aspect" each name a QGIS algorithm *and* its GDAL
+    # twin exactly. Preferring the one QGIS ships natively is not a choice
+    # between different operations, and every candidate is still listed for the
+    # model to override. Two native exact matches stay ambiguous.
+    native = [item for item in matches if item.startswith("native:")]
+    return native[0] if len(native) == 1 else ""
+
+
 def _tool_processing_resolve_factory(
     token_service: ContextTokenService,
 ) -> Callable[[AgentToolCall], Dict[str, Any]]:
@@ -1049,6 +1111,18 @@ def _tool_processing_resolve_factory(
                     arguments={"algorithm_id": algorithm_id, "limit": limit},
                 )
             )
+            if described.get("available") is False:
+                # A plausible id that this build does not have (there is no
+                # `native:rastercalculator`, no `native:distance`) used to come
+                # back as a bare "available: false" with an empty candidate
+                # list -- a dead end that invites a second guess instead of a
+                # correction. Search the id's own words once and hand back the
+                # real algorithms, in the same shape the query form returns.
+                return {
+                    "resolved": described,
+                    "algorithms": _search_like_algorithm_id(algorithm_id, limit),
+                    "truncated": False,
+                }
             return {
                 "resolved": described,
                 # Also surfaced at the top level. A proposal is rejected outright
@@ -1059,30 +1133,40 @@ def _tool_processing_resolve_factory(
                 "algorithms": [],
                 "truncated": False,
             }
+        shown = min(limit, 5)
+        # Scan wider than the rows that come back: the exact row a query names
+        # ("buffer" -> native:buffer) can sort below five near-matches, and it
+        # is the one answer that makes the difference between a resolved
+        # algorithm and a run that reports it as missing.
         search = _tool_processing_search(
             AgentToolCall(
                 call_id=call.call_id,
                 tool_name="processing.search",
-                arguments={"query": query, "limit": min(limit, 5)},
+                arguments={"query": query, "limit": max(shown, EXACT_MATCH_SCAN_LIMIT)},
             )
         )
-        algorithms = search.get("algorithms", [])
-        resolved = None
+        found = search.get("algorithms", [])
+        algorithms = found[:shown] if isinstance(found, list) else []
+        candidate = ""
         if len(algorithms) == 1 and isinstance(algorithms[0], dict):
             candidate = str(algorithms[0].get("algorithm_id", "") or "")
-            if candidate:
-                resolved = describe(
-                    AgentToolCall(
-                        call_id=call.call_id,
-                        tool_name="processing.describe",
-                        arguments={"algorithm_id": candidate, "limit": limit},
-                    )
+        else:
+            candidate = _exactly_named_algorithm(found, query)
+        resolved = None
+        if candidate:
+            resolved = describe(
+                AgentToolCall(
+                    call_id=call.call_id,
+                    tool_name="processing.describe",
+                    arguments={"algorithm_id": candidate, "limit": limit},
                 )
+            )
         return {
             "resolved": resolved,
             **_resolved_identity(resolved),
             "algorithms": algorithms,
-            "truncated": bool(search.get("truncated", False)),
+            "truncated": bool(search.get("truncated", False))
+            or (isinstance(found, list) and len(found) > len(algorithms)),
         }
 
     return _handler

@@ -49,6 +49,16 @@ _PROPOSAL_KIND_ALIASES = {
     "run_processing": PROPOSAL_KIND_PROCESSING_RUN,
     "processing_run_proposal": PROPOSAL_KIND_PROCESSING_RUN,
     "style": PROPOSAL_KIND_LAYER_STYLE,
+    # The names providers actually reach for when they mean a graph edit. The
+    # label is all that changes: the payload still has to parse as a full
+    # model_patch and clear every live check behind it.
+    "workflow": PROPOSAL_KIND_MODEL_PATCH,
+    "workflow_patch": PROPOSAL_KIND_MODEL_PATCH,
+    "model": PROPOSAL_KIND_MODEL_PATCH,
+    "model_patch_proposal": PROPOSAL_KIND_MODEL_PATCH,
+    "patch": PROPOSAL_KIND_MODEL_PATCH,
+    "graph": PROPOSAL_KIND_MODEL_PATCH,
+    "graph_patch": PROPOSAL_KIND_MODEL_PATCH,
 }
 
 _LEGACY_LAYER_PARAMETER_NAMES = frozenset(
@@ -376,6 +386,15 @@ def recover_agent_turn(
     proposal = _object(proposal_json)
     if proposal is None:
         return RecoveryResult()
+
+    if kind in ("", "none") and isinstance(proposal.get("operations"), list):
+        # A complete workflow patch labelled `"proposal_kind":"none"` -- seen
+        # twice in live runs, each time costing a repair turn and then the run.
+        # `operations` belongs to no other proposal kind, so this reads the
+        # label off the payload rather than guessing: the patch still goes
+        # through the same strict model_patch parser, the same freshness
+        # receipt check against the live graph, and the same approval card.
+        kind = PROPOSAL_KIND_MODEL_PATCH
 
     if kind == PROPOSAL_KIND_PROCESSING_RUN:
         _normalize_legacy_processing(proposal)

@@ -2,6 +2,7 @@
 param(
     [int]$MatrixRuns = 2,
     [int]$MatrixLimit = 10,
+    [int]$WorkflowLimit = 6,
     [int]$HardSeed = 303,
     [switch]$HardOnly
 )
@@ -18,12 +19,23 @@ if (-not $HardOnly -and ($MatrixRuns -lt 1 -or $MatrixRuns -gt 20)) {
 if (-not $HardOnly -and ($MatrixLimit -lt 2 -or $MatrixLimit -gt 30)) {
     throw "MatrixLimit must be between 2 and 30."
 }
+if (-not $HardOnly -and ($WorkflowLimit -lt 1 -or $WorkflowLimit -gt 6)) {
+    throw "WorkflowLimit must be between 1 and 6."
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $qgisPython = "C:\OSGeo4W\bin\python-qgis-ltr.bat"
 if (-not (Test-Path -LiteralPath $qgisPython)) {
     throw "QGIS LTR runtime was not found at $qgisPython."
 }
+
+# Live acceptance must not read or write the developer's live QGIS profile.
+# A single oversized settings value left there by any installed plugin makes
+# every QSettings.sync() these suites perform take minutes, and a suite that
+# has already passed then never exits.
+$profileRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("deepseek_qgis_profile_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+New-Item -ItemType Directory -Force -Path $profileRoot | Out-Null
+$env:QGIS_CUSTOM_CONFIG_PATH = $profileRoot
 
 $logDirectory = Join-Path $repoRoot "scratch"
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
@@ -88,12 +100,26 @@ try {
         Write-Host "Skipping randomized matrices (-HardOnly)." -ForegroundColor DarkGray
     }
 
+    # The matrices above cover one-algorithm work. This one covers the
+    # Workflow Studio patch path, where a request needs several algorithms at
+    # once -- the shape that used to end a run on the first provider slip.
+    $workflowPath = Join-Path $repoRoot "planx_smartmodeler\tests\qgis_deepseek_workflow_live.py"
+    if (-not $HardOnly) {
+        $env:SMARTMODELER_DEEPSEEK_WORKFLOW_LIMIT = [string]$WorkflowLimit
+        $env:SMARTMODELER_DEEPSEEK_WORKFLOW_SEED = [string](2000 + $HardSeed)
+        Invoke-QgisLiveTest "DeepSeek Workflow Studio patches" $workflowPath
+    }
+
     $env:SMARTMODELER_DEEPSEEK_HARD_SEED = [string]$HardSeed
     Invoke-QgisLiveTest "DeepSeek hard OSM workflow" $hardPath
 } finally {
     Remove-Item Env:SMARTMODELER_DEEPSEEK_MATRIX_LIMIT -ErrorAction SilentlyContinue
     Remove-Item Env:SMARTMODELER_DEEPSEEK_MATRIX_SEED -ErrorAction SilentlyContinue
+    Remove-Item Env:SMARTMODELER_DEEPSEEK_WORKFLOW_LIMIT -ErrorAction SilentlyContinue
+    Remove-Item Env:SMARTMODELER_DEEPSEEK_WORKFLOW_SEED -ErrorAction SilentlyContinue
     Remove-Item Env:SMARTMODELER_DEEPSEEK_HARD_SEED -ErrorAction SilentlyContinue
+    Remove-Item Env:QGIS_CUSTOM_CONFIG_PATH -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $profileRoot -ErrorAction SilentlyContinue
 }
 
 $failed = @($results | Where-Object { -not $_.Passed })

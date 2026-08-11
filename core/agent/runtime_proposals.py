@@ -367,7 +367,14 @@ class RuntimeProposalValidator:
         ):
             return ProposalValidation.failure(
                 ProposalReason.STALE_CONTEXT,
-                "The model changed since this proposal was prepared. Inspect it again.",
+                # Two different causes reach here -- the graph really moved, or
+                # the echoed receipt belongs to something else (an algorithm
+                # receipt, an older run). Naming both makes the repair turn
+                # actionable instead of sending it to look for a change that
+                # may never have happened.
+                "This workflow receipt does not match the current graph: either "
+                "the graph changed, or the echoed context_token is not the one "
+                "model.describe returned for it. Inspect it again.",
             )
         base = graph if graph is not None else GraphModel("New workflow")
         body = build_model_patch_preview(
@@ -908,7 +915,14 @@ class RuntimeProposalValidator:
         ):
             return ProposalValidation.failure(
                 ProposalReason.STALE_CONTEXT,
-                "The model changed since this proposal was prepared. Inspect it again.",
+                # Two different causes reach here -- the graph really moved, or
+                # the echoed receipt belongs to something else (an algorithm
+                # receipt, an older run). Naming both makes the repair turn
+                # actionable instead of sending it to look for a change that
+                # may never have happened.
+                "This workflow receipt does not match the current graph: either "
+                "the graph changed, or the echoed context_token is not the one "
+                "model.describe returned for it. Inspect it again.",
             )
         if graph is None or not graph.nodes:
             return ProposalValidation.failure(

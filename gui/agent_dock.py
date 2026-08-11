@@ -1059,6 +1059,14 @@ class AgentWorkspaceDock(QDockWidget):
                     f"[recovery] Provider response issue detected; "
                     f"performing one bounded {strategy.replace('_', ' ')} turn."
                 )
+            elif tool_event.get("kind") == "provider_notice":
+                # A notice costs no extra turn -- the turn ran, just not all of
+                # what the AI asked for -- so it must not read like a recovery.
+                self._append_line(
+                    "[note] The AI asked for more tool calls than one turn "
+                    "allows; the extra calls were not run and it was told to "
+                    "request them next turn."
+                )
 
         if event.kind == RunEventKind.REQUEST_PROVIDER:
             self._active_request_token = event.request.request_token

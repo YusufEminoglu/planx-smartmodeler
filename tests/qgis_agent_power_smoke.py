@@ -237,7 +237,22 @@ def main() -> int:
     finally:
         QgsProject.instance().clear()
         application.exitQgis()
+        # Keep the QgsApplication referenced past this frame. When ``main``
+        # returned, dropping the last reference ran the C++ destructor, and
+        # on Windows that can sit forever after a suite has already passed --
+        # the verify gate then waits on a process with nothing left to do.
+        # The module-level ``os._exit`` is the real end of this process.
+        globals()["_QGIS_APPLICATION"] = application
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    _code = main()
+    # Flush, then leave immediately. A headless QgsApplication can sit in
+    # Qt/GDAL static teardown after the suite has already printed its
+    # result and returned -- observed on Windows, on an unmodified
+    # checkout, with every assertion passed -- and the verify gate then
+    # waits forever on a process with nothing left to do. The exit code
+    # is the suite's own, so a failure still fails.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(_code)

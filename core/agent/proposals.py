@@ -111,6 +111,11 @@ MAX_PARAM_STRING_CHARS = 10_000
 MAX_PARAM_LIST_ITEMS = 200
 MAX_PARAM_LIST_STRING_CHARS = 2_000
 MAX_ALGORITHM_ID_CHARS = 200
+# How many unusable algorithm ids one rejection message may name. Enough for a
+# large workflow's mistakes to be repaired in a single turn, still bounded.
+MAX_REPORTED_ALGORITHMS = 10
+# How many of a node's real input names one refusal may list back.
+MAX_REPORTED_PARAMETERS = 30
 MAX_LAYER_ID_CHARS = 200
 MAX_FIELD_CHARS = 128
 MAX_PALETTE_COLORS = 12
@@ -292,8 +297,24 @@ def _validate_parameter_value(value: Any) -> Any:
             raise ProposalError("Parameter text exceeds the safety limit.", ProposalReason.MALFORMED)
         return value
     if isinstance(value, list):
-        if len(value) > MAX_PARAM_LIST_ITEMS or not all(
-            isinstance(item, str) and len(item) <= MAX_PARAM_LIST_STRING_CHARS for item in value
+        if len(value) > MAX_PARAM_LIST_ITEMS or not (
+            all(
+                isinstance(item, str) and len(item) <= MAX_PARAM_LIST_STRING_CHARS
+                for item in value
+            )
+            # A list of numbers is how QGIS asks for several enum choices at
+            # once (a statistics algorithm's SUMMARIES, a band list). Only
+            # strings were accepted, so those algorithms could not be
+            # configured at all -- a live workflow lost a complete patch to it.
+            # Numbers cannot carry a path, URI or credential, so this is the
+            # same safety the scalar branch above already gives them.
+            or all(
+                isinstance(item, (int, float))
+                and not isinstance(item, bool)
+                and item == item
+                and abs(item) < MAX_RUN_NUMBER_ABS
+                for item in value
+            )
         ):
             raise ProposalError(
                 "Parameter list value has an unsupported type or size.", ProposalReason.MALFORMED
@@ -543,6 +564,14 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _PATH_SEPARATOR = re.compile(r"[\\/]")
 
 
+# An authority-code CRS, the only CRS form a proposal may carry. Every valid
+# CRS ("EPSG:32635") is scheme-shaped, so the generic text check refused all of
+# them and a reprojection node could not be given a target CRS at all -- a live
+# workflow run hit exactly that. This is *stricter* than the generic check, not
+# looser: no separators, no spaces, no WKT, no proj strings, bounded length.
+_CRS_AUTHORITY_CODE = re.compile(r"^[A-Za-z]{2,16}:[A-Za-z0-9_]{1,16}$")
+
+
 def _looks_like_path_or_uri(text: str) -> bool:
     if _ABS_WINDOWS_PATH.match(text):
         return True
@@ -611,6 +640,35 @@ def _require_safe_text(value: Any, maximum: int) -> None:
         _reject_value("Path-separator characters are not permitted in a parameter value.")
 
 
+def _require_safe_text_or_list(value: Any, maximum: int) -> None:
+    """Accept one safe string, or a bounded list of them.
+
+    Field and text parameters are routinely multi-valued in QGIS -- a join's
+    JOIN_FIELDS, a summary's field list -- and accepting only a single string
+    meant those algorithms could not be configured in a workflow patch at all.
+    Each item passes exactly the rule a lone value would: no paths, URIs,
+    connection fragments, credential words or control characters.
+    """
+    if isinstance(value, list):
+        if len(value) > MAX_PARAM_LIST_ITEMS:
+            _reject_value("Parameter list value has an unsupported type or size.")
+        for item in value:
+            _require_safe_text(item, maximum)
+        return
+    _require_safe_text(value, maximum)
+
+
+def _require_safe_crs(value: Any) -> None:
+    """Accept an authority-code CRS and nothing that could be a path or URI."""
+    if not isinstance(value, str):
+        _reject_value("A CRS parameter value is required.")
+    text = value.strip()
+    if len(text) > MAX_CRS_CHARS or not _CRS_AUTHORITY_CODE.match(text):
+        _reject_value(
+            "A CRS parameter must be an authority code such as EPSG:4326."
+        )
+
+
 def _require_layer_binding(value: Any, expected: str, allows_multiple: bool, catalog: Any) -> None:
     choices = catalog.layer_choices(expected)
 
@@ -647,14 +705,37 @@ def _validate_by_socket(value: Any, socket: str, allows_multiple: bool, catalog:
         if not isinstance(value, bool):
             _reject_value("A boolean parameter value is required.")
     elif socket == SocketType.FIELD:
-        _require_safe_text(value, MAX_FIELD_CHARS)
+        _require_safe_text_or_list(value, MAX_FIELD_CHARS)
     elif socket == SocketType.STRING:
-        _require_safe_text(value, MAX_PARAM_STRING_CHARS)
+        _require_safe_text_or_list(value, MAX_PARAM_STRING_CHARS)
+    elif socket == SocketType.CRS:
+        _require_safe_crs(value)
     elif socket in (SocketType.VECTOR, SocketType.RASTER):
         expected = "raster" if socket == SocketType.RASTER else "vector"
         _require_layer_binding(value, expected, allows_multiple, catalog)
     else:  # SocketType.ANY, SocketType.TABLE, or any future scalar socket
         if value is None or isinstance(value, bool) or isinstance(value, int):
+            return
+        if isinstance(value, list):
+            # Several enum choices at once (a statistics algorithm's SUMMARIES,
+            # a band list) arrive as a list of numbers, and a multi-value text
+            # parameter as a list of strings. Rejecting every list meant those
+            # algorithms could not be configured at all -- a live workflow lost
+            # a complete patch to it. Each item still passes the same rule its
+            # scalar form would: numbers must be finite and bounded, strings
+            # must not be path-, URI- or credential-shaped.
+            if len(value) > MAX_PARAM_LIST_ITEMS:
+                _reject_value("Parameter list value has an unsupported type or size.")
+            for item in value:
+                if isinstance(item, bool):
+                    _reject_value("This parameter value type is not permitted.")
+                elif isinstance(item, (int, float)):
+                    if item != item or abs(item) >= MAX_RUN_NUMBER_ABS:
+                        _reject_value("A numeric parameter value must be finite.")
+                elif isinstance(item, str):
+                    _require_safe_text(item, MAX_PARAM_LIST_STRING_CHARS)
+                else:
+                    _reject_value("This parameter value type is not permitted.")
             return
         if isinstance(value, float):
             if value != value:
@@ -705,12 +786,31 @@ def _bind_parameter(node: NodeDefinition, name: str, value: Any, catalog: Any) -
     port = node.inputs.get(name)
     if port is None:
         if (node.algorithm_id, name) not in _SMART_OFF_PORT_PARAMETERS:
-            # Fixed safe error: never interpolate the (possibly path/URI-shaped)
-            # unknown parameter name into the message.
-            _reject_value("This parameter is not permitted on the target node.")
+            # The unknown name is never echoed -- it may itself be path- or
+            # URI-shaped. Listing the node's real input ports is safe (they are
+            # catalog text the provider was already shown) and is what makes
+            # the refusal fixable: a live workflow repeated the same invented
+            # parameter three times against a message that told it only that
+            # something was wrong.
+            available = ", ".join(sorted(node.inputs)[:MAX_REPORTED_PARAMETERS])
+            _reject_value(
+                "This parameter is not permitted on the target node."
+                + (f" It accepts: {available}." if available else "")
+            )
         _validate_smart_parameter(node, name, value, catalog)
     else:
-        _validate_by_socket(value, port.socket_type, bool(port.allows_multiple), catalog)
+        try:
+            _validate_by_socket(value, port.socket_type, bool(port.allows_multiple), catalog)
+        except ProposalError as error:
+            # ``name`` matched a real input port id, so it is catalog text the
+            # provider already saw -- not the unknown, possibly path-shaped
+            # name the branch above refuses to echo. Naming it is what makes
+            # the refusal actionable: a live workflow repeated the same
+            # mistyped value twice because "A text parameter value is
+            # required." never said *which* parameter.
+            raise ProposalError(
+                f"{error} (parameter {name[:MAX_PARAM_NAME_CHARS]})", error.reason_code
+            ) from error
     node.set_parameter(name, value)
 
 
@@ -734,10 +834,14 @@ def _validate_smart_parameter(node: NodeDefinition, name: str, value: Any, catal
         if not isinstance(value, bool):
             _reject_value("A boolean value is required.")
         return
+    if node.algorithm_id == "smart:crs" and name == "VALUE":
+        # Same reason as the CRS socket: an authority code is scheme-shaped,
+        # so the generic text rule rejected every CRS a user could want.
+        _require_safe_crs(value)
+        return
     if node.algorithm_id in (
         "smart:string",
         "smart:field",
-        "smart:crs",
         "smart:extent",
     ) and name == "VALUE":
         if not isinstance(value, str):
@@ -2160,6 +2264,43 @@ def parse_proposal(kind: str, proposal_json: str):
 # -- detached model-patch application/preview -------------------------------
 
 
+def _reject_unusable_algorithms(proposal: ModelPatchProposal, catalog: Any) -> None:
+    """Name *every* unusable algorithm id in the patch, not just the first one.
+
+    ``AddNodeOp.apply`` fails on the first bad id, so a workflow that guessed
+    two ids costs two whole rejected proposals to discover -- and the run loop
+    can only spend one bounded repair turn per fault, so the second guess ends
+    the run. A repair turn can only fix what the rejection message actually
+    named, which is why the pre-flight lists them together.
+
+    Unavailable (this QGIS build has no such id) and restricted (policy refuses
+    it) stay separate messages: the first is a mechanical mistake worth a
+    repair turn, the second is a deliberate boundary that must fail closed.
+    """
+    unavailable: List[str] = []
+    restricted: List[str] = []
+    for op in proposal.operations:
+        if not isinstance(op, AddNodeOp):
+            continue
+        algorithm_id = op.algorithm_id
+        if algorithm_id in unavailable or algorithm_id in restricted:
+            continue
+        if not catalog.algorithm_exists(algorithm_id):
+            unavailable.append(algorithm_id)
+        elif not catalog.ai_algorithm_allowed(algorithm_id):
+            restricted.append(algorithm_id)
+    if unavailable:
+        raise ProposalError(
+            f"Unavailable algorithm: {', '.join(unavailable[:MAX_REPORTED_ALGORITHMS])}.",
+            ProposalReason.VALIDATION_FAILED,
+        )
+    if restricted:
+        raise ProposalError(
+            f"Restricted algorithm: {', '.join(restricted[:MAX_REPORTED_ALGORITHMS])}.",
+            ProposalReason.VALIDATION_FAILED,
+        )
+
+
 def _apply_operations_to_clone(
     base_graph: GraphModel,
     proposal: ModelPatchProposal,
@@ -2173,6 +2314,7 @@ def _apply_operations_to_clone(
     candidate plus the bounded per-operation summaries. ``base_graph`` is never
     mutated: a mid-operation failure only ever affects the throwaway clone.
     """
+    _reject_unusable_algorithms(proposal, catalog)
     candidate = clone_fn(base_graph)
     preview_ops: List[Dict[str, Any]] = []
     for op in proposal.operations:

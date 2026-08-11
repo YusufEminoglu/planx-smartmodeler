@@ -121,6 +121,26 @@ def run_checks() -> str:
             raise RuntimeError("A side-effecting algorithm reached the AI catalog.")
         if AlgorithmCatalog.ai_algorithm_allowed("native:fileuploader"):
             raise RuntimeError("The AI graph policy allowed native:fileuploader.")
+        # GDAL is part of the drafting surface: raster distance has no native
+        # equivalent, so excluding the provider made a whole class of raster
+        # suitability analysis impossible to draft.
+        for allowed_gdal in ("gdal:proximity", "gdal:rastercalculator", "gdal:slope"):
+            if AlgorithmCatalog.algorithm_exists(allowed_gdal) and not (
+                AlgorithmCatalog.ai_algorithm_allowed(allowed_gdal)
+            ):
+                raise RuntimeError(f"The AI graph policy refused {allowed_gdal}.")
+        # ...but not the ones that edit a file already on disk, nor the SQL,
+        # PostGIS and download tools the id terms have always refused.
+        for refused_gdal in (
+            "gdal:assignprojection",
+            "gdal:overviews",
+            "gdal:rasterize_over",
+            "gdal:rasterize_over_fixed_value",
+            "gdal:executesql",
+            "gdal:importvectorintopostgisdatabasenewconnection",
+        ):
+            if AlgorithmCatalog.ai_algorithm_allowed(refused_gdal):
+                raise RuntimeError(f"The AI graph policy allowed {refused_gdal}.")
         random_catalog = AlgorithmCatalog.compact_ai_catalog(
             "randomly extract features",
             5,
@@ -1712,16 +1732,31 @@ def run_checks() -> str:
         if graph.name == "Renamed by proposal":
             raise RuntimeError("A proposal was applied to the live graph.")
 
-        # A stale proposal (graph changed after the token was issued) must reject.
+        # A stale proposal (graph changed after the token was issued) must never
+        # reach an approval card. It is worth exactly one bounded repair turn:
+        # the graph is re-described so the provider can rewrite the patch
+        # against the live state -- the receipt is never re-issued for the
+        # stale patch, and nothing is applied.
         graph.nodes["buffer"].title = "Buffer (touched)"
         model_serialization_after_touch = Model3Serializer.export_to_json(graph)
         stale_event = _feed_proposal(
             AgentMode.PLAN, AgentScope.CURRENT_MODEL, "model_patch", valid_patch
         )
+        if stale_event is None or stale_event.kind != RunEventKind.REQUEST_PROVIDER:
+            raise RuntimeError("A stale model proposal did not get its bounded repair turn.")
+        if "model.describe" not in [
+            event.get("tool_name") for event in stale_event.tool_events
+        ]:
+            raise RuntimeError("A stale model proposal was repaired without re-reading the graph.")
+        # Repeating the same stale patch must end the run: one repair, no loop.
+        repeated_stale = proposal_dock.run_loop.submit_provider_response(
+            stale_event.request.request_token,
+            _agent_turn("proposal", "Here.", kind="model_patch", proposal_json=valid_patch),
+        )
         if (
-            stale_event is None
-            or stale_event.kind != RunEventKind.FAILED
-            or stale_event.reason_code != "stale_proposal_context"
+            repeated_stale is None
+            or repeated_stale.kind != RunEventKind.FAILED
+            or repeated_stale.reason_code != "stale_proposal_context"
         ):
             raise RuntimeError("A stale model proposal was not rejected after a graph change.")
 
@@ -3803,7 +3838,22 @@ def main() -> int:
         QApplication.processEvents()
         QgsProject.instance().clear()
         application.exitQgis()
+        # Keep the QgsApplication referenced past this frame. When ``main``
+        # returned, dropping the last reference ran the C++ destructor, and
+        # on Windows that can sit forever after a suite has already passed --
+        # the verify gate then waits on a process with nothing left to do.
+        # The module-level ``os._exit`` is the real end of this process.
+        globals()["_QGIS_APPLICATION"] = application
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    _code = main()
+    # Flush, then leave immediately. A headless QgsApplication can sit in
+    # Qt/GDAL static teardown after the suite has already printed its
+    # result and returned -- observed on Windows, on an unmodified
+    # checkout, with every assertion passed -- and the verify gate then
+    # waits forever on a process with nothing left to do. The exit code
+    # is the suite's own, so a failure still fails.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(_code)

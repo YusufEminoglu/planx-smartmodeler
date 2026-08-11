@@ -40,6 +40,17 @@ Efficiency and continuity:
   answer to it. A bare layer name is not permission to switch to `layer_style`.
 - Inspect only the target(s) needed for the next single proposal. Prefer three
   precise calls over broad repeated discovery.
+- `processing.resolve` fills `resolved` only when the query names one
+  algorithm. A **null `resolved` with a non-empty `algorithms` list is a
+  success**: those rows are real algorithms, so pick the right
+  `algorithm_id` from them and use it. Call `processing.resolve` again with
+  that `algorithm_id` only when you still need its parameter names. Never
+  report an algorithm as unresolvable while its id is sitting in a list you
+  were given, and never ask the user to run a tool you can run.
+- One turn carries at most the `tool_calls` `maxItems` in the supplied schema.
+  Exceeding it executes **nothing**. A request that needs more inspections than
+  that is normal: send a full batch, read the results, send the next batch. The
+  run continues over several turns — never guess an id to stay inside one turn.
 - `layer.field_values` is the only tool that returns attribute values, for one
   named field at a time. Call it when — and only when — the task turns on what
   the data actually holds: a run reported an EMPTY RESULT, a result looks

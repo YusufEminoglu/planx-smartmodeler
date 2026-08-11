@@ -1416,5 +1416,492 @@ class ProposalRunLoopTests(unittest.TestCase):
         self.assertNotIn("RuntimeError", event.text)
 
 
+class SequencedValidator:
+    """Fail the first proposal with ``message``, accept every later one."""
+
+    def __init__(self, reason_code: str, message: str) -> None:
+        from planx_smartmodeler.core.agent.proposals import ProposalValidation
+
+        self.calls = []
+        self._reason_code = reason_code
+        self._message = message
+        self._success = ProposalValidation.success(
+            {"kind": "model_patch", "title": "Add report", "target": "M", "summary": "s"}
+        )
+
+    def __call__(self, kind, proposal, mode, scope):
+        from planx_smartmodeler.core.agent.proposals import ProposalValidation
+
+        self.calls.append((kind, mode, scope))
+        if len(self.calls) == 1:
+            return ProposalValidation.failure(self._reason_code, self._message)
+        return self._success
+
+
+def build_model_patch_loop(validator):
+    """A Workflow Studio loop that also has the ``model.describe`` inspection."""
+    from planx_smartmodeler.core.agent.run_loop import AgentRunLoop
+
+    registry = AgentToolRegistry()
+    describe_handler = RecordingHandler({"available": True, "context_token": "fresh"})
+    registry.register(
+        AgentToolSpec(
+            name="model.describe",
+            title="Describe model",
+            description="Reports the live graph and its freshness receipt.",
+            risk=AgentRisk.READ_ONLY,
+            input_schema=EMPTY_SCHEMA,
+            allowed_scopes=(AgentScope.CURRENT_MODEL,),
+        ),
+        describe_handler,
+    )
+    controller = AgentController(registry)
+    loop = AgentRunLoop(controller, STATIC_INSTRUCTIONS, proposal_validator=validator)
+    return loop, describe_handler
+
+
+class WorkflowPatchRecoveryTests(unittest.TestCase):
+    """A complex workflow makes one mechanical mistake and must survive it.
+
+    Every case here ended a real session with the user retyping the whole
+    request, because the run failed instead of spending one bounded repair
+    turn on evidence it could get for free.
+    """
+
+    def _drive(self, loop, raw):
+        event = loop.start("build the workflow", AgentMode.PLAN, AgentScope.CURRENT_MODEL)
+        return loop.submit_provider_response(event.request.request_token, raw)
+
+    def test_guessed_algorithm_ids_get_one_repair_turn_naming_them(self) -> None:
+        validator = SequencedValidator(
+            "proposal_validation_failed",
+            "Unavailable algorithm: native:rastercalculator, native:distance.",
+        )
+        loop, _describe = build_model_patch_loop(validator)
+        repaired = self._drive(
+            loop, proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON)
+        )
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        recovery = [
+            event for event in repaired.tool_events if event["kind"] == "provider_recovery"
+        ]
+        self.assertEqual(len(recovery), 1)
+        instruction = recovery[0]["instruction"]
+        self.assertIn("native:rastercalculator", instruction)
+        self.assertIn("processing.resolve", instruction)
+        # The Processing wording must not leak into a patch repair: a workflow
+        # patch has no bindings, no destinations and no project layers.
+        self.assertNotIn("proposal_binding", instruction)
+        final = loop.submit_provider_response(
+            repaired.request.request_token,
+            proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON),
+        )
+        self.assertEqual(final.kind, RunEventKind.PROPOSAL)
+        self.assertEqual(len(validator.calls), 2)
+
+    def test_a_restricted_algorithm_still_fails_closed(self) -> None:
+        from planx_smartmodeler.core.agent.proposals import ProposalValidation
+
+        validator = RecordingValidator(
+            ProposalValidation.failure(
+                "proposal_validation_failed", "Restricted algorithm: native:shellcommand."
+            )
+        )
+        loop, _describe = build_model_patch_loop(validator)
+        event = self._drive(
+            loop, proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON)
+        )
+        self.assertEqual(event.kind, RunEventKind.FAILED)
+        self.assertEqual(len(validator.calls), 1)
+
+    def test_two_unrelated_validation_mistakes_each_get_their_own_repair(self) -> None:
+        # Keying the fault on the reason code alone spent the whole allowance
+        # on the first refusal, so a workflow that fixed a stale receipt and
+        # then mistyped a parameter died on the second, unrelated mistake.
+        from planx_smartmodeler.core.agent.proposals import ProposalValidation
+
+        class TwoFaults:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def __call__(self, kind, proposal, mode, scope):
+                self.calls.append(kind)
+                if len(self.calls) == 1:
+                    return ProposalValidation.failure(
+                        "proposal_validation_failed",
+                        "Unavailable algorithm: native:rastercalculator.",
+                    )
+                if len(self.calls) == 2:
+                    return ProposalValidation.failure(
+                        "proposal_validation_failed",
+                        "A text parameter value is required.",
+                    )
+                return ProposalValidation.success(
+                    {"kind": "model_patch", "title": "T", "target": "M", "summary": "s"}
+                )
+
+        validator = TwoFaults()
+        loop, _describe = build_model_patch_loop(validator)
+        event = self._drive(loop, proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON))
+        for _ in range(2):
+            self.assertEqual(event.kind, RunEventKind.REQUEST_PROVIDER)
+            event = loop.submit_provider_response(
+                event.request.request_token,
+                proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON),
+            )
+        self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+        self.assertEqual(len(validator.calls), 3)
+
+    def test_a_mistyped_parameter_value_gets_one_repair_turn(self) -> None:
+        validator = SequencedValidator(
+            "proposal_validation_failed", "A text parameter value is required."
+        )
+        loop, _describe = build_model_patch_loop(validator)
+        repaired = self._drive(
+            loop, proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON)
+        )
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+
+    def test_a_path_shaped_parameter_value_still_fails_closed(self) -> None:
+        from planx_smartmodeler.core.agent.proposals import ProposalValidation
+
+        validator = RecordingValidator(
+            ProposalValidation.failure(
+                "proposal_validation_failed",
+                "Path, URI, connection, or credential values are not permitted.",
+            )
+        )
+        loop, _describe = build_model_patch_loop(validator)
+        event = self._drive(
+            loop, proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON)
+        )
+        self.assertEqual(event.kind, RunEventKind.FAILED)
+
+    def test_a_stale_graph_receipt_is_reinspected_instead_of_ending_the_run(self) -> None:
+        validator = SequencedValidator(
+            "stale_proposal_context",
+            "The model changed since this proposal was prepared. Inspect it again.",
+        )
+        loop, describe_handler = build_model_patch_loop(validator)
+        repaired = self._drive(
+            loop, proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON)
+        )
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        # The graph itself is re-read, so the repair turn writes the patch
+        # against the node ids and receipt that exist now.
+        self.assertEqual(len(describe_handler.calls), 1)
+        self.assertIn(
+            "model.describe",
+            [event.get("tool_name") for event in repaired.tool_events],
+        )
+        final = loop.submit_provider_response(
+            repaired.request.request_token,
+            proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON),
+        )
+        self.assertEqual(final.kind, RunEventKind.PROPOSAL)
+
+    def test_more_tool_calls_than_the_turn_allows_still_run_the_first_ones(
+        self,
+    ) -> None:
+        # An oversized batch used to execute nothing and cost a repair turn; a
+        # second oversized batch then ended the run outright. Now the turn does
+        # its allowed work and the provider is told what was dropped.
+        echo = RecordingHandler()
+        loop, _controller, echo_handler, _mutate = build_loop(
+            AgentRunLimits(max_tool_calls_per_run=8, max_tool_calls_per_turn=2),
+            echo_handler=echo,
+        )
+        first = loop.start("plan a big workflow", AgentMode.ASK, AgentScope.PROJECT)
+        event = loop.submit_provider_response(
+            first.request.request_token,
+            tool_calls_turn_json(
+                [
+                    ("c1", "test.echo", "{}"),
+                    ("c2", "test.echo", '{"query":"a"}'),
+                    ("c3", "test.echo", '{"query":"b"}'),
+                ]
+            ),
+        )
+        self.assertEqual(event.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(len(echo_handler.calls), 2)
+        notice = [
+            item for item in event.tool_events if item["kind"] == "provider_notice"
+        ]
+        self.assertEqual(len(notice), 1)
+        self.assertEqual(notice[0]["strategy"], "tool_calls_truncated")
+        self.assertIn("2-call", notice[0]["instruction"])
+        # Truncation is not a repair, so the run's bounded repair budget is
+        # untouched and a later oversized batch is handled the same way.
+        again = loop.submit_provider_response(
+            event.request.request_token,
+            tool_calls_turn_json(
+                [
+                    ("c4", "test.echo", '{"query":"c"}'),
+                    ("c5", "test.echo", '{"query":"d"}'),
+                    ("c6", "test.echo", '{"query":"e"}'),
+                ]
+            ),
+        )
+        self.assertEqual(again.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(len(echo_handler.calls), 4)
+        final = loop.submit_provider_response(
+            again.request.request_token, final_turn_json("Recovered.")
+        )
+        self.assertEqual(final.kind, RunEventKind.FINAL)
+
+    def test_a_tagged_parameter_value_is_repaired_with_the_patch_shape_named(
+        self,
+    ) -> None:
+        # Live DeepSeek wrote {"expression":"$area"} -- the processing_run
+        # binding envelope -- into a complete four-node workflow patch, and the
+        # whole run died on the strict parser.
+        patch = json.dumps(
+            {
+                "schema_version": 1,
+                "context_token": "tok",
+                "title": "Compute area",
+                "summary": "Add a field calculator node.",
+                "operations": [
+                    {
+                        "op": "add_node",
+                        "node_id": "calc1",
+                        "algorithm_id": "native:fieldcalculator",
+                        "title": "Compute area",
+                        "parameters": [{"name": "FORMULA", "value": {"expression": "$area"}}],
+                    }
+                ],
+                "warnings": [],
+            }
+        )
+        validator = RecordingValidator()
+        loop, _describe = build_model_patch_loop(validator)
+        repaired = self._drive(loop, proposal_turn_json("model_patch", patch))
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        recovery = [
+            event for event in repaired.tool_events if event["kind"] == "provider_recovery"
+        ]
+        self.assertEqual(len(recovery), 1)
+        self.assertIn("expression", recovery[0]["instruction"])
+        self.assertEqual(validator.calls, [])
+        final = loop.submit_provider_response(
+            repaired.request.request_token,
+            proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON),
+        )
+        self.assertEqual(final.kind, RunEventKind.PROPOSAL)
+
+    def test_resolved_algorithms_survive_the_trimmed_working_trace(self) -> None:
+        # A live run at turn eleven reported algorithms it had resolved at turn
+        # two as "not resolved in this session" -- the trace holding them had
+        # been trimmed to fit the prompt budget. The digest is tiny and last.
+        loop, _describe = build_model_patch_loop(RecordingValidator())
+        event = loop.start("build it", AgentMode.PLAN, AgentScope.CURRENT_MODEL)
+        self.assertNotIn("run_facts", event.request.user_prompt)
+        loop._proposal_receipts[("processing_run", "native:slope")] = "tok1"
+        loop._proposal_receipts[("processing_run", "native:aspect")] = "tok2"
+        nudged = loop.submit_provider_response(
+            event.request.request_token,
+            tool_calls_turn_json([("c1", "model.describe", "{}")]),
+        )
+        self.assertEqual(nudged.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertIn("run_facts", nudged.request.user_prompt)
+        self.assertIn("native:slope", nudged.request.user_prompt)
+        self.assertIn("native:aspect", nudged.request.user_prompt)
+        # Receipts themselves are never handed to the provider by the digest.
+        self.assertNotIn("tok1", nudged.request.user_prompt)
+
+    def test_live_node_ids_reach_the_provider_so_it_cannot_invent_one(self) -> None:
+        # With the topology trimmed out of the trace, a provider writes the
+        # shape of an id -- "<existing_node_id>" -- and the whole patch is
+        # rejected. These come from the trusted model.describe result.
+        registry = AgentToolRegistry()
+        registry.register(
+            AgentToolSpec(
+                name="model.describe",
+                title="Describe model",
+                description="Reports the live graph and its freshness receipt.",
+                risk=AgentRisk.READ_ONLY,
+                input_schema=EMPTY_SCHEMA,
+                allowed_scopes=(AgentScope.CURRENT_MODEL,),
+            ),
+            RecordingHandler(
+                {
+                    "available": True,
+                    "context_token": "fresh",
+                    "nodes": [{"node_id": "src"}, {"node_id": "buf"}],
+                }
+            ),
+        )
+        from planx_smartmodeler.core.agent.run_loop import AgentRunLoop
+
+        loop = AgentRunLoop(
+            AgentController(registry),
+            STATIC_INSTRUCTIONS,
+            proposal_validator=RecordingValidator(),
+        )
+        event = loop.start("replace it", AgentMode.PLAN, AgentScope.CURRENT_MODEL)
+        nudged = loop.submit_provider_response(
+            event.request.request_token,
+            tool_calls_turn_json([("c1", "model.describe", "{}")]),
+        )
+        self.assertEqual(nudged.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertIn("open_workflow_node_ids", nudged.request.user_prompt)
+        self.assertIn("buf", nudged.request.user_prompt)
+        # The graph's own receipt travels with them: providers kept echoing a
+        # different token and a complete patch was refused for a copy error.
+        self.assertIn("workflow_context_token", nudged.request.user_prompt)
+        self.assertIn("fresh", nudged.request.user_prompt)
+
+    def test_no_workflow_receipt_is_offered_before_the_graph_is_inspected(self) -> None:
+        loop, _describe = build_model_patch_loop(RecordingValidator())
+        event = loop.start("build it", AgentMode.PLAN, AgentScope.CURRENT_MODEL)
+        self.assertNotIn("workflow_context_token", event.request.user_prompt)
+
+    def test_the_same_stall_earns_a_second_push_only_after_real_progress(self) -> None:
+        # A live workflow stalled, was pushed into acting, resolved four more
+        # algorithms, then stalled again -- and had nothing left, ending with
+        # no result and two thirds of its budget unused.
+        stall = final_turn_json(
+            "I need to resolve the remaining algorithms before proposing the patch."
+        )
+        loop, describe_handler = build_model_patch_loop(RecordingValidator())
+        event = self._drive(loop, stall)
+        self.assertEqual(event.kind, RunEventKind.REQUEST_PROVIDER)
+        # No provider work in between: the same stall must not buy another push.
+        repeated = loop.submit_provider_response(event.request.request_token, stall)
+        self.assertEqual(repeated.kind, RunEventKind.FINAL)
+
+        loop2, _describe2 = build_model_patch_loop(RecordingValidator())
+        event = self._drive(loop2, stall)
+        self.assertEqual(event.kind, RunEventKind.REQUEST_PROVIDER)
+        worked = loop2.submit_provider_response(
+            event.request.request_token,
+            tool_calls_turn_json([("c1", "model.describe", "{}")]),
+        )
+        self.assertEqual(worked.kind, RunEventKind.REQUEST_PROVIDER)
+        pushed_again = loop2.submit_provider_response(
+            worked.request.request_token, stall
+        )
+        self.assertEqual(pushed_again.kind, RunEventKind.REQUEST_PROVIDER)
+
+    def test_a_patch_labelled_none_needs_no_repair_turn_at_all(self) -> None:
+        # A complete workflow patch under "proposal_kind":"none" cost a repair
+        # turn and then the run, twice in live sessions. `operations` belongs
+        # to no other kind, so the label is read off the payload -- and the
+        # patch still crosses the same parser, receipt and approval boundaries.
+        validator = RecordingValidator()
+        loop, _describe = build_model_patch_loop(validator)
+        raw = json.dumps(
+            {
+                "action": "proposal",
+                "assistant_text": "Here is the workflow.",
+                "tool_calls": [],
+                "proposal_kind": "none",
+                "proposal_json": VALID_MODEL_PATCH_JSON,
+            }
+        )
+        event = self._drive(loop, raw)
+        self.assertEqual(event.kind, RunEventKind.PROPOSAL)
+        self.assertEqual([call[0] for call in validator.calls], ["model_patch"])
+
+    def test_the_names_a_provider_reaches_for_still_mean_model_patch(self) -> None:
+        for label in ("workflow", "model", "patch", "graph_patch"):
+            validator = RecordingValidator()
+            loop, _describe = build_model_patch_loop(validator)
+            event = self._drive(
+                loop, proposal_turn_json(label, VALID_MODEL_PATCH_JSON)
+            )
+            self.assertEqual(event.kind, RunEventKind.PROPOSAL, label)
+            self.assertEqual([call[0] for call in validator.calls], ["model_patch"])
+
+    def test_a_missing_proposal_kind_is_repaired_with_this_scope_s_kinds(self) -> None:
+        # The fixed advice was "for this Processing request use processing_run",
+        # which Current model scope rejects outright -- a live workflow run
+        # spent its repair on impossible instructions and then died.
+        loop, _describe = build_model_patch_loop(RecordingValidator())
+        raw = json.dumps(
+            {
+                "action": "proposal",
+                "assistant_text": "Here is the workflow.",
+                "tool_calls": [],
+                "proposal_kind": "none",
+                "proposal_json": json.dumps(
+                    {"schema_version": 1, "context_token": "tok", "title": "T"}
+                ),
+            }
+        )
+        repaired = self._drive(loop, raw)
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        instruction = [
+            event["instruction"]
+            for event in repaired.tool_events
+            if event["kind"] == "provider_recovery"
+        ][0]
+        self.assertIn("model_patch", instruction)
+        self.assertNotIn("processing_run", instruction)
+
+    def test_a_final_turn_that_only_announces_the_next_step_is_pushed_to_act(
+        self,
+    ) -> None:
+        loop, _describe = build_model_patch_loop(RecordingValidator())
+        repaired = self._drive(
+            loop,
+            final_turn_json(
+                "I need to resolve the algorithms for dissolve, multipart to "
+                "singleparts and field calculator before proposing the workflow patch."
+            ),
+        )
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertEqual(
+            [
+                event["strategy"]
+                for event in repaired.tool_events
+                if event["kind"] == "provider_recovery"
+            ],
+            ["do_the_work_you_announced"],
+        )
+
+    def test_a_final_turn_claiming_completion_without_a_proposal_is_pushed(self) -> None:
+        # "The request is complete." after five turns of inspection, with no
+        # proposal ever attached: nothing was built and nothing is waiting.
+        loop, _describe = build_model_patch_loop(RecordingValidator())
+        repaired = self._drive(loop, final_turn_json("The request is complete."))
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        self.assertIn(
+            "attach_the_promised_proposal",
+            [
+                event.get("strategy")
+                for event in repaired.tool_events
+                if event["kind"] == "provider_recovery"
+            ],
+        )
+
+    def test_a_final_turn_that_asks_the_user_something_still_ends_the_run(self) -> None:
+        loop, _describe = build_model_patch_loop(RecordingValidator())
+        event = self._drive(
+            loop,
+            final_turn_json(
+                "Which DEM should the workflow use, and do you want the slope in "
+                "degrees or percent?"
+            ),
+        )
+        self.assertEqual(event.kind, RunEventKind.FINAL)
+
+    def test_a_proposal_turn_with_an_empty_payload_is_repaired(self) -> None:
+        validator = RecordingValidator()
+        loop, _describe = build_model_patch_loop(validator)
+        repaired = self._drive(loop, proposal_turn_json("model_patch", ""))
+        self.assertEqual(repaired.kind, RunEventKind.REQUEST_PROVIDER)
+        recovery = [
+            event for event in repaired.tool_events if event["kind"] == "provider_recovery"
+        ]
+        self.assertEqual(len(recovery), 1)
+        self.assertIn("proposal_json", recovery[0]["instruction"])
+        final = loop.submit_provider_response(
+            repaired.request.request_token,
+            proposal_turn_json("model_patch", VALID_MODEL_PATCH_JSON),
+        )
+        self.assertEqual(final.kind, RunEventKind.PROPOSAL)
+
+
 if __name__ == "__main__":
     unittest.main()

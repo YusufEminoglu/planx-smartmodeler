@@ -334,14 +334,29 @@ class MalformedTurnRejectionTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             parse_agent_turn(raw, 3)
 
-    def test_tool_calls_exceeding_the_per_turn_limit_is_rejected(self) -> None:
+    def test_tool_calls_exceeding_the_per_turn_limit_are_truncated_not_rejected(
+        self,
+    ) -> None:
+        # Running fewer calls than asked cannot widen authority, and rejecting
+        # the turn threw away a correct multi-step plan. The excess is dropped
+        # and counted so the run loop can tell the provider what did not run.
         calls = [
             {"call_id": f"c{i}", "tool_name": "project.summary", "arguments_json": "{}"}
             for i in range(4)
         ]
-        raw = _turn_json(ACTION_TOOL_CALLS, "", calls)
-        with self.assertRaises(ProtocolError):
-            parse_agent_turn(raw, 3)
+        turn = parse_agent_turn(_turn_json(ACTION_TOOL_CALLS, "", calls), 3)
+        self.assertEqual(len(turn.tool_calls), 3)
+        self.assertEqual([call.call_id for call in turn.tool_calls], ["c0", "c1", "c2"])
+        self.assertEqual(turn.dropped_tool_calls, 1)
+
+    def test_a_batch_within_the_limit_drops_nothing(self) -> None:
+        calls = [
+            {"call_id": f"c{i}", "tool_name": "project.summary", "arguments_json": "{}"}
+            for i in range(3)
+        ]
+        turn = parse_agent_turn(_turn_json(ACTION_TOOL_CALLS, "", calls), 3)
+        self.assertEqual(len(turn.tool_calls), 3)
+        self.assertEqual(turn.dropped_tool_calls, 0)
 
     def test_an_unknown_top_level_field_is_ignored_not_rejected(self) -> None:
         # Providers routinely add a stray "reasoning"/"approved" field. Only the

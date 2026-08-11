@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 from planx_smartmodeler.tests.qgis_stubs import ensure_qgis_core
 
@@ -594,6 +595,111 @@ class ProposalBindingFormTests(unittest.TestCase):
                     f"{record.algorithm_id}.{param_name} kind {kind!r} has no binding form",
                 )
                 self.assertTrue(_KIND_BINDING_FORM[kind])
+
+
+class ResolveFallbackTests(unittest.TestCase):
+    """An id this build does not have must come back with real candidates.
+
+    A bare ``available: false`` with an empty list is a dead end that invites
+    a second guess -- and a guessed id placed in a workflow patch rejects the
+    whole patch. Observed with ``native:rastercalculator`` (this build has
+    ``native:rastercalc``/``qgis:rastercalculator``) and ``native:distance``.
+    """
+
+    def _resolve(self, algorithm_id, available, searched):
+        def fake_describe_factory(_token_service):
+            def _describe(call):
+                return {
+                    "available": available,
+                    "algorithm_id": call.arguments["algorithm_id"],
+                    "context_token": "tok" if available else "",
+                }
+
+            return _describe
+
+        def fake_search(call):
+            searched.append(dict(call.arguments))
+            return {
+                "algorithms": [{"algorithm_id": "qgis:rastercalculator"}],
+                "count": 1,
+                "truncated": False,
+            }
+
+        with patch.object(
+            runtime_tools, "_tool_processing_describe_factory", fake_describe_factory
+        ), patch.object(runtime_tools, "_tool_processing_search", fake_search):
+            handler = runtime_tools._tool_processing_resolve_factory(
+                ContextTokenService(b"0123456789abcdef")
+            )
+            return handler(
+                AgentToolCall(
+                    call_id="c1",
+                    tool_name="processing.resolve",
+                    arguments={"algorithm_id": algorithm_id},
+                )
+            )
+
+    def test_an_unknown_id_returns_candidates_searched_without_the_provider(self) -> None:
+        searched = []
+        result = self._resolve("native:rastercalculator", False, searched)
+        # The provider prefix is the part most often wrong, so the operation
+        # is what gets searched.
+        self.assertEqual(searched, [{"query": "rastercalculator", "limit": 5}])
+        self.assertEqual(
+            [item["algorithm_id"] for item in result["algorithms"]],
+            ["qgis:rastercalculator"],
+        )
+        # No receipt is surfaced for an algorithm that does not exist.
+        self.assertNotIn("context_token", result)
+
+    def test_a_query_naming_one_row_exactly_resolves_it(self) -> None:
+        # "buffer" also matches multi-ring/single-sided/GDAL buffers, so
+        # `resolved` used to come back null and a live run concluded the
+        # algorithm did not exist -- with native:buffer in the list it held.
+        rows = [
+            {"algorithm_id": "native:multiringconstantbuffer", "title": "Multi-ring buffer"},
+            {"algorithm_id": "native:buffer", "title": "Buffer"},
+            {"algorithm_id": "native:singlesidedbuffer", "title": "Single sided buffer"},
+        ]
+        self.assertEqual(
+            runtime_tools._exactly_named_algorithm(rows, "buffer"), "native:buffer"
+        )
+        self.assertEqual(
+            runtime_tools._exactly_named_algorithm(rows, "Multi-ring buffer"),
+            "native:multiringconstantbuffer",
+        )
+        # A query that names none of them exactly stays ambiguous.
+        self.assertEqual(runtime_tools._exactly_named_algorithm(rows, "buff"), "")
+        # "dissolve"/"slope"/"aspect" name a QGIS algorithm and its GDAL twin
+        # exactly; the native one wins and the list still carries the other.
+        self.assertEqual(
+            runtime_tools._exactly_named_algorithm(
+                [
+                    {"algorithm_id": "gdal:dissolve", "title": "Dissolve"},
+                    {"algorithm_id": "native:dissolve", "title": "Dissolve"},
+                ],
+                "dissolve",
+            ),
+            "native:dissolve",
+        )
+        # Two native exact matches are a real choice and stay unresolved.
+        self.assertEqual(
+            runtime_tools._exactly_named_algorithm(
+                [
+                    {"algorithm_id": "native:rastercalc", "title": "Raster calculator"},
+                    {"algorithm_id": "native:modelerrastercalc", "title": "Raster calculator"},
+                ],
+                "raster calculator",
+            ),
+            "",
+        )
+
+    def test_a_known_id_still_resolves_without_a_search(self) -> None:
+        searched = []
+        result = self._resolve("native:buffer", True, searched)
+        self.assertEqual(searched, [])
+        self.assertEqual(result["algorithms"], [])
+        self.assertEqual(result["context_token"], "tok")
 
 
 if __name__ == "__main__":

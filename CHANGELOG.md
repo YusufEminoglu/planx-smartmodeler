@@ -1,5 +1,212 @@
 # Changelog
 
+## [1.5.51] - 2026-08-11
+
+### One slip ended the whole run, and the owner retyped the request
+
+A session that asked for a beekeeping suitability analysis — DEM, slope,
+aspect, distance to roads — died five times in a row, each time on a different
+single mistake, each time forcing the request to be typed again:
+
+- `Unavailable algorithm: native:rastercalculator`. There is no such id in
+  QGIS 3.44 (`native:rastercalc` and `qgis:rastercalculator` are the real
+  ones). The model guessed it rather than resolving it.
+- `tool_calls exceeds the configured 4-call turn limit`. The generic "return a
+  valid envelope" repair never said *what* was wrong, so the next turn sent the
+  same oversized batch and the run ended.
+- `A proposal turn must include a non-empty proposal_json object`.
+- `The model changed since this proposal was prepared. Inspect it again.`
+- `Parameter value has an unsupported type` — a live provider wrote
+  `{"expression":"$area"}`, the `processing_run` binding envelope, into an
+  otherwise complete four-node workflow patch.
+
+Each of these is one mechanical mistake with the evidence to fix it already in
+reach. The run loop has always had bounded repair turns for exactly that; the
+list of what counted as repairable simply did not include anything a *workflow*
+request produces. Now it does:
+
+- An id this build does not have is worth one repair turn, and the patch
+  pre-flight names **every** bad id at once instead of failing on the first —
+  one repair turn can only fix what the message actually named. A *restricted*
+  id stays fail closed; so do path/URI/credential-shaped values and output
+  destinations.
+- An over-long tool-call batch is **truncated, not rejected**. Running fewer
+  calls than asked cannot widen authority — every surviving call is still name-,
+  argument-, scope- and risk-checked — while refusing the turn threw away a
+  correct multi-step plan, and a second over-run had no repair left. The turn
+  now does its allowed work and the provider is told what was dropped.
+- The per-turn tool-call limit is **8, not 4**. Four fits one-algorithm Agent
+  Chat work; a workflow needs five to eight algorithms resolved before the first
+  patch exists, and live runs stalled after one batch and told the user to
+  resolve the rest themselves. The per-run budget is unchanged.
+- A missing `proposal_kind` is repaired with the kinds **this scope** accepts.
+  The fixed advice was "for this Processing request use processing_run", which
+  Current model scope rejects outright: the repair was impossible to follow.
+- Two unrelated validation mistakes are two faults again. Keying the repair
+  allowance on the reason code alone let the first refusal consume it, so an
+  unrelated second mistake ended the run. A mistake the run already repaired
+  can be repaired once more **after real provider work has happened since** —
+  a run that stalled, was pushed into acting, resolved four more algorithms and
+  then stalled again had nothing left, with two thirds of its budget unused.
+  Repeats need new tool calls and tool calls are capped, so this still ends.
+- A complete patch labelled `"proposal_kind":"none"` no longer costs a turn at
+  all: `operations` belongs to no other proposal kind, so the label is read off
+  the payload. The patch still crosses the same parser, freshness-receipt and
+  approval boundaries.
+- A placeholder where a live node id belongs (`"<existing_node_id>"`) is
+  repaired with where real ids come from, like a placeholder receipt.
+- An invented parameter name is refused with **the node's real input names**
+  listed back. The unknown name is still never echoed (it may itself be
+  path-shaped), but a live workflow repeated the same invented parameter three
+  times against a message that said only that something was wrong.
+- A refused parameter binding now **names the parameter** when the name matched
+  a real catalog input port. "A text parameter value is required." with no name
+  left a live repair turn guessing, and it guessed wrong twice. An unknown,
+  possibly path-shaped name is still never echoed.
+- A stale workflow receipt re-reads the graph with `model.describe` and rewrites
+  the patch against live state. Nothing is re-issued for the stale patch, and
+  repeating it still ends the run.
+- A patch parameter written as a tagged binding object gets the patch shape
+  spelled out. Empty payloads and mistyped values likewise.
+- A `final` turn that only announces its next step ("I need to resolve the
+  algorithms … before proposing"), refuses for inspections it never ran, or
+  asks the *user* to call `processing.resolve` is pushed to do it instead —
+  observed live with three quarters of the run budget still unspent. A turn
+  that genuinely asks the user something still ends the run.
+- The `model_patch` repair no longer speaks Processing: bindings, destinations
+  and project layers do not exist in a workflow patch.
+
+### `resolve` answered "buffer" with a list and the run called it unresolvable
+
+`processing.resolve` filled `resolved` only when a query matched exactly one
+algorithm. "buffer" also matches multi-ring, single-sided and GDAL buffers, so
+it came back `resolved: null` with a candidate list — and a live run read that
+as failure, re-sent the same three queries four turns running, and told the
+user it could not continue while `native:buffer` sat in the list it had already
+been handed.
+
+- A query that names a row **exactly** (its title or the id's own name) now
+  resolves that row. That is not a choice between candidates; it is the row the
+  query literally named.
+- Where a QGIS algorithm and its GDAL twin are both named exactly — `dissolve`,
+  `slope`, `aspect` — the native one wins and both stay listed. Two *native*
+  exact matches (`raster calculator`) remain a real choice and stay unresolved.
+- The scan looks deeper than the five rows it returns, because the exact row
+  can sort below five near-matches.
+- `resolve` on an id this build lacks returns the real candidates found from
+  the id's own words, instead of a bare `available: false` that invites a
+  second guess.
+- The tool pack now states that a null `resolved` with a non-empty list is a
+  success: pick the id from the list.
+
+### The agent forgot what it had already resolved
+
+The working trace is trimmed to fit the prompt budget, oldest first. At turn
+eleven a live run told the user that "the required algorithms have not been
+resolved in this session" — about algorithms it had resolved at turn two, whose
+results had since been trimmed out of its own prompt. From where it sat, that
+was true, and it is why the same three `processing.resolve` calls kept coming
+back turn after turn.
+
+Every provider turn now carries a small, durable digest of what the run has
+established: the algorithm ids it has resolved, the node ids the open graph
+actually has, and the receipt `model.describe` returned for that graph —
+providers kept echoing a *different* token and a complete patch was refused for
+a copy error the run could correct itself. None of this grants authority: the
+values exist only because a trusted read-only inspection produced them in this
+same run, and the receipt is still verified against the live graph at approval
+time. Without the latter a provider with no topology in front of it
+writes the *shape* of an id — `"<existing_node_id>"` — and the whole patch is
+rejected. The ids are existing trusted run state (each one
+already carries the freshness receipt a proposal must echo), the receipts
+themselves are never sent, and the digest is the newest event so trimming takes
+the working trace before it. A placeholder node id additionally re-reads the
+graph once, so the live ids are in front of the repair turn rather than merely
+described to it.
+
+An incompatible connection ("vector cannot feed raster") is now worth one
+repair turn as well: ending a five-node workflow over one wrong edge threw away
+the other four nodes with it.
+
+A `final` turn that reports the work as finished while no proposal was ever
+attached ("The request is complete.") is treated exactly like one that says
+"approve the run below": nothing was built and nothing is waiting, so the run
+is pushed to produce the proposal instead of ending on a claim.
+
+The Workflow Studio pack now states which providers a patch may use
+(`native:`, `qgis:`, `planx:`), so a plan does not get built around
+`gdal:proximity` only to be refused at validation.
+
+### A workflow could not be given a target CRS
+
+Every valid CRS is scheme-shaped — `EPSG:32635` looks exactly like `file:` or
+`ssh:` to a check that refuses URI-shaped text — so the generic parameter rule
+rejected all of them. A reprojection node could not be given a `TARGET_CRS` at
+all, and a live run built a correct clip-and-reproject workflow only to be
+refused on that one value.
+
+A multi-value parameter had the same problem from the other direction: QGIS asks
+for several enum choices at once as a **list of numbers** (a statistics
+algorithm's `SUMMARIES`, a band list), and only lists of strings were accepted,
+so those algorithms could not be configured at all. Lists now carry numbers or
+strings, and every item still passes the rule its scalar form would — no
+out-of-range numbers, no nested objects, no path-, URI- or credential-shaped
+strings. `workflow`, `model`, `patch` and `graph_patch` are now read as
+`model_patch` labels; only the label changes, the payload still has to parse and
+clear every live check.
+
+CRS parameters (the `crs` socket and `smart:crs`) now take an authority code and
+nothing else: `^[A-Za-z]{2,16}:[A-Za-z0-9_]{1,16}$`, bounded length. That is
+stricter than the rule it replaces, not looser — no separators, no spaces, no
+WKT, no proj strings, and `file:///etc/passwd` or `/vsicurl/...` still fail.
+
+A receipt that does not match the live graph now says so accurately: either the
+graph changed or the echoed token is not the one `model.describe` returned. The
+old wording sent the repair turn looking for a change that had never happened.
+
+### GDAL is available to a drafted workflow
+
+Workflow Studio only accepted `native:`, `qgis:` and `planx:` ids, which made
+whole classes of analysis impossible to draft: raster distance
+(`gdal:proximity`) has no native equivalent at all, so "distance to roads" in a
+raster suitability study could not be expressed, and a live run built a correct
+plan around it only to be refused at validation. GDAL algorithms run through the
+same Processing framework, the same forced destinations and the same approval
+click as the native ones, so the provider is now part of the drafting surface.
+
+Still refused: the four that edit a file already on disk
+(`gdal:assignprojection`, `gdal:overviews`, `gdal:rasterize_over`,
+`gdal:rasterize_over_fixed_value`) and everything the id terms already blocked
+(SQL, PostGIS, download, shell, upload). Agent Chat's execution allowlist is
+untouched.
+
+### Acceptance suites hung on someone else's settings
+
+Every QGIS suite began hanging after printing PASS. The cause was outside this
+plugin: a 2 MB value in the developer's live QGIS profile made each
+`QSettings.sync()` take minutes, so a suite that had already passed sat in
+shutdown and `pf verify` waited on it forever.
+
+- `pf` now runs QGIS suites in a throwaway profile (`QGIS_CUSTOM_CONFIG_PATH`),
+  so acceptance can neither read nor write the developer's live settings, and a
+  green run cannot depend on local state a colleague does not have. The live
+  DeepSeek runner does the same.
+- Each acceptance entry point now flushes and exits with its own code instead
+  of waiting for interpreter teardown, keeping the `QgsApplication` referenced
+  so its C++ destructor cannot stall the process on the way out.
+
+### The Workflow Studio path had no live acceptance
+
+The randomized DeepSeek matrix covered the one-shot modeler bridge and Agent
+Chat's `processing_run`; nothing exercised a multi-algorithm `model_patch`
+against a real provider — the one path that broke. New
+`tests/qgis_deepseek_workflow_live.py` runs six real planning requests
+(beekeeping suitability, slope bands, parcel areas, dissolve→singleparts→area→
+buffer, flood overlay, and a "replace the workflow" against a populated graph)
+through the full run loop and asserts each reaches an approval card naming only
+algorithms this QGIS build really has, with the live graph untouched.
+`run_deepseek_autotests.ps1 -WorkflowLimit 6` includes it.
+
 ## [1.5.50] - 2026-08-10
 
 ### The Workflow Studio schema was never sent to the model

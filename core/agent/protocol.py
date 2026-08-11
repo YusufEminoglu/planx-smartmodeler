@@ -148,6 +148,10 @@ class AgentTurn:
     tool_calls: Tuple[AgentToolCall, ...] = field(default_factory=tuple)
     proposal_kind: str = PROPOSAL_KIND_NONE
     proposal: Optional[Any] = None
+    # How many requested calls were dropped for exceeding the per-turn limit.
+    # The run loop tells the provider, so a truncated batch is continued rather
+    # than silently half-executed.
+    dropped_tool_calls: int = 0
 
     @property
     def is_final(self) -> bool:
@@ -412,10 +416,17 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
         tool_calls_data = []
     if not isinstance(tool_calls_data, list):
         raise ProtocolError("tool_calls must be an array.")
+    # An over-long batch is truncated, not rejected. Running *fewer* calls than
+    # the provider asked for cannot widen authority -- every surviving call is
+    # still name-, argument-, scope- and risk-checked by the controller -- while
+    # rejecting the turn threw away a correct multi-step plan. A live workflow
+    # run died exactly this way twice in one session: it re-sent an oversized
+    # batch after a repair turn, and the second one had no repair left. The run
+    # loop reports the dropped count back so the rest arrive next turn.
+    dropped_tool_calls = 0
     if len(tool_calls_data) > max_tool_calls_per_turn:
-        raise ProtocolError(
-            f"tool_calls exceeds the configured {max_tool_calls_per_turn}-call turn limit."
-        )
+        dropped_tool_calls = len(tool_calls_data) - max_tool_calls_per_turn
+        tool_calls_data = tool_calls_data[:max_tool_calls_per_turn]
 
     proposal_kind = data.get("proposal_kind", PROPOSAL_KIND_NONE)
     if proposal_kind is None or proposal_kind == "":
@@ -509,7 +520,10 @@ def parse_agent_turn(raw_text: str, max_tool_calls_per_turn: int) -> AgentTurn:
         raise ProtocolError("A tool_calls turn must request at least one tool call.")
     parsed_calls = _parse_tool_calls(tool_calls_data, max_tool_calls_per_turn)
     return AgentTurn(
-        action=ACTION_TOOL_CALLS, assistant_text=assistant_text, tool_calls=parsed_calls
+        action=ACTION_TOOL_CALLS,
+        assistant_text=assistant_text,
+        tool_calls=parsed_calls,
+        dropped_tool_calls=dropped_tool_calls,
     )
 
 

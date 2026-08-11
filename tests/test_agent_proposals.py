@@ -689,6 +689,42 @@ class ModelPatchApplyTests(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.reason_code, ProposalReason.LIMIT_EXCEEDED)
 
+    def test_every_unavailable_algorithm_is_named_by_one_rejection(self) -> None:
+        # Failing on the first bad id only costs a whole extra rejected
+        # proposal per guess, and the run loop can spend one repair turn on
+        # what the message named -- so it has to name all of them.
+        proposal = parse_proposal(
+            "model_patch",
+            model_patch_json(
+                [
+                    add_node_op("rc", "native:rastercalculator", "Calc"),
+                    add_node_op("buf", "native:buffer", "Buffer"),
+                    add_node_op("d", "native:distance", "Distance"),
+                ]
+            ),
+        )
+        with self.assertRaises(ProposalError) as ctx:
+            self._preview(GraphModel("g"), proposal)
+        self.assertEqual(ctx.exception.reason_code, ProposalReason.VALIDATION_FAILED)
+        self.assertIn("native:rastercalculator", str(ctx.exception))
+        self.assertIn("native:distance", str(ctx.exception))
+        self.assertNotIn("native:buffer", str(ctx.exception))
+
+    def test_a_restricted_algorithm_is_reported_separately(self) -> None:
+        # "exists but policy refuses it" must stay distinguishable from
+        # "this build has no such id": only the latter is worth a repair turn.
+        class ExistingButRestricted(FakeCatalog):
+            def algorithm_exists(self, algorithm_id: str) -> bool:
+                return True
+
+        proposal = parse_proposal(
+            "model_patch",
+            model_patch_json([add_node_op("s", "native:shellcommand", "Shell")]),
+        )
+        with self.assertRaises(ProposalError) as ctx:
+            self._preview(GraphModel("g"), proposal, ExistingButRestricted())
+        self.assertIn("Restricted algorithm", str(ctx.exception))
+
     def test_original_unchanged_after_failure_at_every_operation_position(self) -> None:
         base = make_two_node_graph()
         before = agent_context.canonical_model_state(base)
@@ -774,7 +810,31 @@ class ParameterSocketValidationTests(unittest.TestCase):
         self._assert_accepts("ANYIN", 3)
         self._assert_accepts("ANYIN", "safe text")
         self._assert_rejects("ANYIN", "https://x/y")
-        self._assert_rejects("ANYIN", ["a", "b"])
+
+    def test_field_and_text_sockets_take_a_list_of_values(self) -> None:
+        # A join's JOIN_FIELDS is a list of field names; accepting only one
+        # string meant multi-field algorithms could not be configured at all.
+        self._assert_accepts("FLD", ["name", "area"])
+        self._assert_accepts("TXT", ["alpha", "beta"])
+        # Each item still passes the rule a lone value would.
+        self._assert_rejects("FLD", ["name", "C:\\secret\\a.gpkg"])
+        self._assert_rejects("TXT", ["ok", "https://x/y"])
+
+    def test_any_socket_multi_value_lists(self) -> None:
+        # QGIS asks for several enum choices at once as a list of numbers (a
+        # statistics algorithm's SUMMARIES, a band list) and for multi-value
+        # text as a list of strings. Rejecting every list meant those
+        # algorithms could not be configured at all.
+        self._assert_accepts("ANYIN", [0, 2, 5])
+        self._assert_accepts("ANYIN", ["a", "b"])
+        # Every item still passes the rule its scalar form would.
+        self._assert_rejects("ANYIN", ["a", "https://x/y"])
+        self._assert_rejects("ANYIN", ["ok", "C:\\secret\\a.gpkg"])
+        # Out-of-range numbers and nested objects never reach the socket rule:
+        # the strict value contract refuses them while the patch is parsed.
+        for malformed in ([1, 1e300], [1, {"nested": 1}], [1, [2]]):
+            with self.assertRaises(ProposalError):
+                self._set("ANYIN", malformed)
 
     def test_credential_like_parameter_name_rejected(self) -> None:
         self._assert_rejects("password", "x")
@@ -822,8 +882,39 @@ class OffPortAndUriParameterTests(unittest.TestCase):
         with self.assertRaises(ProposalError) as ctx:
             self._set_param("m", name, value, algorithm_id)
         self.assertEqual(ctx.exception.reason_code, ProposalReason.VALIDATION_FAILED)
-        self.assertNotIn(str(name), str(ctx.exception))
+        # The offending *value* is never echoed. The parameter name is echoed
+        # only when it matched a real catalog input port (see
+        # test_a_rejected_known_port_is_named); an unknown, possibly
+        # path-shaped name never is (see the fixed-safe-error test below).
         self.assertNotIn(str(value), str(ctx.exception))
+
+    def test_a_crs_socket_accepts_an_authority_code_but_no_path(self) -> None:
+        # Every valid CRS is scheme-shaped, so the generic text rule refused
+        # all of them: a reprojection node could not be given a target CRS at
+        # all, which a live workflow run hit on its first attempt.
+        from planx_smartmodeler.core.agent.proposals import _require_safe_crs
+
+        for accepted in ("EPSG:4326", "EPSG:32635", "ESRI:102008", "OGC:CRS84"):
+            _require_safe_crs(accepted)  # must not raise
+        for refused in (
+            "file:///etc/passwd",
+            "C:\\data\\grid.prj",
+            "/vsicurl/https://example.com/a.tif",
+            "+proj=utm +zone=35 +datum=WGS84",
+            'PROJCRS["x",BASEGEOGCRS["y"]]',
+            "EPSG:4326 password=hunter2",
+            4326,
+        ):
+            with self.assertRaises(ProposalError):
+                _require_safe_crs(refused)
+
+    def test_a_rejected_known_port_is_named(self) -> None:
+        # "A text parameter value is required." with no name left a live repair
+        # turn guessing which parameter to fix, and it guessed wrong twice.
+        with self.assertRaises(ProposalError) as ctx:
+            self._set_param("m", "NUM", "not a number")
+        self.assertIn("NUM", str(ctx.exception))
+        self.assertNotIn("not a number", str(ctx.exception))
 
     def test_off_port_layer_value_rejected_on_native_node_set_parameter(self) -> None:
         # The special strings LAYER/VALUE are not permitted on a native node.
@@ -846,6 +937,17 @@ class OffPortAndUriParameterTests(unittest.TestCase):
         for uri in ("mailto:user@example.com", "ssh:host/path", "urn:example:opaque", "data:text/plain;base64,AA"):
             self._assert_set_rejects("TXT", uri)
             self._assert_set_rejects("ANYIN", uri)
+
+    def test_an_unknown_parameter_refusal_lists_the_real_ones(self) -> None:
+        # A live workflow repeated the same invented parameter three times
+        # against a message that said only that something was wrong. The real
+        # port ids are catalog text the provider was already shown.
+        with self.assertRaises(ProposalError) as ctx:
+            self._set_param("m", "SUMMARIES", 1)
+        message = str(ctx.exception)
+        self.assertIn("NUM", message)
+        self.assertIn("TXT", message)
+        self.assertNotIn("SUMMARIES", message)
 
     def test_unknown_path_shaped_name_gives_fixed_safe_error(self) -> None:
         # A path-shaped unknown parameter name must never be echoed in the error.

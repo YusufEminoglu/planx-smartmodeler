@@ -83,7 +83,15 @@ MAX_NO_PROGRESS_INTERVENTIONS = 3
 # is retrying the *same* fault, which is the actual token sink, so a repair
 # signature is recorded and never retried, and the number of distinct faults is
 # still capped.
+# How many resolved algorithm ids the durable per-run digest may carry.
+MAX_REMEMBERED_ALGORITHMS = 24
+# How many live node ids the same digest may carry.
+MAX_REMEMBERED_NODE_IDS = 40
 MAX_PROVIDER_RECOVERY_ATTEMPTS = 3
+# Total repair turns per run, counting a repeat of a fault the run already
+# repaired once. A repeat is only reachable after new tool calls ran, so this
+# ceiling and the per-run tool-call budget bound the loop twice over.
+MAX_PROVIDER_RECOVERY_TOTAL = 5
 MAX_TRANSIENT_FAILURE_RETRIES = 1
 
 # Which application-owned scope each proposal kind is compatible with.
@@ -497,11 +505,15 @@ class AgentRunLoop:
         self._layer_extent_listing_attempted = False
         self._consecutive_fully_reused_turns = 0
         self._provider_recovery_attempts = 0
-        # Repair signatures already spent in this run. Keyed by fault, so the
-        # same mistake is never repaired twice while a different one still can
-        # be. See MAX_PROVIDER_RECOVERY_ATTEMPTS.
-        self._provider_recovery_faults: set = set()
+        # Repair signatures already spent in this run, mapped to the run's
+        # tool-call count at the time, so a different mistake can still be
+        # repaired and the same one only after real progress. See
+        # MAX_PROVIDER_RECOVERY_ATTEMPTS / MAX_PROVIDER_RECOVERY_TOTAL.
+        self._provider_recovery_faults: Dict[str, int] = {}
         self._transient_failure_retries = 0
+        # The node ids the last model.describe reported, kept so a trimmed
+        # working trace cannot leave the provider writing placeholder ids.
+        self._live_node_ids: List[str] = []
 
     def is_active(self) -> bool:
         return self._active and not self._terminal
@@ -621,12 +633,28 @@ class AgentRunLoop:
                     fault = "typed_proposal:proposal_kind"
                 elif "context_token" in error_text:
                     fault = "typed_proposal:context_token"
+                elif "invalid node id" in error_text:
+                    fault = "typed_proposal:node_id"
+                elif "parameter" in error_text:
+                    fault = "typed_proposal:parameter_value"
+                elif "non-empty proposal_json" in error_text:
+                    fault = "typed_proposal:empty_payload"
                 else:
                     fault = "typed_proposal:other"
                 if self._is_mechanical_proposal_error(str(error)) and self._may_recover(
                     fault
                 ):
                     self._spend_recovery(fault)
+                    if fault == "typed_proposal:node_id":
+                        # Telling it that ids come from model.describe is not
+                        # enough when the trace holding that result has already
+                        # been trimmed. Re-read the graph so the live ids are
+                        # the newest thing in front of it.
+                        _result, inspection_events = self._run_recovery_inspection(
+                            InspectionRequest("model.describe", {})
+                        )
+                        if _result is not None:
+                            recovery_events = (*recovery_events, *inspection_events)
                     if "layer extent id" in error_text:
                         repair_instruction = (
                             "The previous proposal omitted a valid project layer id "
@@ -647,15 +675,68 @@ class AgentRunLoop:
                             "proposal."
                         )
                     elif "proposal_kind" in error_text:
+                        # Naming the kinds *this* scope accepts, not a fixed
+                        # "use processing_run": in Current model scope that
+                        # advice is impossible to follow, and a live workflow
+                        # run burned its repair on it and then died.
+                        allowed = sorted(
+                            proposal_kind
+                            for proposal_kind, scopes in _PROPOSAL_SCOPES.items()
+                            if self._scope in scopes
+                        )
                         repair_instruction = (
                             "The previous proposal envelope used an invalid or "
                             "missing proposal_kind. Return exactly one proposal "
-                            "with proposal_kind set to processing_run, "
-                            "layer_style, model_patch, or model_run as appropriate. "
-                            "For this Processing request use processing_run. "
-                            "Keep proposal_json as one valid JSON object and "
+                            "and set proposal_kind to "
+                            + (
+                                f"one of: {', '.join(allowed)}."
+                                if allowed
+                                else "a kind this scope accepts."
+                            )
+                            + (
+                                " A graph edit in this scope is a model_patch."
+                                if PROPOSAL_KIND_MODEL_PATCH in allowed
+                                else ""
+                            )
+                            + " Keep proposal_json as one valid JSON object and "
                             "preserve the trusted context_token and inspected "
-                            "layer bindings. Do not claim execution."
+                            "evidence. Do not claim execution."
+                        )
+                    elif "invalid node id" in error_text:
+                        repair_instruction = (
+                            "A node id in the previous proposal was a "
+                            "placeholder, not a live id. Every node_id, "
+                            "from_node and to_node must be either a node id "
+                            "listed by model.describe or a new short id you "
+                            "define in this same patch with add_node. Call "
+                            "model.describe if you do not have the current "
+                            "ids, then return one corrected proposal."
+                        )
+                    elif "parameter" in error_text:
+                        repair_instruction = (
+                            # The refusal names the parameter and what it
+                            # wanted; repeating it here is what makes the
+                            # repair specific instead of generic advice.
+                            f"The previous proposal was refused: {str(error)[:200]} "
+                            "In a "
+                            "model_patch every parameters entry is exactly "
+                            "{\"name\":\"PARAM\",\"value\":<value>} where the "
+                            "value is a plain number, string, boolean, or list "
+                            "of strings -- never a tagged object such as "
+                            "{\"expression\":\"$area\"} or {\"number\":5}, "
+                            "never null, and never a path. Write the value "
+                            "itself (\"$area\", 250) and return one corrected "
+                            "proposal with the same algorithms and the exact "
+                            "context_token from the latest model.describe."
+                        )
+                    elif "non-empty proposal_json" in error_text:
+                        repair_instruction = (
+                            "You returned a proposal turn with an empty "
+                            "proposal_json, so there was nothing to show the "
+                            "user. Return the same proposal again with "
+                            "proposal_json set to the complete JSON object for "
+                            "that proposal_kind, using the evidence you already "
+                            "inspected. Do not repeat successful tool calls."
                         )
                     else:
                         repair_instruction = (
@@ -721,6 +802,27 @@ class AgentRunLoop:
                 return self._advance_turn(tool_events=(recovery,))
             if (
                 self._mode in (AgentMode.ACT, AgentMode.PLAN)
+                and self._announces_unfinished_work(turn.assistant_text)
+                and self._may_recover("announced_but_did_not_act")
+            ):
+                self._spend_recovery("announced_but_did_not_act")
+                recovery = {
+                    "kind": "provider_recovery",
+                    "strategy": "do_the_work_you_announced",
+                    "instruction": (
+                        "You ended the run by describing your next step instead "
+                        "of taking it, so the user received a sentence and no "
+                        "result. The run is still open and the tools you named "
+                        "are still available. Do that step now: return the "
+                        "tool_calls you said you needed (within this turn's "
+                        "limit, continuing in later turns if more are needed), "
+                        "or return the proposal itself. Do not restate the plan."
+                    ),
+                }
+                self._turn_events.append(recovery)
+                return self._advance_turn(tool_events=(recovery,))
+            if (
+                self._mode in (AgentMode.ACT, AgentMode.PLAN)
                 and self._promises_an_unattached_proposal(turn.assistant_text)
                 and self._may_recover("unattached_proposal")
             ):
@@ -758,6 +860,25 @@ class AgentRunLoop:
                 "layer extent id is required",
                 "proposal turn must set proposal_kind",
                 "unknown proposal_kind",
+                # A proposal envelope with an empty proposal_json is the same
+                # class of mistake: the provider decided what to propose and
+                # then dropped the payload. Failing the run made the user
+                # retype a complex request that was one sentence from working.
+                "non-empty proposal_json",
+                # A placeholder where a live node id belongs
+                # ("<existing_node_id>") is the same disease as a placeholder
+                # receipt: the provider wrote the shape of an id instead of
+                # reading one. model.describe has the real ones.
+                "invalid node id",
+                # A workflow patch carries raw parameter values, while a
+                # processing_run carries tagged binding objects. A provider
+                # that writes {"expression":"$area"} into a patch has confused
+                # the two shapes -- observed live, and it killed a complete
+                # four-node workflow one keystroke from valid.
+                "parameter value has an unsupported type",
+                "parameter list value has an unsupported type",
+                "parameter numbers must be finite",
+                "parameter text exceeds the safety limit",
             )
         )
 
@@ -779,6 +900,79 @@ class AgentRunLoop:
             for marker in ("input", "bind", "produced", "output layer")
         )
         return asks_for_id and asks_to_bind
+
+    @staticmethod
+    def _announces_unfinished_work(message: str) -> bool:
+        """Recognize a final turn that *describes* the next step instead of taking it.
+
+        Observed live in Workflow Studio: "I need to resolve the algorithms for
+        dissolve, multipart to singleparts, field calculator and centroid before
+        proposing the workflow patch." The run ended there. Every tool it named
+        was one turn away and the run still had its full budget, so the user got
+        a sentence where a workflow belonged.
+
+        A turn that actually asks the user something is not this: a question is
+        a legitimate terminal answer, so any question mark disqualifies the text.
+        """
+        text = str(message or "").casefold()
+        if "?" in text:
+            return False
+        intends = any(
+            marker in text
+            for marker in (
+                "i need to",
+                "i will now",
+                "i will resolve",
+                "i will inspect",
+                "let me ",
+                "i should ",
+                "next step",
+                "before proposing",
+                # The same stall worn as a refusal, or handed to the user:
+                # "I cannot propose a model_patch without ..." and "Please
+                # resolve 'buffer' and 'dissolve'". The user cannot call a
+                # tool; only the provider can, and its budget was barely
+                # touched in both live cases.
+                "i cannot propose",
+                "cannot complete",
+                "i lack the",
+                "have not been resolved",
+                "not been resolved",
+                "please resolve",
+                "please provide the algorithm",
+                "lütfen",
+                "lutfen",
+                "çözün",
+                "cozun",
+                "izleyin",
+                "gerekiyor",
+                "yapacağım",
+                "yapacagim",
+                "çözmem",
+                "cozmem",
+                "inceleyeceğim",
+                "inceleyecegim",
+            )
+        )
+        names_work = any(
+            marker in text
+            for marker in (
+                "resolve",
+                "inspect",
+                "describe",
+                "propos",
+                "patch",
+                "workflow",
+                "algorithm",
+                "çöz",
+                "coz",
+                "incele",
+                "öner",
+                "oner",
+                "algoritma",
+            )
+        )
+        return intends and names_work
 
     @staticmethod
     def _promises_an_unattached_proposal(message: str) -> bool:
@@ -819,6 +1013,20 @@ class AgentRunLoop:
                 "approve the",
                 "approval card",
                 "click run",
+                # The other half of the same claim: reporting the work as done
+                # when no proposal was ever attached, so nothing was built and
+                # nothing is waiting. Seen live as a bare "The request is
+                # complete." after five turns of inspection.
+                "request is complete",
+                "workflow is complete",
+                "workflow is ready",
+                "has been created",
+                "tamamlandı",
+                "tamamlandi",
+                "oluşturuldu",
+                "olusturuldu",
+                "hazır",
+                "hazir",
             )
         )
 
@@ -841,10 +1049,51 @@ class AgentRunLoop:
                 "not been inspected in this session",
                 "inspect it again",
                 "geometry variable must be evaluated",
+                # A parameter name the algorithm does not have. The provider
+                # has processing.describe's parameter list and can pick a real
+                # one; ending a whole workflow over one wrong name does not.
+                "not permitted on the target node",
                 "layer extent id is required",
                 "input layer is not in the project",
+                # An id this QGIS build does not have is a mechanical mistake:
+                # the provider wrote a plausible id (native:rastercalculator,
+                # native:distance) instead of resolving the real one. A
+                # *restricted* id is a policy refusal and stays fail closed --
+                # it must never become a bounded retry loop against the
+                # blocklist.
+                "unavailable algorithm",
+                # A connection between incompatible sockets is a modelling
+                # mistake the message states precisely ("vector cannot feed
+                # raster"), so the provider can drop the edge or insert the
+                # conversion. Ending a five-node workflow over one wrong edge
+                # threw away the other four nodes with it.
+                "invalid connection",
+                # A parameter written in the wrong Python type is the same
+                # class of typo. The *safety* rejections next to these in
+                # proposals.py (paths, URIs, credential-shaped values, control
+                # characters) are deliberate boundaries and stay fail closed.
+                "value is required",
+                "must be finite",
             )
         )
+
+    @staticmethod
+    def _live_validation_fault(validation: ProposalValidation) -> str:
+        """Name the fault finely enough that two different mistakes are two faults.
+
+        Keying only on ``reason_code`` collapsed every live-validation refusal
+        into one fault, so a workflow that fixed a stale receipt and then made
+        an unrelated parameter mistake had no repair left for the second one --
+        observed live. The message's first words separate the families while
+        staying bounded and value-free (the validator never puts a parameter
+        *value* at the front of its message).
+        """
+        words = "".join(
+            character if character.isalnum() or character.isspace() else " "
+            for character in str(validation.message or "").casefold()
+        ).split()
+        family = "-".join(words[:4])[:60]
+        return f"live_validated:{str(validation.reason_code or '')[:40]}:{family}"
 
     @staticmethod
     def _is_stale_processing_validation(message: str) -> bool:
@@ -956,6 +1205,27 @@ class AgentRunLoop:
             )
 
         this_turn_events: List[Dict[str, Any]] = []
+        if turn.dropped_tool_calls:
+            # The batch was truncated, not refused. Saying so keeps the
+            # provider from assuming the dropped inspections happened -- and
+            # from concluding it "cannot" continue, which is what a run that
+            # simply had to ask again did on a live workflow request.
+            notice = {
+                # Not a "recovery": no repair turn is spent, the turn simply
+                # does its allowed work. The dock says so in its own words.
+                "kind": "provider_notice",
+                "strategy": "tool_calls_truncated",
+                "instruction": (
+                    f"{turn.dropped_tool_calls} of your requested calls exceeded "
+                    f"the {self.controller.limits.max_tool_calls_per_turn}-call "
+                    "turn limit and were not executed; the results below are "
+                    "from the calls that ran. Request the remaining ones in the "
+                    "next turn. The run is still open -- never ask the user to "
+                    "call a tool you can call yourself."
+                ),
+            }
+            self._turn_events.append(notice)
+            this_turn_events.append(notice)
         if turn.assistant_text:
             note = {"kind": "assistant_note", "text": turn.assistant_text}
             self._turn_events.append(note)
@@ -983,6 +1253,7 @@ class AgentRunLoop:
                 if result.status == AgentResultStatus.SUCCESS:
                     self._successful_tool_results[cache_key] = dict(result_dict)
             self._remember_proposal_receipt(call.tool_name, result_dict)
+            self._remember_model_nodes(call.tool_name, result_dict)
             event_dict = {
                 "kind": "tool_result",
                 "tool_name": call.tool_name,
@@ -1072,20 +1343,47 @@ class AgentRunLoop:
     def _may_recover(self, fault: str) -> bool:
         """Whether one repair turn may be spent on ``fault``.
 
-        Refuses a fault already repaired in this run -- retrying an unchanged
-        mistake is the unbounded token sink the cap exists for -- and refuses
-        any fault once the run has repaired ``MAX_PROVIDER_RECOVERY_ATTEMPTS``
-        distinct ones. Two unrelated mechanical mistakes in one request are
-        ordinary and each deserves its own repair; the same mistake twice is
-        not.
+        Two unrelated mechanical mistakes in one request are ordinary and each
+        deserves its own repair; repeating an *unchanged* mistake is the
+        unbounded token sink the cap exists for. So a fault already repaired
+        may be repaired again only when the run has done real work since --
+        executed at least one more tool call -- and never beyond
+        ``MAX_PROVIDER_RECOVERY_TOTAL`` repairs or
+        ``MAX_PROVIDER_RECOVERY_ATTEMPTS`` distinct faults.
+
+        Both bounds terminate: repeats require new tool calls, and tool calls
+        are themselves capped per run. Without the progress rule a live
+        workflow that stalled, was pushed into acting, resolved four more
+        algorithms and then stalled once more had nothing left and ended with
+        no result -- five turns and two thirds of its budget unused.
         """
-        if fault in self._provider_recovery_faults:
+        spent_at = self._provider_recovery_faults.get(fault)
+        if spent_at is not None and self._provider_progress() <= spent_at:
             return False
-        return len(self._provider_recovery_faults) < MAX_PROVIDER_RECOVERY_ATTEMPTS
+        if self._provider_recovery_attempts >= MAX_PROVIDER_RECOVERY_TOTAL:
+            return False
+        if (
+            spent_at is None
+            and len(self._provider_recovery_faults) >= MAX_PROVIDER_RECOVERY_ATTEMPTS
+        ):
+            return False
+        return True
+
+    def _provider_progress(self) -> int:
+        """Tool calls the *provider* asked for, excluding recovery inspections.
+
+        A repair the loop performs for the provider (re-describing an algorithm
+        or the graph) must not count as the provider making progress, or an
+        unchanged mistake could earn repair after repair by triggering the very
+        inspection that repairs it.
+        """
+        return max(0, self.tool_calls_used - self._recovery_call_counter)
 
     def _spend_recovery(self, fault: str) -> None:
-        self._provider_recovery_faults.add(fault)
-        self._provider_recovery_attempts = len(self._provider_recovery_faults)
+        # Remember how much provider-driven work had happened at the moment of
+        # the repair, so a repeat of the same fault needs new work first.
+        self._provider_recovery_faults[fault] = self._provider_progress()
+        self._provider_recovery_attempts += 1
 
     def _no_progress_intervention(self, level: int) -> Dict[str, Any]:
         """Return one trusted, mode-aware strategy instruction for the provider."""
@@ -1179,6 +1477,85 @@ class AgentRunLoop:
         if isinstance(target, str) and target:
             self._proposal_receipts[(key, target)] = token
 
+    def _remember_model_nodes(self, tool_name: str, result: Dict[str, Any]) -> None:
+        """Keep the live node ids the last ``model.describe`` reported.
+
+        Same reason as the resolved-algorithm digest: the topology is trimmed
+        out of the working trace, and a provider with no ids in front of it
+        writes the *shape* of one -- ``"<existing_node_id>"`` -- which rejects
+        the whole patch. These ids come straight from a trusted read-only
+        inspection and are already in the graph.
+        """
+        if tool_name != "model.describe" or result.get("status") != AgentResultStatus.SUCCESS:
+            return
+        data = result.get("data")
+        if not isinstance(data, dict):
+            return
+        nodes = data.get("nodes")
+        if not isinstance(nodes, list):
+            return
+        self._live_node_ids = [
+            str(node.get("node_id"))[:64]
+            for node in nodes[:MAX_REMEMBERED_NODE_IDS]
+            if isinstance(node, dict) and node.get("node_id")
+        ]
+
+    def _resolved_algorithms_digest(self) -> Optional[Dict[str, Any]]:
+        """A tiny, durable list of the algorithms this run has already resolved.
+
+        The working trace is trimmed to fit the prompt budget, so after a few
+        turns the earliest ``processing.resolve`` results are gone -- and a
+        live run at turn eleven told the user that "the required algorithms
+        have not been resolved in this session" about algorithms it resolved at
+        turn two. From where it sat, that was true.
+
+        The ids are already trusted run state: each one carries the freshness
+        receipt a proposal has to echo. Repeating them costs a few dozen
+        characters, cannot add authority, and removes the whole failure.
+        """
+        from .identifiers import MODEL_PROPOSAL_KIND, MODEL_TARGET_ID
+
+        ids = [
+            target
+            for (kind, target) in self._proposal_receipts
+            if kind == PROPOSAL_KIND_PROCESSING_RUN and target
+        ]
+        workflow_token = self._proposal_receipts.get(
+            (MODEL_PROPOSAL_KIND, MODEL_TARGET_ID), ""
+        )
+        if not ids and not self._live_node_ids and not workflow_token:
+            return None
+        note = (
+            "algorithm_ids are already resolved in this run -- use them "
+            "directly; call processing.resolve again only when you need a "
+            "parameter list. open_workflow_node_ids are the ids the open graph "
+            "actually has -- reference or remove those, never a placeholder."
+        )
+        digest = {
+            "kind": "run_facts",
+            "algorithm_ids": ids[-MAX_REMEMBERED_ALGORITHMS:],
+            "open_workflow_node_ids": list(self._live_node_ids),
+            "note": note,
+        }
+        if workflow_token:
+            # The receipt this run's own model.describe returned for the open
+            # graph. Providers kept echoing a *different* token -- an algorithm
+            # receipt, or one copied from an older turn -- and a complete patch
+            # was refused for a copy error the run could correct itself.
+            #
+            # This grants nothing. The token only exists because a trusted
+            # read-only inspection produced it in this run, and the validator
+            # still verifies it against the live graph at approval time: if the
+            # graph has moved since, this value is stale and the patch is
+            # refused exactly as it is today.
+            digest["workflow_context_token"] = workflow_token
+            digest["note"] += (
+                " workflow_context_token is the receipt model.describe returned "
+                "for the open graph in this run -- echo it verbatim in a "
+                "model_patch."
+            )
+        return digest
+
     def _run_recovery_inspection(
         self, inspection: InspectionRequest
     ) -> Tuple[Optional[Dict[str, Any]], Tuple[Dict[str, Any], ...]]:
@@ -1203,6 +1580,7 @@ class AgentRunLoop:
         )
         result_dict = result.to_dict()
         self._remember_proposal_receipt(call.tool_name, result_dict)
+        self._remember_model_nodes(call.tool_name, result_dict)
         event = {
             "kind": "tool_result",
             "tool_name": call.tool_name,
@@ -1559,6 +1937,13 @@ class AgentRunLoop:
             static_instructions = self._instruction_provider(
                 self._user_text, self._scope, power_enabled
             )
+        # The digest goes last so it is the newest event: trimming drops the
+        # oldest first, and this is the one part of the trace a long run cannot
+        # afford to forget.
+        digest = self._resolved_algorithms_digest()
+        current_events = (
+            [*self._turn_events, digest] if digest is not None else self._turn_events
+        )
         try:
             prompt = build_prompt(
                 static_instructions=static_instructions,
@@ -1567,7 +1952,7 @@ class AgentRunLoop:
                 tool_specs=tool_specs,
                 user_text=self._user_text,
                 session_history=self.session_memory.exchanges(),
-                current_run_events=self._turn_events,
+                current_run_events=current_events,
                 budget=self._prompt_budget,
             )
         except PromptBuildError as error:
@@ -1704,22 +2089,21 @@ class AgentRunLoop:
         if not validation.ok:
             if (
                 self._is_recoverable_proposal_validation(validation.message)
-                # A model/style proposal that says "inspect it again" is a
-                # genuine stale graph/style receipt and must remain fail
-                # closed.  Only Processing receipts can be repaired by
-                # re-describing the live algorithm and asking the provider
-                # for a fresh typed proposal.
+                # A stale receipt is repaired by *re-inspecting the live
+                # target*, never by re-issuing a receipt for a proposal
+                # written against state that has since moved. Processing and
+                # Workflow Studio both have a trusted read-only inspection to
+                # do that with (processing.describe / model.describe), and the
+                # rewritten proposal crosses the same freshness boundary again.
+                # A layer_style receipt has no such re-inspection here, so it
+                # stays fail closed.
                 and (
-                    kind == PROPOSAL_KIND_PROCESSING_RUN
+                    kind in (PROPOSAL_KIND_PROCESSING_RUN, PROPOSAL_KIND_MODEL_PATCH)
                     or not self._is_stale_processing_validation(validation.message)
                 )
-                and self._may_recover(
-                    f"live_validated:{str(validation.reason_code or '')[:40]}"
-                )
+                and self._may_recover(self._live_validation_fault(validation))
             ):
-                self._spend_recovery(
-                    f"live_validated:{str(validation.reason_code or '')[:40]}"
-                )
+                self._spend_recovery(self._live_validation_fault(validation))
                 recovery_events = tool_events
                 if (
                     kind == PROPOSAL_KIND_PROCESSING_RUN
@@ -1731,6 +2115,27 @@ class AgentRunLoop:
                             "processing.describe",
                             {"algorithm_id": algorithm_id},
                         )
+                    )
+                    if _result is None:
+                        return self._fail(
+                            validation.message or "The proposal was rejected.",
+                            validation.reason_code or ProposalReason.VALIDATION_FAILED,
+                            tool_events=tool_events,
+                        )
+                    recovery_events = (*tool_events, *inspection_events)
+                elif (
+                    kind == PROPOSAL_KIND_MODEL_PATCH
+                    and self._is_stale_processing_validation(validation.message)
+                ):
+                    # The graph moved under the patch -- an applied earlier
+                    # patch, an edit in the studio, or a receipt copied from
+                    # an older turn. Re-describe the live graph once so the
+                    # repair turn rewrites the patch against the node ids and
+                    # receipt that exist *now*; the rewritten patch is then
+                    # validated against live state exactly as before, and the
+                    # user still approves the preview.
+                    _result, inspection_events = self._run_recovery_inspection(
+                        InspectionRequest("model.describe", {})
                     )
                     if _result is None:
                         return self._fail(
@@ -1764,10 +2169,25 @@ class AgentRunLoop:
                             tool_events=tool_events,
                         )
                     recovery_events = (*tool_events, *inspection_events)
-                recovery = {
-                    "kind": "provider_recovery",
-                    "strategy": "repair_live_validated_proposal",
-                    "instruction": (
+                if kind == PROPOSAL_KIND_MODEL_PATCH:
+                    # A workflow patch has no bindings, no destinations and no
+                    # project layers, so the Processing wording below told the
+                    # provider to fix things this proposal does not even have.
+                    repair_instruction = (
+                        "The live validator rejected the previous workflow "
+                        f"patch: {str(validation.message)[:300]} "
+                        "Return one corrected model_patch. Use only algorithm "
+                        "ids that a processing.resolve or processing.describe "
+                        "result reported in this session -- never an id you "
+                        "assumed exists -- and resolve the missing ones first "
+                        "if you have to. Reference only node ids present in "
+                        "the latest model.describe result, and echo the "
+                        "context_token from that same latest result. Do not "
+                        "bind input layers and do not claim the workflow was "
+                        "changed."
+                    )
+                else:
+                    repair_instruction = (
                         "The live validator rejected the previous proposal for a "
                         "mechanical signature reason: "
                         f"{str(validation.message)[:300]} "
@@ -1779,7 +2199,11 @@ class AgentRunLoop:
                         "result; do not reuse a stale id or invent a name. "
                         "Preserve the inspected algorithm, exact context_token, "
                         "and user intent. Do not claim execution."
-                    ),
+                    )
+                recovery = {
+                    "kind": "provider_recovery",
+                    "strategy": "repair_live_validated_proposal",
+                    "instruction": repair_instruction,
                 }
                 self._turn_events.append(recovery)
                 return self._advance_turn(tool_events=(*recovery_events, recovery))

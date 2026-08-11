@@ -261,7 +261,12 @@ class AgentRunLimits:
 
     max_turns: int = 12
     max_tool_calls_per_run: int = 24
-    max_tool_calls_per_turn: int = 4
+    # Eight, not four. Four fits one-algorithm Agent Chat work; a Workflow
+    # Studio graph needs five to eight algorithms resolved before the first
+    # patch can be written, and the tighter cap is what made live runs stall
+    # after one batch and tell the user to resolve the rest themselves. The
+    # per-run budget is unchanged, so this changes batch shape, not total cost.
+    max_tool_calls_per_turn: int = 8
     max_prompt_chars: int = MAX_AGENT_PROMPT_CHARS
     max_result_text_chars: int = MAX_RESULT_TEXT_LENGTH
 
