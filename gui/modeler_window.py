@@ -331,6 +331,18 @@ class SmartModelerWindow(QMainWindow):
         clear_action.setStatusTip("Remove every node after confirmation")
         clear_action.triggered.connect(self.clear_canvas)
         toolbar.addAction(clear_action)
+        toolbar.addSeparator()
+
+        # Help belongs where the work is. The guide was reachable only from the
+        # plugin menu, which is not where somebody sits when they are stuck on
+        # their first connection.
+        help_action = QAction(self._theme_icon("/mActionHelpContents.svg"), "Guide", self)
+        help_action.setShortcut(QKeySequence.StandardKey.HelpContents)
+        help_action.setStatusTip(
+            "Step-by-step help: building, connecting, running and saving a workflow"
+        )
+        help_action.triggered.connect(self.open_help)
+        toolbar.addAction(help_action)
 
         search_action = QAction("Find algorithm", self)
         search_action.setShortcut(QKeySequence.StandardKey.Find)
@@ -489,6 +501,13 @@ class SmartModelerWindow(QMainWindow):
         self.setWindowTitle(
             f"{marker}{name} - SmartModeler GIS Workflow Studio"
         )
+
+    def open_help(self) -> None:
+        from .help_dialog import HelpDialog
+
+        dialog = HelpDialog(self)
+        dialog.setStyleSheet(STUDIO_STYLE)
+        dialog.exec()
 
     def open_ai_settings(self) -> None:
         from .ai_settings_dialog import AiSettingsDialog

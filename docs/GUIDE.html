@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartModeler GIS — Step-by-step guide</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=Newsreader:opsz,wght@14..64,400;14..64,500;14..64,600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafaf7; --fg: #1e1e1a; --muted: #6b6b5e; --faint: #a3a396;
+  --border: #e2e0d5; --accent: #5c6bc0; --accent-dark: #3f51b5; --accent-light: #eef0fb; --accent-subtle: #e8eaf6;
+  --sidebar-bg: #f5f3ed; --sidebar-fg: #3d3d33;
+  --card-bg: #ffffff; --card-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --code-bg: #f3f1ea; --table-stripe: #fafaf6; --radius: 8px;
+  --ok: #2e7d32; --warn: #b26a00; --stop: #b3261e;
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Newsreader', 'Georgia', serif;
+  font-size: 15px; line-height: 1.65;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171712; --fg: #e0ded5; --muted: #99998a; --faint: #6b6b5e;
+    --border: #2e2e26; --accent: #7986cb; --accent-dark: #9fa8da; --accent-light: #1a1d35; --accent-subtle: #151830;
+    --sidebar-bg: #1c1c16; --sidebar-fg: #cccbbf;
+    --card-bg: #1e1e18; --card-shadow: 0 1px 3px rgba(0,0,0,.3);
+    --code-bg: #22221a; --table-stripe: #1a1a15;
+    --ok: #81c784; --warn: #ffb74d; --stop: #ef9a9a;
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-ui); background: var(--bg); color: var(--fg); display: flex; min-height: 100vh; letter-spacing: -0.01em; }
+
+#sidebar { width: 270px; min-width: 270px; height: 100vh; position: sticky; top: 0; background: var(--sidebar-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+#sidebar-header { padding: 22px 22px 14px; border-bottom: 1px solid var(--border); }
+#sidebar-header .logo { font-family: var(--font-heading); font-size: 1.5em; font-weight: 600; color: var(--accent); letter-spacing: -0.02em; }
+#sidebar-header .subtitle { font-size: .75em; color: var(--muted); margin-top: 2px; }
+#toc { flex: 1; overflow-y: auto; padding: 10px 0; list-style: none; }
+#toc li a { display: block; padding: 6px 22px; font-size: .82em; color: var(--sidebar-fg); text-decoration: none; border-left: 3px solid transparent; }
+#toc li a:hover, #toc li a.active { background: var(--accent-subtle); border-left-color: var(--accent); color: var(--accent); }
+#toc li.sub a { padding-left: 36px; font-size: .78em; color: var(--muted); }
+#toc li.head { padding: 14px 22px 4px; font-size: .7em; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+#sidebar-footer { padding: 12px 22px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+#sidebar-footer a { font-size: .78em; color: var(--muted); text-decoration: none; }
+#sidebar-footer a:hover { color: var(--accent); }
+
+#content { flex: 1; max-width: 58em; padding: 3em 3.5em 8em; }
+.hero { margin-bottom: 2em; padding-bottom: 1.4em; border-bottom: 1px solid var(--border); }
+.hero h1 { font-family: var(--font-heading); font-size: 2.6em; font-weight: 600; color: var(--accent); letter-spacing: -0.03em; line-height: 1.1; }
+.hero .tagline { font-size: 1.08em; color: var(--muted); margin-top: .3em; }
+h2 { font-family: var(--font-heading); font-size: 1.5em; font-weight: 600; margin: 2.4em 0 .5em; padding-bottom: .3em; border-bottom: 2px solid var(--accent); color: var(--accent-dark); letter-spacing: -0.02em; }
+h3 { font-family: var(--font-heading); font-size: 1.18em; font-weight: 600; margin: 1.8em 0 .4em; letter-spacing: -0.02em; }
+p { margin: .7em 0; }
+ul, ol { margin: .7em 0 .7em 1.4em; }
+li { margin: .3em 0; }
+code, kbd { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: .88em; background: var(--code-bg); padding: .12em .38em; border-radius: 4px; }
+kbd { border: 1px solid var(--border); }
+a { color: var(--accent); }
+
+figure { margin: 1.4em 0; }
+figure img { width: 100%; height: auto; display: block; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--card-shadow); background: #12121a; }
+figcaption { font-size: .82em; color: var(--muted); margin-top: .5em; }
+figure.narrow { max-width: 34em; }
+
+.step { display: flex; gap: 1em; margin: 1.6em 0; align-items: flex-start; }
+.step .num { flex: 0 0 2em; height: 2em; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: .9em; }
+.step .body { flex: 1; min-width: 0; }
+.step .body h3 { margin-top: 0; }
+
+table { border-collapse: collapse; width: 100%; margin: 1.1em 0; font-size: .9em; }
+th, td { text-align: left; padding: .5em .7em; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: .85em; text-transform: uppercase; letter-spacing: .04em; }
+tbody tr:nth-child(even) { background: var(--table-stripe); }
+
+.note, .warn, .stop { border-left: 3px solid var(--accent); background: var(--accent-light); padding: .8em 1em; border-radius: 0 var(--radius) var(--radius) 0; margin: 1.1em 0; font-size: .93em; }
+.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.stop { border-left-color: var(--stop); background: color-mix(in srgb, var(--stop) 10%, transparent); }
+.note b, .warn b, .stop b { display: block; margin-bottom: .2em; }
+
+.prompt { background: var(--card-bg); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 0 var(--radius) var(--radius) 0; padding: .6em .9em; margin: .6em 0; font-family: ui-monospace, Consolas, monospace; font-size: .88em; }
+.yes { color: var(--ok); font-weight: 600; }
+.no { color: var(--stop); font-weight: 600; }
+
+@media (max-width: 900px) {
+  body { flex-direction: column; }
+  #sidebar { width: 100%; height: auto; position: static; }
+  #toc { max-height: 40vh; }
+  #content { padding: 2em 1.2em 4em; }
+}
+</style>
+</head>
+<body>
+<nav id="sidebar">
+  <div id="sidebar-header">
+    <div class="logo">SmartModeler GIS</div>
+    <div class="subtitle">Step-by-step guide</div>
+  </div>
+  <ul id="toc">
+    <li class="head">Start</li>
+    <li><a href="#before">Before you start</a></li>
+    <li><a href="#which">Which one do I use?</a></li>
+    <li class="head">Agent Workspace</li>
+    <li><a href="#agent">How it works</a></li>
+    <li class="sub"><a href="#agent-1">1 · Open the dock</a></li>
+    <li class="sub"><a href="#agent-2">2 · Scope and mode</a></li>
+    <li class="sub"><a href="#agent-3">3 · Ask for one thing</a></li>
+    <li class="sub"><a href="#agent-4">4 · Read the card</a></li>
+    <li class="sub"><a href="#agent-5">5 · Chain the next step</a></li>
+    <li><a href="#agent-session">A worked session</a></li>
+    <li><a href="#phrasing">Phrasings that work</a></li>
+    <li><a href="#refusals">When you are refused</a></li>
+    <li class="head">Workflow Studio</li>
+    <li><a href="#studio">How it works</a></li>
+    <li class="sub"><a href="#studio-1">1 · Open the Studio</a></li>
+    <li class="sub"><a href="#studio-2">2 · Describe the workflow</a></li>
+    <li class="sub"><a href="#studio-3">3 · Read the graph</a></li>
+    <li class="sub"><a href="#studio-4">4 · Inspect a node</a></li>
+    <li class="sub"><a href="#studio-5">5 · Run setup and Run</a></li>
+    <li><a href="#studio-manual">Building by hand</a></li>
+    <li><a href="#studio-example">A worked workflow</a></li>
+    <li class="head">Reference</li>
+    <li><a href="#help">Help inside QGIS</a></li>
+    <li><a href="#next">Where to go next</a></li>
+  </ul>
+  <div id="sidebar-footer">
+    <a href="SMARTMODELER_REFERENCE_MANUAL.html">Full reference manual →</a>
+    <a href="https://github.com/YusufEminoglu/planx-smartmodeler">Source and issues →</a>
+  </div>
+</nav>
+
+<main id="content">
+<div class="hero">
+  <h1>Step-by-step guide</h1>
+  <p class="tagline">Getting a real result out of Agent Workspace and Workflow Studio, one click at a time.</p>
+</div>
+
+<p>SmartModeler GIS has two ways to get work done, and they answer different
+questions. <b>Agent Workspace</b> is for <i>“do this one thing to my project”</i>.
+<b>Workflow Studio</b> is for <i>“build me a process I can keep, adjust and re-run”</i>.
+This guide walks through both with real screenshots of the interface and prompts
+you can paste.</p>
+
+<div class="note">
+  <b>The one rule that governs everything</b>
+  Nothing in this plugin touches your project until you click <b>Apply</b> or
+  <b>Run</b> on an approval card. Inspections are read-only, proposals are inert,
+  and every result is a temporary layer until you make it permanent. If you read
+  nothing else, read the card before you click.
+</div>
+
+<h2 id="before">Before you start</h2>
+
+<ol>
+  <li><b>Install</b> the plugin from the QGIS Plugin Manager, or from the zip via
+      <i>Plugins → Manage and Install Plugins → Install from ZIP</i>. QGIS 3.44 or
+      QGIS 4 is required.</li>
+  <li><b>Two toolbar buttons appear.</b> One opens Workflow Studio, one opens the
+      Agent Workspace dock.</li>
+  <li><b>Connect an AI provider</b> if you want the assistant to plan for you:
+      <i>AI connections…</i> in the dock header. Without a key the plugin still
+      works — inspections, the whole Studio, running workflows and the offline
+      planner all run locally — but the assistant cannot compose new plans.</li>
+</ol>
+
+<div class="note">
+  <b>Your key stays yours</b>
+  The API key lives in session memory or the optional encrypted QGIS vault.
+  Feature values, source paths, connection URIs and credentials are never sent
+  as tool metadata.
+</div>
+
+<h2 id="which">Which one do I use?</h2>
+
+<table>
+  <thead><tr><th>You want to…</th><th>Use</th><th>Because</th></tr></thead>
+  <tbody>
+    <tr><td>Buffer this layer by 250 m, once</td><td>Agent Workspace</td><td>One reviewed run, result in the Layers panel.</td></tr>
+    <tr><td>Answer “what is the range of this field?”</td><td>Agent Workspace, Ask mode</td><td>Read-only, costs nothing from the action budget.</td></tr>
+    <tr><td>Restyle a layer</td><td>Agent Workspace</td><td>A style proposal you can preview and reject.</td></tr>
+    <tr><td>Build a repeatable multi-step analysis</td><td>Workflow Studio</td><td>A typed graph you can save, edit and re-run on new data.</td></tr>
+    <tr><td>Hand a process to a colleague</td><td>Workflow Studio</td><td>Exports as a native QGIS <code>.model3</code>.</td></tr>
+    <tr><td>Have the AI build that graph for you</td><td>Both</td><td>Agent Workspace in <b>Current model</b> scope edits the open Studio graph.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="agent">Agent Workspace — how it works</h2>
+
+<p>The assistant can look at your project, propose one action, and explain
+itself. It cannot execute anything. Each request runs as a short loop: it
+inspects with read-only tools, then hands you a proposal; you approve or reject.</p>
+
+<h3 id="agent-1">1 · Open the dock</h3>
+
+<div class="step"><div class="num">1</div><div class="body">
+<p>Click the Agent Workspace toolbar button. The dock opens on the right. The
+header tells you which profile is connected — <i>Offline</i> means quick
+inspections work but the assistant needs a connection.</p>
+</div></div>
+
+<figure>
+  <img src="images/agent-01-empty.png" alt="The Agent Workspace dock as it opens: scope and mode selectors, quick inspection buttons, an empty transcript and the message box.">
+  <figcaption>The dock as it opens. Scope and mode sit at the top, the quick inspection row below them, the transcript in the middle, your message box at the bottom.</figcaption>
+</figure>
+
+<h3 id="agent-2">2 · Choose a scope and a mode</h3>
+
+<div class="step"><div class="num">2</div><div class="body">
+<p>These two selectors decide what the assistant can see and how far it may go.
+Set them before you type.</p>
+</div></div>
+
+<table>
+  <thead><tr><th>Scope</th><th>What it can see and change</th></tr></thead>
+  <tbody>
+    <tr><td><b>Project</b></td><td>Layers in the project. The everyday choice.</td></tr>
+    <tr><td><b>Active layer</b></td><td>Only the layer selected in the Layers panel — no need to name it.</td></tr>
+    <tr><td><b>Current model</b></td><td>The workflow open in Studio. Proposals are graph edits, not runs.</td></tr>
+    <tr><td><b>Plugins</b></td><td>Which plugins are installed and what they offer.</td></tr>
+    <tr><td><b>Workspace (Developer)</b></td><td>Bounded source inspection and exact patches. Not needed for GIS work.</td></tr>
+  </tbody>
+</table>
+
+<table>
+  <thead><tr><th>Mode</th><th>What happens</th></tr></thead>
+  <tbody>
+    <tr><td><b>Ask</b></td><td>Questions and inspections only. No proposal, no approval card, nothing to click.</td></tr>
+    <tr><td><b>Plan</b></td><td>A proposal is prepared and shown for review. There is no Apply or Run button.</td></tr>
+    <tr><td><b>Act</b></td><td>A proposal is prepared <i>and</i> an approval card appears. Still nothing runs until you click.</td></tr>
+  </tbody>
+</table>
+
+<h3 id="agent-3">3 · Ask for one thing</h3>
+
+<div class="step"><div class="num">3</div><div class="body">
+<p>Type <b>one</b> operation, name the layer exactly as it appears in the Layers
+panel, and press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>. You will see it inspect
+first — those <code>[tool: …]</code> lines are it reading your project, not
+guessing about it.</p>
+<div class="prompt">download the buildings in the map extent</div>
+</div></div>
+
+<figure>
+  <img src="images/agent-02-conversation.png" alt="The dock transcript showing a request, the assistant's inspections, a validated proposal and a finished run.">
+  <figcaption>A request, the inspections it ran, the proposal, and the finished run. Every line is what actually happened, in order.</figcaption>
+</figure>
+
+<h3 id="agent-4">4 · Read the approval card</h3>
+
+<div class="step"><div class="num">4</div><div class="body">
+<p>This is the moment that matters. The card names the algorithm, every input it
+will use, and where the output goes. Check the layer is the one you meant and
+the numbers are the ones you asked for, then click <b>Run</b>.</p>
+</div></div>
+
+<figure>
+  <img src="images/agent-03-approval.png" alt="The approval card: a status line saying nothing has run yet, a risk badge, the algorithm and its exact inputs, and Run and Reject buttons.">
+  <figcaption>The approval card for a reprojection. The status line says nothing has run yet; the risk badge says what it would do; the body lists the exact inputs.</figcaption>
+</figure>
+
+<ul>
+  <li><b>Status line</b> — confirms that nothing has happened yet.</li>
+  <li><b>Risk badge</b> — computed from the action type, not from anything the model wrote.</li>
+  <li><b>Body</b> — the algorithm id and every bound input. <code>OUTPUT: temporary layer</code> means nothing on disk is touched.</li>
+  <li><b>Run / Apply</b> — the only thing that executes. <b>Reject</b> discards it.</li>
+</ul>
+
+<h3 id="agent-5">5 · Chain the next step</h3>
+
+<div class="step"><div class="num">5</div><div class="body">
+<p>Results arrive as temporary layers, named after what you asked for. Refer to
+that name in your next message. Keep going one step at a time: a message that
+asks for four things fails as a whole, while four messages fail cheaply and
+tell you exactly where.</p>
+</div></div>
+
+<div class="warn">
+  <b>Reproject before you measure</b>
+  Downloaded data usually arrives in Web Mercator, where area is inflated about
+  1.76× at Turkish latitudes — a 324 m² building measures 569 m². Say
+  <i>“reproject to the local metric CRS”</i> first. The plugin refuses to measure
+  otherwise, and that refusal is protecting your numbers.
+</div>
+
+<h2 id="agent-session">A worked session</h2>
+
+<p>Six messages, from an empty project to a classified result. Paste them one at
+a time, changing the names to match your data.</p>
+
+<table>
+  <thead><tr><th>#</th><th>What you type</th><th>What you get</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><code>download the buildings in the map extent</code></td><td>A temporary polygon layer of buildings.</td></tr>
+    <tr><td>2</td><td><code>reproject Buildings to the local metric CRS</code></td><td>The same buildings in a metre-based CRS.</td></tr>
+    <tr><td>3</td><td><code>add a decimal column alan_m2 with the area in square metres</code></td><td>A new field holding real areas.</td></tr>
+    <tr><td>4</td><td><code>what are the minimum and maximum of alan_m2?</code></td><td>An answer, in Ask mode, free of the action budget.</td></tr>
+    <tr><td>5</td><td><code>make a new layer with only the buildings where alan_m2 is 300 or less</code></td><td>A filtered temporary layer.</td></tr>
+    <tr><td>6</td><td><code>classify that layer by alan_m2 with jenks into 5 classes</code></td><td>A style proposal you can preview before applying.</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>Step 4 is the one people skip</b>
+  Asking for the range before you filter is what stops you writing
+  <i>“under 300”</i> against a field whose smallest value is 900. Questions cost
+  nothing.
+</div>
+
+<h2 id="phrasing">Phrasings that work</h2>
+
+<table>
+  <thead><tr><th></th><th>Say this</th><th>Not this</th></tr></thead>
+  <tbody>
+    <tr><td class="yes">Layer</td><td><code>reproject Buildings to…</code> — the exact name in the panel</td><td><code>reproject this layer</code> — after a few runs there are five similar names</td></tr>
+    <tr><td class="yes">Scope</td><td>One operation per message</td><td>“download the roads, buffer them, then clip the parcels”</td></tr>
+    <tr><td class="yes">Numbers</td><td><code>buffer by 250 metres</code></td><td><code>buffer a bit</code></td></tr>
+    <tr><td class="yes">Fields</td><td><code>the field alan_m2</code></td><td><code>the area column</code> when three columns hold areas</td></tr>
+    <tr><td class="yes">Fixes</td><td><code>the field is alan_m2, not alanm2</code></td><td><code>do it properly this time</code></td></tr>
+  </tbody>
+</table>
+
+<h2 id="refusals">When you are refused</h2>
+
+<p>Most refusals name a specific fact and stop a run that would otherwise have
+succeeded and handed you a wrong answer. Correct <i>the fact</i>.</p>
+
+<table>
+  <thead><tr><th>Message</th><th>What it means</th><th>What to do</th></tr></thead>
+  <tbody>
+    <tr><td>A geometry measure was requested on a layer whose CRS does not measure in metres</td><td>You are about to measure area in degrees or in Web Mercator</td><td>Reproject to a local metric CRS first</td></tr>
+    <tr><td>Unavailable algorithm: <code>native:…</code></td><td>The assistant guessed an id this QGIS build does not have</td><td>Nothing — it is told the real candidates and corrects itself</td></tr>
+    <tr><td>A text parameter value is required (parameter FIELD_TYPE)</td><td>A parameter was given the wrong kind of value</td><td>Nothing — the refusal names the parameter and it retries</td></tr>
+    <tr><td>This workflow receipt does not match the current graph</td><td>The graph moved since the plan was written</td><td>Nothing — the graph is re-read automatically</td></tr>
+    <tr><td>Restricted algorithm</td><td>Deliberately outside what an AI-built workflow may place</td><td>Choose another approach; this one will not be unlocked by retrying</td></tr>
+    <tr><td>A <code>&lt;</code> comparison needs a numeric field</td><td>On a text field QGIS compares letter by letter, so '1097' &lt; '400'</td><td>Convert the field, or compare on a numeric one</td></tr>
+  </tbody>
+</table>
+
+<h2 id="studio">Workflow Studio — how it works</h2>
+
+<p>A workflow is a typed graph: nodes are Processing algorithms, wires carry
+data, and the types must match — vector cannot feed a raster input, and the
+Studio will not let you connect them. The graph is inert until you press
+<b>Run</b>.</p>
+
+<h3 id="studio-1">1 · Open the Studio</h3>
+
+<div class="step"><div class="num">1</div><div class="body">
+<p>Click the Workflow Studio toolbar button. You get the canvas in the middle,
+the algorithm library on the left, the node inspector on the right, and the AI
+copilot bar across the top.</p>
+</div></div>
+
+<figure>
+  <img src="images/studio-01-empty.png" alt="Workflow Studio when it opens: empty canvas, algorithm library on the left, node inspector on the right, AI copilot bar at the top.">
+  <figcaption>An empty Studio. The library lists every installed algorithm; the example workflows below it load complete graphs you can take apart.</figcaption>
+</figure>
+
+<h3 id="studio-2">2 · Describe the workflow you want</h3>
+
+<div class="step"><div class="num">2</div><div class="body">
+<p>Two ways in, both ending at an approval card:</p>
+<ul>
+  <li><b>The copilot bar</b> at the top of the Studio — type what you need and
+      press <kbd>Ctrl</kbd>+<kbd>Enter</kbd>.</li>
+  <li><b>Agent Workspace in <i>Current model</i> scope</b> — the assistant edits
+      the open graph and shows you the operations before anything changes.</li>
+</ul>
+<div class="prompt">Calculate slope from the DEM and classify it into planning suitability bands</div>
+</div></div>
+
+<figure>
+  <img src="images/agent-04-workflow-patch.png" alt="Agent Workspace in Current model scope with a workflow patch on the approval card: two nodes to add and one connection.">
+  <figcaption>The same dock, in <b>Current model</b> scope. The card lists the exact graph edits — which nodes are added and how they are connected — before any of it happens.</figcaption>
+</figure>
+
+<h3 id="studio-3">3 · Read the graph you were given</h3>
+
+<div class="step"><div class="num">3</div><div class="body">
+<p>Click <b>Apply</b> and the nodes appear, already laid out left to right in the
+order the data flows. Follow the wires: that is the analysis, and it is now
+yours to change.</p>
+</div></div>
+
+<figure>
+  <img src="images/studio-02-workflow.png" alt="Workflow Studio with a three-node workflow: DEM input feeding Slope, feeding Suitability bands.">
+  <figcaption>A DEM feeding a slope calculation feeding a reclassification. Cards are placed automatically; nodes you have arranged yourself are never moved by a later AI edit.</figcaption>
+</figure>
+
+<h3 id="studio-4">4 · Inspect and configure a node</h3>
+
+<div class="step"><div class="num">4</div><div class="body">
+<p>Select a node to see its parameters and outputs on the right. Press
+<kbd>Enter</kbd> or double-click to open the full parameter form. The outline in
+the inspector is also the screen-reader path through the workflow.</p>
+</div></div>
+
+<figure class="narrow">
+  <img src="images/studio-04-inspector.png" alt="The node inspector showing the selected node's parameters, outputs and the workflow outline.">
+  <figcaption>The node inspector for the selected node.</figcaption>
+</figure>
+
+<h3 id="studio-5">5 · Run setup, validate, run</h3>
+
+<div class="step"><div class="num">5</div><div class="body">
+<ol>
+  <li><b>Run setup</b> — one dialog listing every input the workflow still needs.
+      This is where you choose the actual layers; the AI never binds your data
+      for you.</li>
+  <li><b>Validate</b> — checks types, required inputs and connections before
+      anything executes.</li>
+  <li><b>Run</b> (<kbd>Ctrl</kbd>+<kbd>R</kbd>) — results are added only after
+      the whole workflow succeeds. <kbd>Esc</kbd> cancels.</li>
+</ol>
+</div></div>
+
+<div class="note">
+  <b>Results are temporary</b>
+  Anything worth keeping: right-click the layer → <b>Make permanent</b>. Save
+  the workflow itself with <b>Save</b> — it writes a native QGIS
+  <code>.model3</code> file that opens in the Processing modeler too.
+</div>
+
+<h2 id="studio-manual">Building one by hand</h2>
+
+<p>The AI is optional. Everything it does, you can do directly:</p>
+
+<ol>
+  <li>Search the <b>algorithm library</b> (<kbd>Ctrl</kbd>+<kbd>F</kbd>) and press
+      <kbd>Enter</kbd> to add the highlighted algorithm.</li>
+  <li>Drag from an output port to an input port to connect two nodes, or use
+      <b>Connect nodes</b> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>) if you
+      prefer not to drag.</li>
+  <li><b>Next step</b> buttons above the canvas suggest what usually follows the
+      node you have selected.</li>
+  <li><kbd>F</kbd> fits the graph to the window; <b>Auto layout</b> re-arranges
+      everything.</li>
+</ol>
+
+<figure class="narrow">
+  <img src="images/studio-03-palette.png" alt="The algorithm library panel with its search box, provider groups and the example workflows list.">
+  <figcaption>The algorithm library, with the example workflows underneath.</figcaption>
+</figure>
+
+<h2 id="studio-example">A worked workflow</h2>
+
+<p>Slope suitability, the graph in the screenshots above, from nothing:</p>
+
+<ol>
+  <li>Open Workflow Studio on a project that has a DEM.</li>
+  <li>In the copilot bar: <span class="prompt" style="display:inline-block;margin:0">Calculate slope from the DEM and classify it into planning suitability bands</span></li>
+  <li>Read the card, click <b>Apply</b>. Three nodes appear, connected.</li>
+  <li>Select <b>Suitability bands</b> and open its parameter form. Enter your own
+      class breaks — the AI proposes a structure, you own the thresholds.</li>
+  <li><b>Run setup</b> → choose your DEM for the raster input.</li>
+  <li><b>Validate</b>, then <b>Run</b>.</li>
+  <li><b>Save</b> the workflow. Next month, point it at a different DEM.</li>
+</ol>
+
+<p>To extend it, go back to the dock in <b>Current model</b> scope and ask for
+one more step — <i>“add distance to roads and combine it with the slope
+bands”</i>. Your existing nodes keep their positions; only the new ones are
+placed.</p>
+
+<h2 id="help">Help inside QGIS</h2>
+
+<p>You do not have to come back here. The plugin carries a short guide of its
+own, and both dialogs link to this page.</p>
+
+<figure class="narrow">
+  <img src="images/guide-01-agent-quick-start.png" alt="The in-application Agent Workspace quick start dialog.">
+  <figcaption>Agent Workspace → <b>Quick start</b>: the five rules and a set of prompts to paste.</figcaption>
+</figure>
+
+<h2 id="next">Where to go next</h2>
+
+<ul>
+  <li><a href="SMARTMODELER_REFERENCE_MANUAL.html">The reference manual</a> — every
+      algorithm, every tool, the full agent protocol and the safety model.</li>
+  <li><a href="https://github.com/YusufEminoglu/planx-smartmodeler/issues">Issues</a> —
+      include your QGIS version, the plugin version, the exact steps and the
+      Processing log, with private paths removed.</li>
+</ul>
+
+<p style="margin-top:2.5em;color:var(--faint);font-size:.85em">
+Screenshots on this page are rendered from the shipped interface by
+<code>docs/build_screenshots.py</code>, so they cannot drift away from the
+version they document. Example conversations and workflows are illustrative.
+</p>
+</main>
+
+<script>
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('#toc a'));
+  var targets = links.map(function (a) { return document.querySelector(a.getAttribute('href')); });
+  function sync() {
+    var best = 0;
+    for (var i = 0; i < targets.length; i++) {
+      if (targets[i] && targets[i].getBoundingClientRect().top <= 120) { best = i; }
+    }
+    links.forEach(function (a, i) { a.classList.toggle('active', i === best); });
+  }
+  window.addEventListener('scroll', sync, { passive: true });
+  sync();
+})();
+</script>
+</body>
+</html>

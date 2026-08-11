@@ -15,6 +15,12 @@ REFERENCE_MANUAL_URL = (
     "https://yusufeminoglu.github.io/planx-smartmodeler/"
     "SMARTMODELER_REFERENCE_MANUAL.html"
 )
+# The illustrated walkthrough. Screenshots belong on a web page, not in a
+# plugin zip that every user downloads, so the in-application guides stay short
+# and hand off here for the pictures.
+STEP_BY_STEP_GUIDE_URL = (
+    "https://yusufeminoglu.github.io/planx-smartmodeler/GUIDE.html"
+)
 
 
 class AgentQuickStartDialog(QDialog):
@@ -79,6 +85,18 @@ class AgentQuickStartDialog(QDialog):
             <p>classify that layer by alan_m2 with jenks into 5 classes</p>
             </blockquote>
 
+            <h2>Building a workflow instead of running one step</h2>
+            <p>Set <b>Scope: Current model</b> with Workflow Studio open, and the
+            same dock edits the open graph instead of running anything. Ask for
+            the whole analysis in one sentence - <i>"calculate slope from the DEM
+            and classify it into planning suitability bands"</i> - and the
+            approval card lists the exact nodes and connections it wants to add.
+            Click <b>Apply</b> and they arrive already laid out.</p>
+            <p>Follow-ups work the same way: <i>"now add distance to roads and
+            combine it with the slope bands"</i>. Nodes you positioned yourself
+            keep their places. Set the thresholds yourself - the structure is
+            proposed, the numbers are yours.</p>
+
             <h2>If something is refused</h2>
             <p>Most refusals name a specific fact - a CRS, a field type, a list
             of valid options - and stop a run that would otherwise have
@@ -89,14 +107,21 @@ class AgentQuickStartDialog(QDialog):
             inspection row and paste the exact layer id.</p>
 
             <hr>
-            <p>The full manual has a worked seven-message session, a table of
-            phrasings that work, and every error message with its cause and
-            fix.</p>
+            <p>The illustrated guide walks through both halves of the plugin
+            with screenshots of every step; the reference manual has the full
+            protocol and every error message with its cause and fix.</p>
             """
         )
         layout.addWidget(page, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        guide_button = buttons.addButton(
+            "Open the illustrated guide", QDialogButtonBox.ButtonRole.ActionRole
+        )
+        guide_button.setToolTip(STEP_BY_STEP_GUIDE_URL)
+        guide_button.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(STEP_BY_STEP_GUIDE_URL))
+        )
         manual_button = buttons.addButton(
             "Open the full manual", QDialogButtonBox.ButtonRole.ActionRole
         )
@@ -123,15 +148,51 @@ class HelpDialog(QDialog):
         tabs.addTab(
             self._page(
                 """
-                <h2>Quick start</h2>
+                <h2>Build a workflow, step by step</h2>
                 <ol>
-                  <li>Add an installed algorithm or starter workflow.</li>
-                  <li>Configure a node with Enter or double-click.</li>
-                  <li>Connect ports on the canvas or use <b>Connect nodes</b>.</li>
-                  <li>Review all inputs in <b>Run setup</b>, then Validate.</li>
-                  <li>Run. Results are added only after the full workflow succeeds.</li>
+                  <li><b>Add nodes.</b> Search the algorithm library
+                      (<b>Ctrl+F</b>) and press <b>Enter</b> to add the
+                      highlighted algorithm. Or load one of the example
+                      workflows below the library and take it apart.</li>
+                  <li><b>Connect them.</b> Drag from an output port to an input
+                      port, or use <b>Connect nodes</b> (<b>Ctrl+Shift+C</b>) if
+                      you would rather not drag. Types must match: a vector
+                      output will not attach to a raster input.</li>
+                  <li><b>Configure each node.</b> Select it and press
+                      <b>Enter</b>, or double-click it. The Node Inspector on
+                      the right shows what is still unset.</li>
+                  <li><b>Run setup.</b> One dialog listing every input the
+                      workflow needs. This is where you choose the actual
+                      layers - nothing binds your data for you.</li>
+                  <li><b>Validate</b>, then <b>Run</b> (<b>Ctrl+R</b>). Results
+                      are added only after the whole workflow succeeds;
+                      <b>Esc</b> cancels a run in progress.</li>
+                  <li><b>Save.</b> The workflow is written as a native QGIS
+                      <b>.model3</b> file, so it opens in the Processing
+                      modeler too.</li>
                 </ol>
-                <p>Save valuable temporary results from the QGIS Layers panel.</p>
+
+                <h2>Letting the AI draft it</h2>
+                <ol>
+                  <li>Type what you need in the <b>AI Workflow Copilot</b> bar
+                      at the top - for example <i>"calculate slope from the DEM
+                      and classify it into planning suitability bands"</i> - and
+                      press <b>Ctrl+Enter</b>.</li>
+                  <li>Read the approval card. It lists the exact nodes and
+                      connections it wants to add. Nothing changes until you
+                      click <b>Apply</b>.</li>
+                  <li>The new nodes arrive already laid out in data-flow order.
+                      Nodes you positioned yourself are never moved.</li>
+                  <li>Set the thresholds yourself. The AI proposes a structure;
+                      the numbers in it are yours to own.</li>
+                </ol>
+                <p>Agent Workspace in <b>Current model</b> scope edits this same
+                graph, and is the better place for a follow-up such as
+                <i>"now add distance to roads"</i>.</p>
+
+                <p>Results are temporary layers. Right-click anything worth
+                keeping in the QGIS Layers panel and choose
+                <b>Make permanent</b>.</p>
                 """
             ),
             "Quick start",
@@ -191,6 +252,20 @@ class HelpDialog(QDialog):
         layout.addWidget(tabs, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        guide_button = buttons.addButton(
+            "Open the illustrated guide", QDialogButtonBox.ButtonRole.ActionRole
+        )
+        guide_button.setToolTip(STEP_BY_STEP_GUIDE_URL)
+        guide_button.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(STEP_BY_STEP_GUIDE_URL))
+        )
+        manual_button = buttons.addButton(
+            "Reference manual", QDialogButtonBox.ButtonRole.ActionRole
+        )
+        manual_button.setToolTip(REFERENCE_MANUAL_URL)
+        manual_button.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl(REFERENCE_MANUAL_URL))
+        )
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 

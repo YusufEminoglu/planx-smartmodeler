@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.5.53] - 2026-08-11
+
+### A step-by-step guide, with the interface actually in it
+
+The documentation had a fifteen-chapter reference manual and a one-page quick
+start, and nothing in between: the right size to look something up, and the
+right size for a first click, with nothing for "walk me through it". There were
+also no pictures of the plugin anywhere.
+
+New **[step-by-step guide](https://yusufeminoglu.github.io/planx-smartmodeler/GUIDE.html)**
+covering both halves of the plugin end to end — opening the dock, choosing a
+scope and mode, reading an approval card, chaining a six-message session, then
+the Studio from an empty canvas to a saved `.model3`. It carries a worked
+example for each, a table of phrasings that work against the ones that do not,
+and every common refusal with what it means and what to do.
+
+Every screenshot is rendered from the shipped widgets by
+`docs/build_screenshots.py` — the real Workflow Studio window and the real
+Agent Workspace dock, not mock-ups — so an image cannot quietly drift away from
+the version it documents. Neither the script nor the images ship in the plugin
+zip; the Hub package stays lean and GitHub Pages serves the pictures.
+
+The landing page now offers the guide and the manual side by side instead of
+redirecting straight into chapter one.
+
+### Help where the work is
+
+- **Workflow Studio has a Guide button** (F1). The help dialog was reachable
+  only from the plugin menu, which is not where somebody sits when they are
+  stuck on their first connection.
+- The Studio's **Quick start** is now an actual walkthrough: adding and
+  connecting nodes, what Run setup is for, validating, running, saving — plus
+  how to let the copilot draft the graph and what the approval card shows.
+- The Agent Workspace quick start gained the half it was missing: **Current
+  model** scope, where the same dock builds a workflow instead of running one
+  step.
+- Both dialogs open the illustrated guide directly.
+
 ## [1.5.52] - 2026-08-11
 
 ### An applied workflow arrived as a pile of cards

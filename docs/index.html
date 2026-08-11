@@ -1,1 +1,81 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="refresh" content="0;url=SMARTMODELER_REFERENCE_MANUAL.html"><title>SmartModeler GIS — Reference Manual</title></head><body><p>Redirecting to <a href="SMARTMODELER_REFERENCE_MANUAL.html">SmartModeler GIS — Reference Manual</a>…</p></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartModeler GIS — Documentation</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=Newsreader:opsz,wght@14..64,400;14..64,500;14..64,600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafaf7; --fg: #1e1e1a; --muted: #6b6b5e; --faint: #a3a396;
+  --border: #e2e0d5; --accent: #5c6bc0; --accent-dark: #3f51b5; --accent-subtle: #e8eaf6;
+  --card-bg: #ffffff; --card-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --radius: 10px;
+  --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Newsreader', Georgia, serif;
+  font-size: 15px; line-height: 1.65;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171712; --fg: #e0ded5; --muted: #99998a; --faint: #6b6b5e;
+    --border: #2e2e26; --accent: #7986cb; --accent-dark: #9fa8da; --accent-subtle: #151830;
+    --card-bg: #1e1e18; --card-shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-ui); background: var(--bg); color: var(--fg); letter-spacing: -0.01em; }
+main { max-width: 46em; margin: 0 auto; padding: 5em 1.5em 6em; }
+h1 { font-family: var(--font-heading); font-size: 2.9em; font-weight: 600; color: var(--accent); letter-spacing: -0.03em; line-height: 1.1; }
+.tagline { font-size: 1.12em; color: var(--muted); margin-top: .4em; }
+.cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1em; margin: 2.6em 0 2em; }
+@media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
+.card { display: block; padding: 1.4em 1.5em; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--card-shadow); text-decoration: none; color: inherit; transition: border-color .15s, transform .15s; }
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card h2 { font-family: var(--font-heading); font-size: 1.3em; font-weight: 600; color: var(--accent-dark); margin-bottom: .3em; }
+.card p { font-size: .92em; color: var(--muted); }
+.card .kind { font-size: .7em; text-transform: uppercase; letter-spacing: .09em; color: var(--faint); font-weight: 700; }
+ul { margin: .8em 0 .8em 1.3em; color: var(--muted); font-size: .95em; }
+li { margin: .25em 0; }
+p.lead { margin: 1em 0; }
+footer { margin-top: 3em; padding-top: 1.4em; border-top: 1px solid var(--border); font-size: .85em; color: var(--faint); }
+footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SmartModeler GIS</h1>
+  <p class="tagline">A visual Processing studio for QGIS 3.44+ and QGIS 4, with reviewed AI planning.</p>
+
+  <div class="cards">
+    <a class="card" href="GUIDE.html">
+      <div class="kind">Start here</div>
+      <h2>Step-by-step guide</h2>
+      <p>Getting a real result out of Agent Workspace and Workflow Studio, with
+         screenshots of the interface and prompts you can paste.</p>
+    </a>
+    <a class="card" href="SMARTMODELER_REFERENCE_MANUAL.html">
+      <div class="kind">Look things up</div>
+      <h2>Reference manual</h2>
+      <p>Every algorithm and tool, the agent protocol, the safety model and the
+         complete parameter reference.</p>
+    </a>
+  </div>
+
+  <p class="lead">Two ways to work, for two different questions:</p>
+  <ul>
+    <li><b>Agent Workspace</b> — “do this one thing to my project”. It inspects,
+        proposes, and waits for your approval.</li>
+    <li><b>Workflow Studio</b> — “build me a process I can keep”. A typed graph
+        you can save as a native <code>.model3</code>, edit and re-run.</li>
+  </ul>
+  <p class="lead">Nothing touches your project until you click Apply or Run.
+     Inspections are read-only, proposals are inert, and results arrive as
+     temporary layers.</p>
+
+  <footer>
+    <a href="https://github.com/YusufEminoglu/planx-smartmodeler">Source and issues</a> ·
+    <a href="https://plugins.qgis.org/plugins/planx_smartmodeler/">QGIS Plugin Hub</a>
+  </footer>
+</main>
+</body>
+</html>
