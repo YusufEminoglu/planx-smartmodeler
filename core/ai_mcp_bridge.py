@@ -237,37 +237,12 @@ class AiMcpBridge:
 
     @staticmethod
     def preserve_existing_layout(before: GraphModel, after: GraphModel) -> None:
-        """Keep established node positions and place only newly proposed nodes."""
-        existing_ids = set(before.nodes) & set(after.nodes)
-        for node_id in existing_ids:
-            after.nodes[node_id].x = before.nodes[node_id].x
-            after.nodes[node_id].y = before.nodes[node_id].y
+        """Keep established node positions and place only newly proposed nodes.
 
-        new_ids = set(after.nodes) - set(before.nodes)
-        if not new_ids:
-            return
-        right_edge = max(
-            (node.x for node in before.nodes.values()),
-            default=0.0,
-        )
-        fallback_row = 0
-        for node in after.get_topological_order():
-            if node.node_id not in new_ids:
-                continue
-            parents = [
-                after.nodes[edge.start_node_id]
-                for edge in after.incoming_edges(node.node_id)
-                if edge.start_node_id in after.nodes
-            ]
-            if parents:
-                node.x = max(parent.x for parent in parents) + 300.0
-                node.y = sum(parent.y for parent in parents) / len(parents)
-                right_edge = max(right_edge, node.x)
-            else:
-                node.x = right_edge + 300.0
-                node.y = fallback_row * 180.0
-                right_edge = node.x
-                fallback_row += 1
+        One implementation, in the layout engine: the agent's ``model_patch``
+        apply needs exactly this and the two must not drift apart.
+        """
+        AutoLayoutEngine.place_new_nodes(before, after)
 
     @staticmethod
     def _contract_value(value: Any) -> Any:

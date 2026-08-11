@@ -27,6 +27,10 @@ _ALGORITHMS = {
         "inputs": [("INPUT", SocketType.VECTOR, True), ("DISTANCE", SocketType.NUMBER, False)],
         "outputs": [("OUTPUT", SocketType.VECTOR)],
     },
+    "native:centroid": {
+        "inputs": [("INPUT", SocketType.VECTOR, True)],
+        "outputs": [("OUTPUT", SocketType.VECTOR)],
+    },
 }
 
 
@@ -170,6 +174,52 @@ class ModelApplyCoordinatorTests(unittest.TestCase):
         self.assertEqual(self.adapter.current_graph().name, "Renamed model")
         self.assertTrue(result.applied_action.post_fingerprint)
         self.assertIsNotNone(result.applied_action.model_pre_json)
+
+    def _add_nodes_patch(self, token):
+        body = {
+            "schema_version": 1,
+            "context_token": token,
+            "title": "Build a chain",
+            "summary": "Add three connected nodes.",
+            "operations": [
+                {"op": "add_node", "node_id": "b1", "algorithm_id": "native:buffer",
+                 "title": "Buffer", "parameters": []},
+                {"op": "add_node", "node_id": "c1", "algorithm_id": "native:centroid",
+                 "title": "Centroid", "parameters": []},
+                {"op": "connect", "from_node": "src", "from_output": "OUTPUT",
+                 "to_node": "b1", "to_input": "INPUT"},
+                {"op": "connect", "from_node": "b1", "from_output": "OUTPUT",
+                 "to_node": "c1", "to_input": "INPUT"},
+            ],
+            "warnings": [],
+        }
+        return parse_proposal("model_patch", json.dumps(body))
+
+    def test_applied_nodes_never_land_on_top_of_each_other(self) -> None:
+        # A patch carries structure, not coordinates, so every added node
+        # started at (0, 0) and the cards stacked -- the user had to run Auto
+        # layout by hand before they could read what the AI proposed.
+        proposal = self._add_nodes_patch(self._valid_token())
+        result = self._coordinator().apply(self._pending(proposal))
+        self.assertTrue(result.ok, result.message)
+        nodes = self.adapter.current_graph().nodes
+        self.assertEqual(len(nodes), 3)
+        positions = [(node.x, node.y) for node in nodes.values()]
+        self.assertEqual(len(set(positions)), 3, positions)
+        # A chain reads left to right: source, buffer, centroid.
+        self.assertLess(nodes["src"].x, nodes["b1"].x)
+        self.assertLess(nodes["b1"].x, nodes["c1"].x)
+
+    def test_an_arranged_graph_keeps_its_positions_when_a_node_is_added(self) -> None:
+        self.graph.nodes["src"].x = 500.0
+        self.graph.nodes["src"].y = 250.0
+        self.adapter = FakeModelAdapter(self.graph)
+        proposal = self._add_nodes_patch(self._valid_token())
+        result = self._coordinator().apply(self._pending(proposal))
+        self.assertTrue(result.ok, result.message)
+        nodes = self.adapter.current_graph().nodes
+        self.assertEqual((nodes["src"].x, nodes["src"].y), (500.0, 250.0))
+        self.assertGreater(nodes["b1"].x, 500.0)
 
     def test_apply_stale_token_rejects_and_leaves_graph_unchanged(self) -> None:
         proposal = _rename_patch(self.graph, "not-the-live-token")

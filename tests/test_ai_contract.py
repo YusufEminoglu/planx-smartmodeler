@@ -171,7 +171,10 @@ class AiContractTests(unittest.TestCase):
             (after.nodes["source"].x, after.nodes["source"].y),
             (125.0, 240.0),
         )
-        self.assertEqual((buffer_node.x, buffer_node.y), (425.0, 240.0))
+        # One spacing constant now, shared with the full layout: incremental
+        # placement used its own 300 while the engine laid columns out 330
+        # apart, which is the gap that actually clears a card.
+        self.assertEqual((buffer_node.x, buffer_node.y), (455.0, 240.0))
         summary = AiMcpBridge.describe_graph_changes(before, after)
         self.assertIn("Added: Buffer", summary)
         self.assertIn("Connections: +1", summary)

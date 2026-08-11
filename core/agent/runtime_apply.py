@@ -91,6 +91,19 @@ class ApplyReason:
     UNDO_NOT_ELIGIBLE = "undo_not_eligible"
 
 
+def _arrange_candidate(before: Any, candidate: Any) -> None:
+    """Lay the patched graph out, never failing the apply if it cannot.
+
+    Positions are presentation, not correctness: if the layout engine cannot be
+    imported or throws, the change still applies -- the user just sees the
+    cards where the patch left them and can run Auto layout.
+    """
+    with contextlib.suppress(Exception):
+        from ..auto_layout import AutoLayoutEngine
+
+        AutoLayoutEngine.arrange_patched_graph(before, candidate)
+
+
 def _sanitize(message: Any) -> str:
     text = message if isinstance(message, str) else str(message)
     return text[:_MAX_MESSAGE_CHARS]
@@ -437,6 +450,11 @@ class RuntimeApplyCoordinator:
             max_nodes=MAX_CANDIDATE_NODES,
             max_edges=MAX_CANDIDATE_EDGES,
         )
+        # A patch describes structure, never coordinates, so every node it adds
+        # starts at (0, 0). Without this the cards of a freshly built workflow
+        # land on top of each other and the user has to run Auto layout by hand
+        # before they can read what the AI proposed.
+        _arrange_candidate(graph, candidate)
         candidate_json = export(candidate)
         installed = import_(candidate_json)
         if installed is None:

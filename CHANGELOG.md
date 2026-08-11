@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.5.52] - 2026-08-11
+
+### An applied workflow arrived as a pile of cards
+
+A `model_patch` carries structure, not coordinates, so every node it added
+arrived at (0, 0). A workflow the AI had just built landed as a stack of cards
+on the same spot, and the only way to read it was to run **Auto layout** by
+hand — every time.
+
+The apply path now lays the graph out before it reaches the canvas:
+
+- A graph with nothing arranged yet is laid out **whole**, which is the ideal
+  form for a workflow that was just created. This also repairs a graph an
+  earlier patch left stacked at the origin.
+- A graph the user has already arranged **keeps every position it had**; only
+  the new nodes are placed, beside the parents that feed them. An AI edit never
+  rearranges work the user laid out by hand.
+- Incremental placement and the full layout now share one spacing constant.
+  Placement used its own 300 while the engine laid columns 330 apart, which is
+  the gap that actually clears a card.
+
+Layout is presentation, not correctness: if it cannot run, the change still
+applies and Auto layout is still there.
+
 ## [1.5.51] - 2026-08-11
 
 ### One slip ended the whole run, and the owner retyped the request

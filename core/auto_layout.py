@@ -10,6 +10,56 @@ class AutoLayoutEngine:
     ROW_SPACING = 180.0
 
     @classmethod
+    def arrange_patched_graph(cls, before: GraphModel, after: GraphModel) -> None:
+        """Give a patched graph its coordinates before it reaches the canvas.
+
+        A ``model_patch`` carries structure, not positions, so every node it
+        added arrived at (0, 0) and the cards landed exactly on top of one
+        another -- the user had to run Auto layout by hand after each AI edit.
+
+        A graph with nothing arranged yet is laid out whole: that is the ideal
+        form for a workflow the AI has just created, and it also repairs a
+        graph an earlier patch left stacked at the origin. A graph the user has
+        already arranged keeps every position it had; only the new nodes are
+        placed, beside the parents that feed them.
+        """
+        if not any(node.x or node.y for node in before.nodes.values()):
+            cls.apply_layout(after)
+            return
+        cls.place_new_nodes(before, after)
+
+    @classmethod
+    def place_new_nodes(cls, before: GraphModel, after: GraphModel) -> None:
+        """Keep established node positions and place only newly added nodes."""
+        existing_ids = set(before.nodes) & set(after.nodes)
+        for node_id in existing_ids:
+            after.nodes[node_id].x = before.nodes[node_id].x
+            after.nodes[node_id].y = before.nodes[node_id].y
+
+        new_ids = set(after.nodes) - set(before.nodes)
+        if not new_ids:
+            return
+        right_edge = max((node.x for node in before.nodes.values()), default=0.0)
+        fallback_row = 0
+        for node in after.get_topological_order():
+            if node.node_id not in new_ids:
+                continue
+            parents = [
+                after.nodes[edge.start_node_id]
+                for edge in after.incoming_edges(node.node_id)
+                if edge.start_node_id in after.nodes
+            ]
+            if parents:
+                node.x = max(parent.x for parent in parents) + cls.COLUMN_SPACING
+                node.y = sum(parent.y for parent in parents) / len(parents)
+                right_edge = max(right_edge, node.x)
+            else:
+                node.x = right_edge + cls.COLUMN_SPACING
+                node.y = fallback_row * cls.ROW_SPACING
+                right_edge = node.x
+                fallback_row += 1
+
+    @classmethod
     def apply_layout(cls, graph: GraphModel, start_x: float = 0.0, start_y: float = 0.0) -> None:
         """Assigns (x, y) coordinates to all nodes in the graph based on topological ranks."""
         if not graph.nodes:
